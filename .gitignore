@@ -1,0 +1,33 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Editors
+.vscode/
+.idea/
+.vs/
+.history/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env (safety net; client/ and server/ also have their own rules)
+.env
+.env.local
+.env.*.local
+
+# Build/cache (safety net; client/ and server/ also have their own rules)
+dist/
+build/
+coverage/
+.cache/
+*.tsbuildinfo
