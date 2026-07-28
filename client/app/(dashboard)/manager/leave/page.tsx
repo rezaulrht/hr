@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { leave } from "@/components/dashboard/shared-pages"
+import { LeavePage } from "@/components/leave/leave-page"
 
-export default function LeavePage() {
-  return <SubpagePage data={leave} />
+export default function Page() {
+  return <LeavePage />
 }
