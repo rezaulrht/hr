@@ -39,6 +39,13 @@ async function issueRefreshToken(userId: string): Promise<string> {
   return raw
 }
 
+export async function revokeAllUserTokens(userId: string): Promise<void> {
+  await prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
 async function issueSession(user: UserRow, employeeCode?: string): Promise<SessionResult> {
   const accessToken = signAccessToken({
     sub: user.id,
@@ -105,6 +112,9 @@ export async function refresh(rawRefreshToken: string): Promise<SessionResult> {
   if (stored.expiresAt.getTime() < Date.now()) {
     throw new AppError(401, "Refresh token has expired")
   }
+  if (!stored.user.isActive) {
+    throw new AppError(403, "This account has been deactivated")
+  }
 
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } })
 
@@ -167,6 +177,7 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
     data: { passwordHash, mustChangePassword: false },
   })
   await prisma.passwordResetToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } })
+  await revokeAllUserTokens(stored.userId)
 }
 
 export async function changePassword(
@@ -187,6 +198,7 @@ export async function changePassword(
     where: { id: userId },
     data: { passwordHash, mustChangePassword: false },
   })
+  await revokeAllUserTokens(userId)
   const accessToken = signAccessToken({
     sub: updated.id,
     role: updated.role,

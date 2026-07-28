@@ -4,7 +4,7 @@ vi.mock("../../config/prisma", () => ({
   default: {
     user: { findUnique: vi.fn(), update: vi.fn() },
     employee: { findUnique: vi.fn() },
-    refreshToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    refreshToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     passwordResetToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   },
 }))
@@ -20,6 +20,7 @@ const mockedPrisma = prisma as unknown as {
     create: ReturnType<typeof vi.fn>
     findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
   }
   passwordResetToken: {
     create: ReturnType<typeof vi.fn>
@@ -222,6 +223,18 @@ describe("refresh", () => {
     })
     await expect(refresh("expired-token")).rejects.toMatchObject({ statusCode: 401 })
   })
+
+  it("throws AppError 403 when the user has been deactivated since the token was issued", async () => {
+    mockedPrisma.refreshToken.findUnique.mockResolvedValue({
+      id: "rt1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      revokedAt: null,
+      user: { id: "u1", email: "admin@demo.com", role: "SUPER_ADMIN", isActive: false, mustChangePassword: false },
+    })
+    await expect(refresh("some-raw-token")).rejects.toMatchObject({ statusCode: 403 })
+    expect(mockedPrisma.refreshToken.update).not.toHaveBeenCalled()
+  })
 })
 
 describe("logout", () => {
@@ -275,6 +288,7 @@ describe("resetPassword", () => {
     })
     mockedPrisma.user.update.mockResolvedValue({})
     mockedPrisma.passwordResetToken.update.mockResolvedValue({})
+    mockedPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 })
 
     await resetPassword("raw-reset-token", "newlongpassword")
 
@@ -285,6 +299,10 @@ describe("resetPassword", () => {
     expect(mockedPrisma.passwordResetToken.update).toHaveBeenCalledWith({
       where: { id: "prt1" },
       data: { usedAt: expect.any(Date) },
+    })
+    expect(mockedPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+      where: { userId: "u1", revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
     })
   })
 
@@ -332,11 +350,16 @@ describe("changePassword", () => {
       isActive: true,
       mustChangePassword: false,
     })
+    mockedPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 })
 
     const result = await changePassword("u1", "old-password", "brand-new-password")
 
     expect(result.accessToken).toBeTruthy()
     expect(result.user.mustChangePassword).toBe(false)
+    expect(mockedPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+      where: { userId: "u1", revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
   })
 
   it("throws AppError 401 for an incorrect current password", async () => {
