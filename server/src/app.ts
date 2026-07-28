@@ -1,0 +1,38 @@
+import cookieParser from "cookie-parser"
+import cors from "cors"
+import express from "express"
+import helmet from "helmet"
+import morgan from "morgan"
+
+import { env } from "./config/env"
+import { errorHandler } from "./middleware/errorHandler"
+import authRoutes from "./modules/auth/auth.routes"
+import userRoutes from "./modules/auth/user.routes"
+import departmentRoutes from "./modules/department/department.routes"
+import employeeRoutes from "./modules/employee/employee.routes"
+
+const app = express()
+
+app.use(helmet())
+app.use(
+  cors({
+    origin: env.CLIENT_ORIGIN,
+    credentials: true,
+  })
+)
+app.use(cookieParser())
+app.use(express.json())
+app.use(morgan("dev"))
+
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" })
+})
+
+app.use("/api/auth", authRoutes)
+app.use("/api/users", userRoutes)
+app.use("/api/employees", employeeRoutes)
+app.use("/api/departments", departmentRoutes)
+
+app.use(errorHandler)
+
+export default app

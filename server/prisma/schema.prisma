@@ -1,13 +1,287 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ── AUTH & USERS ──────────────────────────────
+model User {
+  id                  String                @id @default(uuid())
+  email               String                @unique
+  passwordHash        String
+  role                Role
+  isActive            Boolean               @default(true)
+  mustChangePassword  Boolean               @default(false)
+  employee            Employee?
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+}
+
+enum Role {
+  SUPER_ADMIN
+  HR_ADMIN
+  FINANCE_OFFICER
+  REPORTING_MANAGER
+  EMPLOYEE
+}
+
+// Additive beyond spec §5 — see "Deviations" section, item 1.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// Additive beyond spec §5 — see "Deviations" section, item 2.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// Additive beyond spec §5 — see "Deviations" section, item 5.
+// Generates sequential BS-EMP-XXXXX / BS-MNG-XXXXX employee codes.
+model IdCounter {
+  id    String @id // "EMP" | "MNG"
+  value Int    @default(0)
+}
+
+// ── EMPLOYEE ──────────────────────────────────
+model Employee {
+  id                 String            @id @default(uuid())
+  userId             String            @unique
+  user               User              @relation(fields: [userId], references: [id])
+  employeeCode       String            @unique
+  fullName           String
+  profilePicture     String?
+  dateOfBirth        DateTime?
+  gender             String?
+  nationalId         String?
+  bloodGroup         String?
+  maritalStatus      String?
+  phone              String?
+  presentAddress     String?
+  permanentAddress   String?
+  emergencyContact   String?
+  designation        String
+  departmentId       String
+  department         Department        @relation(fields: [departmentId], references: [id])
+  reportingManagerId String?
+  reportingManager   Employee?         @relation("ManagerRelation", fields: [reportingManagerId], references: [id])
+  subordinates       Employee[]        @relation("ManagerRelation")
+  employmentType     EmploymentType
+  employmentStatus   EmploymentStatus  @default(ACTIVE)
+  joiningDate        DateTime
+  officeLocation     String?
+  shiftId            String?
+  bankAccountNumber  String?
+  bankName           String?
+  salaryStructureId  String?
+  salaryStructure    SalaryStructure?  @relation(fields: [salaryStructureId], references: [id])
+  documents          Document[]
+  attendances        Attendance[]
+  leaveRequests      LeaveRequest[]
+  leaveBalances      LeaveBalance[]
+  expenseClaims      ExpenseClaim[]
+  payslips           Payslip[]
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+  TERMINATED
+}
+
+model Department {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  employees Employee[]
+}
+
+model Document {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  type       String
+  fileUrl    String
+  uploadedAt DateTime @default(now())
+}
+
+// ── LEAVE ─────────────────────────────────────
+model LeaveType {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  isPaid          Boolean          @default(true)
+  annualQuota     Int
+  carryForwardPct Int              @default(0)
+  maxConsecutive  Int?
+  eligibleFor     EmploymentType[]
+  leaveRequests   LeaveRequest[]
+  leaveBalances   LeaveBalance[]
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  year        Int
+  accrued     Float     @default(0)
+  used        Float     @default(0)
+  balance     Float     @default(0)
+}
+
+model LeaveRequest {
+  id          String      @id @default(uuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      LeaveStatus @default(PENDING)
+  approvedBy  String?
+  createdAt   DateTime    @default(now())
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Holiday {
+  id   String   @id @default(uuid())
+  name String
+  date DateTime
+}
+
+// ── ATTENDANCE ────────────────────────────────
+model Attendance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  date        DateTime
+  checkIn     DateTime?
+  checkOut    DateTime?
+  workedHours Float?
+  isLate      Boolean   @default(false)
+}
+
+// ── PAYROLL ───────────────────────────────────
+model SalaryStructure {
+  id         String     @id @default(uuid())
+  name       String
+  basic      Float
+  allowances Json
+  deductions Json
+  employees  Employee[]
+}
+
+model PayrollRun {
+  id          String        @id @default(uuid())
+  month       Int
+  year        Int
+  status      PayrollStatus @default(DRAFT)
+  processedBy String?
+  processedAt DateTime?
+  payslips    Payslip[]
+}
+
+enum PayrollStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  DISBURSED
+}
+
+model Payslip {
+  id              String     @id @default(uuid())
+  payrollRunId    String
+  payrollRun      PayrollRun @relation(fields: [payrollRunId], references: [id])
+  employeeId      String
+  employee        Employee   @relation(fields: [employeeId], references: [id])
+  grossPay        Float
+  totalDeductions Float
+  netPay          Float
+  breakdown       Json
+  pdfUrl          String?
+  emailedAt       DateTime?
+}
+
+model ExpenseClaim {
+  id          String        @id @default(uuid())
+  employeeId  String
+  employee    Employee      @relation(fields: [employeeId], references: [id])
+  amount      Float
+  category    String
+  description String?
+  receiptUrl  String?
+  status      ExpenseStatus @default(PENDING)
+  reviewedBy  String?
+  createdAt   DateTime      @default(now())
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
+
+model Settlement {
+  id                    String   @id @default(uuid())
+  employeeId            String
+  pendingSalary         Float
+  leaveEncashment       Float    @default(0)
+  outstandingDeductions Float    @default(0)
+  finalAmount           Float
+  generatedAt           DateTime @default(now())
+}
+
+// ── REPORTING & COMMUNICATION ─────────────────
+model Report {
+  id          String   @id @default(uuid())
+  employeeId  String
+  managerId   String
+  content     String
+  period      String
+  submittedAt DateTime @default(now())
+}
+
+model Announcement {
+  id          String   @id @default(uuid())
+  title       String
+  body        String
+  publishedBy String
+  audience    String
+  createdAt   DateTime @default(now())
 }
