@@ -24,7 +24,9 @@ export function StaffLoginForm() {
     setError(null)
     setSubmitting(true)
     try {
-      const { accessToken, user } = await loginStaff(employeeId, password)
+      // Trim as well as uppercase: employee codes are handed out by email and
+      // arrive pasted with stray whitespace, which the server matches exactly.
+      const { accessToken, user } = await loginStaff(employeeId.trim(), password)
       setSession(accessToken, user)
       router.push(user.mustChangePassword ? "/change-password" : ROLE_ROUTES[user.role])
     } catch (err) {
@@ -45,7 +47,13 @@ export function StaffLoginForm() {
           type="text"
           placeholder="BS-EMP-00001"
           value={employeeId}
-          onChange={(e) => setEmployeeId(e.target.value)}
+          // The field is styled `uppercase`, but text-transform only changes
+          // what is painted — without this the value sent stays as typed and a
+          // lowercase code fails an exact-match lookup while looking correct.
+          onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           required
           className="h-auto w-full rounded border-[#D8DCE1] bg-white px-3.5 py-2.75 text-[13.5px] uppercase focus-visible:border-[#17191C] focus-visible:ring-0"
         />
