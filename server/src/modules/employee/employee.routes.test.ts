@@ -3,6 +3,7 @@ import request from "supertest"
 
 vi.mock("./employee.service", () => ({
   createStaffAccount: vi.fn(),
+  listEmployees: vi.fn(),
 }))
 
 import app from "../../app"
@@ -59,5 +60,37 @@ describe("POST /api/employees/staff", () => {
       .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
       .send({ fullName: "No other fields" })
     expect(res.status).toBe(400)
+  })
+})
+
+describe("GET /api/employees", () => {
+  it("returns 401 with no Authorization header", async () => {
+    const res = await request(app).get("/api/employees")
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 403 for a non-HR/Admin caller", async () => {
+    const res = await request(app).get("/api/employees").set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 200 with the employee list for an HR Admin caller", async () => {
+    vi.mocked(employeeService.listEmployees).mockResolvedValue([
+      {
+        id: "e1",
+        employeeCode: "BS-EMP-00001",
+        fullName: "New Hire",
+        email: "new@b.com",
+        designation: "Analyst",
+        department: { id: "dept-1", name: "Engineering" },
+        employmentType: "FULL_TIME",
+        employmentStatus: "ACTIVE",
+        joiningDate: "2026-07-27T00:00:00.000Z",
+      },
+    ])
+    const res = await request(app).get("/api/employees").set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].employeeCode).toBe("BS-EMP-00001")
   })
 })

@@ -15,3 +15,15 @@ export interface CreateStaffAccountResult {
   fullName: string
   email: string
 }
+
+export interface EmployeeListItem {
+  id: string
+  employeeCode: string
+  fullName: string
+  email: string
+  designation: string
+  department: { id: string; name: string }
+  employmentType: CreateStaffAccountInput["employmentType"]
+  employmentStatus: "ACTIVE" | "ON_LEAVE" | "RESIGNED" | "TERMINATED"
+  joiningDate: string
+}

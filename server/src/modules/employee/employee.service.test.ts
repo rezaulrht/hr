@@ -9,6 +9,7 @@ const txMock = {
 vi.mock("../../config/prisma", () => ({
   default: {
     $transaction: vi.fn((fn: any) => fn(txMock)),
+    employee: { findMany: vi.fn() },
   },
 }))
 
@@ -16,7 +17,8 @@ vi.mock("../auth/mailer", () => ({
   sendStaffCredentialsEmail: vi.fn(() => Promise.resolve()),
 }))
 
-import { createStaffAccount } from "./employee.service"
+import prisma from "../../config/prisma"
+import { createStaffAccount, listEmployees } from "./employee.service"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
 
 beforeEach(() => {
@@ -81,5 +83,71 @@ describe("createStaffAccount", () => {
     })
 
     expect(result.employeeCode).toBe("BS-EMP-00042")
+  })
+})
+
+describe("listEmployees", () => {
+  it("returns employees mapped to the list shape, ordered by fullName", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      {
+        id: "e1",
+        employeeCode: "BS-EMP-00002",
+        fullName: "Bea Smith",
+        designation: "Analyst",
+        employmentType: "FULL_TIME",
+        employmentStatus: "ACTIVE",
+        joiningDate: new Date("2026-01-15T00:00:00.000Z"),
+        department: { id: "d1", name: "Engineering" },
+        user: { email: "bea@b.com" },
+      },
+      {
+        id: "e2",
+        employeeCode: "BS-EMP-00001",
+        fullName: "Alice Doe",
+        designation: "Lead",
+        employmentType: "CONTRACT",
+        employmentStatus: "ON_LEAVE",
+        joiningDate: new Date("2025-11-01T00:00:00.000Z"),
+        department: { id: "d2", name: "Sales" },
+        user: { email: "alice@b.com" },
+      },
+    ] as any)
+
+    const result = await listEmployees()
+
+    expect(prisma.employee.findMany).toHaveBeenCalledWith({
+      include: { department: true, user: true },
+      orderBy: { fullName: "asc" },
+    })
+    expect(result).toEqual([
+      {
+        id: "e1",
+        employeeCode: "BS-EMP-00002",
+        fullName: "Bea Smith",
+        email: "bea@b.com",
+        designation: "Analyst",
+        department: { id: "d1", name: "Engineering" },
+        employmentType: "FULL_TIME",
+        employmentStatus: "ACTIVE",
+        joiningDate: "2026-01-15T00:00:00.000Z",
+      },
+      {
+        id: "e2",
+        employeeCode: "BS-EMP-00001",
+        fullName: "Alice Doe",
+        email: "alice@b.com",
+        designation: "Lead",
+        department: { id: "d2", name: "Sales" },
+        employmentType: "CONTRACT",
+        employmentStatus: "ON_LEAVE",
+        joiningDate: "2025-11-01T00:00:00.000Z",
+      },
+    ])
+  })
+
+  it("returns an empty array when there are no employees", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([])
+    const result = await listEmployees()
+    expect(result).toEqual([])
   })
 })

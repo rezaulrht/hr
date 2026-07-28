@@ -1,7 +1,7 @@
 import prisma from "../../config/prisma"
 import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
-import type { CreateStaffAccountInput, CreateStaffAccountResult } from "./employee.types"
+import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
 
 const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
   EMPLOYEE: "EMP",
@@ -56,4 +56,22 @@ export async function createStaffAccount(input: CreateStaffAccountInput): Promis
     fullName: input.fullName,
     email: input.email,
   }
+}
+
+export async function listEmployees(): Promise<EmployeeListItem[]> {
+  const employees = await prisma.employee.findMany({
+    include: { department: true, user: true },
+    orderBy: { fullName: "asc" },
+  })
+  return employees.map((e) => ({
+    id: e.id,
+    employeeCode: e.employeeCode,
+    fullName: e.fullName,
+    email: e.user.email,
+    designation: e.designation,
+    department: { id: e.department.id, name: e.department.name },
+    employmentType: e.employmentType,
+    employmentStatus: e.employmentStatus,
+    joiningDate: e.joiningDate.toISOString(),
+  }))
 }
