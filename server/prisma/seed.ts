@@ -17,6 +17,56 @@ async function seedAdminUser(email: string, role: Role) {
   })
 }
 
+/**
+ * Demo staff account with an Employee profile. Unlike the administrative
+ * logins, these roles hold leave of their own, so leave can't be exercised
+ * without them.
+ *
+ * Codes use a `D`-prefixed sequence (`BS-EMP-D0001`) that the IdCounter — which
+ * only ever emits zero-padded digits — cannot collide with, so seeding stays
+ * idempotent and never steals a code from a real hire.
+ */
+async function seedStaffAccount(input: {
+  email: string
+  role: Extract<Role, "EMPLOYEE" | "REPORTING_MANAGER">
+  employeeCode: string
+  fullName: string
+  designation: string
+  departmentName: string
+  reportingManagerId?: string
+}) {
+  const passwordHash = await hashPassword(SEED_PASSWORD)
+  const user = await prisma.user.upsert({
+    where: { email: input.email },
+    update: {},
+    create: { email: input.email, passwordHash, role: input.role, mustChangePassword: false },
+  })
+
+  const department = await prisma.department.findUniqueOrThrow({
+    where: { name: input.departmentName },
+  })
+
+  const employee = await prisma.employee.upsert({
+    where: { userId: user.id },
+    // Keep the reporting line current — that link is what the manager's team
+    // board reads, and it is the one field likely to change between seeds.
+    update: { reportingManagerId: input.reportingManagerId ?? null },
+    create: {
+      userId: user.id,
+      employeeCode: input.employeeCode,
+      fullName: input.fullName,
+      designation: input.designation,
+      departmentId: department.id,
+      employmentType: "FULL_TIME",
+      // A prior-year joining date means a full, un-pro-rated entitlement.
+      joiningDate: new Date(Date.UTC(new Date().getUTCFullYear() - 1, 0, 6)),
+      reportingManagerId: input.reportingManagerId,
+    },
+  })
+
+  return employee
+}
+
 async function main() {
   await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
@@ -55,11 +105,33 @@ async function main() {
     })
   }
 
-  console.log("Seed complete. Administrative logins (all password: Demo@12345):")
-  console.log("  Super Admin:     admin@demo.com")
-  console.log("  HR Admin:        hr@demo.com")
-  console.log("  Finance Officer: finance@demo.com")
-  console.log("Staff accounts are created via POST /api/employees/staff, not seeded.")
+  // The manager must exist first — the employee's reporting line points at it.
+  const manager = await seedStaffAccount({
+    email: "manager@demo.com",
+    role: Role.REPORTING_MANAGER,
+    employeeCode: "BS-MNG-D0001",
+    fullName: "Daniel Kim",
+    designation: "Engineering Manager",
+    departmentName: "Engineering",
+  })
+
+  await seedStaffAccount({
+    email: "employee@demo.com",
+    role: Role.EMPLOYEE,
+    employeeCode: "BS-EMP-D0001",
+    fullName: "Ayesha Rahman",
+    designation: "Software Engineer",
+    departmentName: "Engineering",
+    reportingManagerId: manager.id,
+  })
+
+  console.log("Seed complete. Demo logins (all password: Demo@12345):")
+  console.log("  Super Admin:       admin@demo.com")
+  console.log("  HR Admin:          hr@demo.com")
+  console.log("  Finance Officer:   finance@demo.com")
+  console.log("  Reporting Manager: manager@demo.com   (BS-MNG-D0001, Daniel Kim)")
+  console.log("  Employee:          employee@demo.com  (BS-EMP-D0001, Ayesha Rahman, reports to Daniel Kim)")
+  console.log("Additional staff accounts are created via POST /api/employees/staff.")
 }
 
 main()
