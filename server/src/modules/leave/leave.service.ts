@@ -1,7 +1,8 @@
 import prisma from "../../config/prisma"
 import type { Employee } from "../../generated/prisma/client"
+import { AppError } from "../../middleware/errorHandler"
 import { countLeaveDays } from "./leave.dates"
-import type { LeaveBalanceItem } from "./leave.types"
+import type { LeaveBalanceItem, LeaveTypeItem } from "./leave.types"
 
 /**
  * Annual entitlement, pro-rated across the joining year. A November hire
@@ -67,4 +68,32 @@ export async function getBalancesForEmployee(
         balance: entitlement - used - pending,
       }
     })
+}
+
+export async function listLeaveTypes(): Promise<LeaveTypeItem[]> {
+  const types = await prisma.leaveType.findMany({ orderBy: { name: "asc" } })
+  return types.map((t) => ({
+    id: t.id,
+    name: t.name,
+    isPaid: t.isPaid,
+    annualQuota: t.annualQuota,
+    carryForwardPct: t.carryForwardPct,
+    maxConsecutive: t.maxConsecutive,
+    allowsBackdating: t.allowsBackdating,
+    eligibleFor: t.eligibleFor,
+  }))
+}
+
+/** Resolves the caller's Employee row, or explains why they don't have one. */
+export async function requireEmployeeForUser(userId: string) {
+  const employee = await prisma.employee.findUnique({ where: { userId } })
+  if (!employee) {
+    throw new AppError(403, "This account has no employee profile, so it cannot hold leave")
+  }
+  return employee
+}
+
+export async function getMyBalances(userId: string): Promise<LeaveBalanceItem[]> {
+  const employee = await requireEmployeeForUser(userId)
+  return getBalancesForEmployee(employee, new Date().getUTCFullYear())
 }
