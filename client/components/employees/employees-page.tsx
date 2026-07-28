@@ -73,7 +73,7 @@ export function EmployeesPage() {
           <MiniStat key={stat.label} label={stat.label} value={stat.value} sub={stat.sub} />
         ))}
       </div>
-      {employeesQuery.isLoading ? (
+      {sessionStatus === "loading" || employeesQuery.isPending ? (
         <div className="space-y-2 rounded-md border border-[#E4E9EF] bg-white p-5.5">
           <Skeleton className="h-6 w-full" />
           <Skeleton className="h-6 w-full" />
