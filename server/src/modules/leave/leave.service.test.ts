@@ -19,11 +19,15 @@ import prisma from "../../config/prisma"
 import { parseDateOnly } from "./leave.dates"
 import {
   applyForLeave,
+  approveLeaveRequest,
+  cancelLeaveRequest,
   computeEntitlement,
   getBalancesForEmployee,
   getTeamStatus,
   isUnpaidType,
   listLeaveRequests,
+  rejectLeaveRequest,
+  revertLeaveRequest,
 } from "./leave.service"
 
 beforeEach(() => {
@@ -435,5 +439,163 @@ describe("applyForLeave validation", () => {
         endDate: futureDate(9),
       })
     ).resolves.toBeDefined()
+  })
+})
+
+describe("leave decisions", () => {
+  const annual = {
+    id: "lt-1",
+    name: "Annual",
+    isPaid: true,
+    annualQuota: 18,
+    eligibleFor: ["FULL_TIME"],
+  }
+  const employee = {
+    id: "emp-1",
+    employmentType: "FULL_TIME",
+    joiningDate: parseDateOnly("2020-01-01"),
+  }
+
+  function futureDate(offsetDays: number) {
+    return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+  }
+
+  function pendingRequest(over: Record<string, unknown> = {}) {
+    return {
+      id: "req-1",
+      employeeId: "emp-1",
+      leaveTypeId: "lt-1",
+      status: "PENDING",
+      startDate: parseDateOnly(futureDate(10)),
+      endDate: parseDateOnly(futureDate(12)),
+      reason: null,
+      approvedBy: null,
+      decidedAt: null,
+      decisionNote: null,
+      createdAt: new Date(),
+      employee,
+      leaveType: annual,
+      ...over,
+    }
+  }
+
+  beforeEach(() => {
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([annual] as any)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.leaveRequest.update).mockResolvedValue({ id: "req-1" } as any)
+    vi.mocked(prisma.user.findMany).mockResolvedValue([])
+  })
+
+  it("404s when the request does not exist", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(null)
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it("409s when approving something that is not pending", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({ status: "APPROVED" }) as any
+    )
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("approves a pending request and stamps the decision", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    await approveLeaveRequest("req-1", "hr-1")
+    expect(prisma.leaveRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "req-1" },
+        data: expect.objectContaining({ status: "APPROVED", approvedBy: "hr-1" }),
+      })
+    )
+  })
+
+  it("409s at approval when the balance has since been consumed", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    // 22 charged days already approved this year -> nothing left of an 18-day quota
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly("2026-03-02"),
+        endDate: parseDateOnly("2026-03-27"),
+      },
+    ] as any)
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("409s at approval when another approved request now overlaps", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({ id: "other" } as any)
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("requires a note to reject and records it", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    await rejectLeaveRequest("req-1", "hr-1", "Team is short-staffed that week")
+    expect(prisma.leaveRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "REJECTED",
+          decisionNote: "Team is short-staffed that week",
+        }),
+      })
+    )
+  })
+
+  it("lets the requester cancel their own pending request", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    await cancelLeaveRequest("req-1", "user-1")
+    expect(prisma.leaveRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CANCELLED" }) })
+    )
+  })
+
+  it("403s when cancelling someone else's request", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({ employeeId: "emp-2" }) as any
+    )
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    await expect(cancelLeaveRequest("req-1", "user-1")).rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it("lets the requester cancel approved leave that has not started", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({ status: "APPROVED" }) as any
+    )
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    await expect(cancelLeaveRequest("req-1", "user-1")).resolves.toBeDefined()
+  })
+
+  it("409s when cancelling leave that has already started", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({
+        status: "APPROVED",
+        startDate: parseDateOnly(futureDate(-2)),
+        endDate: parseDateOnly(futureDate(2)),
+      }) as any
+    )
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    await expect(cancelLeaveRequest("req-1", "user-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("lets HR revert a future-dated approval", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({ status: "APPROVED" }) as any
+    )
+    await revertLeaveRequest("req-1", "hr-1", "Approved by mistake")
+    expect(prisma.leaveRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "CANCELLED", decisionNote: "Approved by mistake" }),
+      })
+    )
+  })
+
+  it("409s when reverting a request that is not approved", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    await expect(revertLeaveRequest("req-1", "hr-1", "nope")).rejects.toMatchObject({
+      statusCode: 409,
+    })
   })
 })

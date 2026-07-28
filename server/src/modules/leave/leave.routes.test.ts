@@ -7,6 +7,10 @@ vi.mock("./leave.service", () => ({
   listLeaveRequests: vi.fn(),
   getTeamStatus: vi.fn(),
   applyForLeave: vi.fn(),
+  approveLeaveRequest: vi.fn(),
+  rejectLeaveRequest: vi.fn(),
+  cancelLeaveRequest: vi.fn(),
+  revertLeaveRequest: vi.fn(),
 }))
 
 import app from "../../app"
@@ -160,5 +164,60 @@ describe("POST /api/leave/requests", () => {
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
       .send(body)
     expect(res.status).toBe(201)
+  })
+})
+
+describe("leave decision routes", () => {
+  it("403s when an employee tries to approve", async () => {
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/approve")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("403s when finance tries to approve — read-only per the matrix", async () => {
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/approve")
+      .set("Authorization", `Bearer ${tokenFor("FINANCE_OFFICER")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("403s when a reporting manager tries to approve", async () => {
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/approve")
+      .set("Authorization", `Bearer ${tokenFor("REPORTING_MANAGER")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("200s when HR approves", async () => {
+    vi.mocked(leaveService.approveLeaveRequest).mockResolvedValue({ id: "req-1" } as any)
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/approve")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(200)
+  })
+
+  it("400s when rejecting without a note", async () => {
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/reject")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({})
+    expect(res.status).toBe(400)
+  })
+
+  it("200s when rejecting with a note", async () => {
+    vi.mocked(leaveService.rejectLeaveRequest).mockResolvedValue({ id: "req-1" } as any)
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/reject")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ note: "Short-staffed" })
+    expect(res.status).toBe(200)
+  })
+
+  it("403s when HR tries to cancel (cancel is the requester's action)", async () => {
+    const res = await request(app)
+      .patch("/api/leave/requests/req-1/cancel")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(403)
   })
 })

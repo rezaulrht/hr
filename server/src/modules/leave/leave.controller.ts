@@ -2,12 +2,16 @@ import type { NextFunction, Request, Response } from "express"
 
 import {
   applyForLeave,
+  approveLeaveRequest,
+  cancelLeaveRequest,
   getMyBalances,
   getTeamStatus,
   listLeaveRequests,
   listLeaveTypes,
+  rejectLeaveRequest,
+  revertLeaveRequest,
 } from "./leave.service"
-import { applyLeaveSchema } from "./leave.validators"
+import { applyLeaveSchema, decisionNoteSchema } from "./leave.validators"
 
 export async function listLeaveTypesHandler(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -48,6 +52,69 @@ export async function applyForLeaveHandler(req: Request, res: Response, next: Ne
   }
   try {
     return res.status(201).json(await applyForLeave(req.user!.sub, parsed.data))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+/** `:id` is a plain named param, so it is always a single string, never a splat array. */
+type RequestWithId = Request<{ id: string }>
+
+export async function approveLeaveRequestHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await approveLeaveRequest(req.params.id, req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function rejectLeaveRequestHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = decisionNoteSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A reason is required to reject a request" })
+  }
+  try {
+    return res
+      .status(200)
+      .json(await rejectLeaveRequest(req.params.id, req.user!.sub, parsed.data.note))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function cancelLeaveRequestHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await cancelLeaveRequest(req.params.id, req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function revertLeaveRequestHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = decisionNoteSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A reason is required to revert an approval" })
+  }
+  try {
+    return res
+      .status(200)
+      .json(await revertLeaveRequest(req.params.id, req.user!.sub, parsed.data.note))
   } catch (err) {
     return next(err)
   }
