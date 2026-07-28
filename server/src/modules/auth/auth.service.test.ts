@@ -351,15 +351,20 @@ describe("changePassword", () => {
       mustChangePassword: false,
     })
     mockedPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 })
+    mockedPrisma.refreshToken.create.mockResolvedValue({})
 
     const result = await changePassword("u1", "old-password", "brand-new-password")
 
     expect(result.accessToken).toBeTruthy()
+    expect(result.refreshToken).toBeTruthy()
     expect(result.user.mustChangePassword).toBe(false)
     expect(mockedPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
       where: { userId: "u1", revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     })
+    expect(mockedPrisma.refreshToken.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ userId: "u1" }) })
+    )
   })
 
   it("throws AppError 401 for an incorrect current password", async () => {

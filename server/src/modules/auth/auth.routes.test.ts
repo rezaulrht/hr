@@ -122,9 +122,10 @@ describe("POST /api/auth/change-password", () => {
     expect(res.status).toBe(401)
   })
 
-  it("returns 200 with a valid token and body", async () => {
+  it("returns 200 with a valid token and body, and sets a new refreshToken cookie", async () => {
     vi.mocked(authService.changePassword).mockResolvedValue({
       accessToken: "new-access",
+      refreshToken: "new-refresh",
       user: { ...publicUser, mustChangePassword: false },
     })
     const token = signAccessToken({ sub: "u1", role: "EMPLOYEE" as any, email: "a@b.com", mustChangePassword: true })
@@ -134,5 +135,6 @@ describe("POST /api/auth/change-password", () => {
       .send({ currentPassword: "old", newPassword: "longenoughpw" })
     expect(res.status).toBe(200)
     expect(res.body.user.mustChangePassword).toBe(false)
+    expect(res.headers["set-cookie"]?.[0]).toContain("refreshToken=new-refresh")
   })
 })

@@ -184,7 +184,7 @@ export async function changePassword(
   userId: string,
   currentPassword: string,
   newPassword: string
-): Promise<{ accessToken: string; user: PublicUser }> {
+): Promise<{ accessToken: string; refreshToken: string; user: PublicUser }> {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) {
     throw new AppError(404, "User not found")
@@ -198,12 +198,15 @@ export async function changePassword(
     where: { id: userId },
     data: { passwordHash, mustChangePassword: false },
   })
+  // Revoke every existing session (e.g. one stolen alongside the old password), then
+  // issue a fresh refresh token so the caller's own session survives the revocation.
   await revokeAllUserTokens(userId)
+  const refreshToken = await issueRefreshToken(userId)
   const accessToken = signAccessToken({
     sub: updated.id,
     role: updated.role,
     email: updated.email,
     mustChangePassword: false,
   })
-  return { accessToken, user: toPublicUser(updated) }
+  return { accessToken, refreshToken, user: toPublicUser(updated) }
 }

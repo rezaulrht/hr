@@ -110,8 +110,13 @@ export async function changePasswordHandler(req: Request, res: Response, next: N
     return res.status(400).json({ error: "Invalid request body" })
   }
   try {
-    const result = await authService.changePassword(req.user!.sub, parsed.data.currentPassword, parsed.data.newPassword)
-    return res.status(200).json(result)
+    const { accessToken, refreshToken, user } = await authService.changePassword(
+      req.user!.sub,
+      parsed.data.currentPassword,
+      parsed.data.newPassword
+    )
+    res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions())
+    return res.status(200).json({ accessToken, user })
   } catch (err) {
     return next(err)
   }

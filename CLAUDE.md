@@ -18,7 +18,7 @@ Roles (defined once as the Prisma `Role` enum in `server`, hand-mirrored as a TS
 npm run dev              # tsx watch src/index.ts
 npm run build             # tsc -> dist/
 npm start                 # node dist/index.js
-npm test                  # vitest run (once added — see Current state)
+npm test                  # tsc --noEmit && vitest run
 npx vitest run <path>      # run a single test file
 npm run prisma:generate    # prisma generate -> src/generated/prisma
 npm run prisma:migrate     # prisma migrate dev
@@ -61,7 +61,7 @@ Auth design (the pattern to follow for anything else needing tokens/sessions):
 - Password reset follows the same opaque-token-hashed-in-DB pattern (`PasswordResetToken`), and never reveals whether an email exists in responses.
 - If `SMTP_HOST` is unset, reset links are logged to the server console instead of emailed — this is intentional dev-mode fallback, not a bug.
 - Frontend route protection (`client/proxy.ts`, Next.js 16's rename of `middleware.ts`) is UX-only (cookie-presence check, running in the Node.js runtime by default in Next.js 16 — not Edge); the real enforcement is server-side `requireAuth` + `requireRole` on every protected Express route.
-- This cookie-presence check only works because dev has the API (`localhost:4000`) and client (`localhost:3000`) sharing the same host — cookies ignore port but do care about host/domain and `sameSite`. A genuinely cross-domain deployment (e.g. `api.example.com` / `app.example.com`) breaks this silently: the proxy would never see the `refreshToken` cookie (permanent redirect-to-login loop), and `sameSite: "lax"` would also block the cookie on cross-site fetches from the client to the API. That setup needs `sameSite: "none"` + `secure` + an explicit cookie `domain`, or a different route-protection mechanism entirely.
+- This cookie-presence check only works in dev because the API (`localhost:4000`) and client (`localhost:3000`) share the same host — cookies ignore port, and with no explicit `domain` attribute the cookie is host-only, scoped to whichever host the API responded from. Two deployment cases to distinguish: (1) **same registrable domain** (e.g. `api.example.com` / `app.example.com`, same-*site* per the `sameSite` spec, so `sameSite: "lax"` does NOT block the cookie on client→API fetches) — this only needs an explicit cookie `domain: ".example.com"` on the `Set-Cookie` response so the browser also attaches it to requests aimed at `app.example.com`, where `client/proxy.ts` runs; (2) **different registrable domains** (e.g. `app.vercel.app` / `api.fly.dev`, genuinely cross-*site*) — a `Set-Cookie` from `api.fly.dev` can never be scoped to `vercel.app` at all (the `domain` attribute only accepts the response's own domain or a parent of it), so `client/proxy.ts`'s presence check structurally cannot work here regardless of `sameSite`/`secure` — that topology needs a different route-protection mechanism (e.g. the Next app calling its own API route to validate the session) rather than a cookie tweak.
 
 Testing: Vitest + Supertest. Service/unit tests mock the Prisma client (`vi.mock("../../config/prisma", ...)`) rather than hitting a real database — there is no automated integration-test DB in this phase; DB-backed testing is a manual smoke test against the real Supabase instance.
 
