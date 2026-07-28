@@ -2,9 +2,7 @@ import type { Metadata } from "next"
 import { Public_Sans, Sora } from "next/font/google"
 
 import { cn } from "@/lib/utils"
-import { Header } from "@/components/dashboard/header"
-import { Sidebar } from "@/components/dashboard/sidebar"
-import { employee } from "@/components/employee/data"
+import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { navGroups } from "@/components/employee/nav-config"
 
 const publicSans = Public_Sans({
@@ -32,11 +30,9 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
         "font-sans flex min-h-screen w-full bg-[#F4F6F9] text-[#1C2733]"
       )}
     >
-      <Sidebar navGroups={navGroups} rootHref="/employee" userName={employee.name} userInitials={employee.initials} roleLabel="Employee" />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header userName={employee.name} userInitials={employee.initials} userEmail={employee.email} />
-        <main className="mx-auto flex w-full max-w-[1220px] flex-1 flex-col px-7 pb-8">{children}</main>
-      </div>
+      <DashboardShell navGroups={navGroups} rootHref="/employee">
+        {children}
+      </DashboardShell>
     </div>
   )
 }
