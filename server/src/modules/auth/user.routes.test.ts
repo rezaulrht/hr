@@ -8,7 +8,7 @@ vi.mock("../../config/prisma", () => ({
 import app from "../../app"
 import { signAccessToken } from "./auth.utils"
 import prisma from "../../config/prisma"
-import { Prisma } from "../../generated/prisma"
+import { Prisma } from "../../generated/prisma/client"
 
 const mockedPrisma = prisma as unknown as {
   user: { update: ReturnType<typeof vi.fn> }

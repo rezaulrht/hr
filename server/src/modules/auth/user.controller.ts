@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express"
 
 import prisma from "../../config/prisma"
-import { Prisma } from "../../generated/prisma"
+import { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { revokeAllUserTokens } from "./auth.service"
 import { updateUserStatusSchema } from "./auth.validators"

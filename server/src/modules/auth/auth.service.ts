@@ -1,7 +1,7 @@
 import { env } from "../../config/env"
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
-import { Role } from "../../generated/prisma"
+import { Role } from "../../generated/prisma/client"
 import { generateOpaqueToken, hashPassword, hashToken, signAccessToken, toPublicUser, verifyPassword } from "./auth.utils"
 import { sendPasswordResetEmail } from "./mailer"
 import type { PublicUser } from "./auth.types"
