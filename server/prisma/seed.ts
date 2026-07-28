@@ -22,9 +22,10 @@ async function seedAdminUser(email: string, role: Role) {
  * logins, these roles hold leave of their own, so leave can't be exercised
  * without them.
  *
- * Codes use a `D`-prefixed sequence (`BS-EMP-D0001`) that the IdCounter — which
- * only ever emits zero-padded digits — cannot collide with, so seeding stays
- * idempotent and never steals a code from a real hire.
+ * Staff sign in with their employee code, never their email, so the code is
+ * the credential that matters here — hence the readable `BS-EMP-DEMO` rather
+ * than a serial. The IdCounter only ever emits zero-padded digits, so a
+ * `DEMO` suffix can never collide with a real hire's generated code.
  */
 async function seedStaffAccount(input: {
   email: string
@@ -48,9 +49,13 @@ async function seedStaffAccount(input: {
 
   const employee = await prisma.employee.upsert({
     where: { userId: user.id },
-    // Keep the reporting line current — that link is what the manager's team
-    // board reads, and it is the one field likely to change between seeds.
-    update: { reportingManagerId: input.reportingManagerId ?? null },
+    // Keep the sign-in code and the reporting line current. Without
+    // employeeCode here, a demo account seeded under an older code would keep
+    // it forever and the documented login would simply not work.
+    update: {
+      employeeCode: input.employeeCode,
+      reportingManagerId: input.reportingManagerId ?? null,
+    },
     create: {
       userId: user.id,
       employeeCode: input.employeeCode,
@@ -109,7 +114,7 @@ async function main() {
   const manager = await seedStaffAccount({
     email: "manager@demo.com",
     role: Role.REPORTING_MANAGER,
-    employeeCode: "BS-MNG-D0001",
+    employeeCode: "BS-MNG-DEMO",
     fullName: "Daniel Kim",
     designation: "Engineering Manager",
     departmentName: "Engineering",
@@ -118,19 +123,21 @@ async function main() {
   await seedStaffAccount({
     email: "employee@demo.com",
     role: Role.EMPLOYEE,
-    employeeCode: "BS-EMP-D0001",
+    employeeCode: "BS-EMP-DEMO",
     fullName: "Ayesha Rahman",
     designation: "Software Engineer",
     departmentName: "Engineering",
     reportingManagerId: manager.id,
   })
 
-  console.log("Seed complete. Demo logins (all password: Demo@12345):")
-  console.log("  Super Admin:       admin@demo.com")
-  console.log("  HR Admin:          hr@demo.com")
-  console.log("  Finance Officer:   finance@demo.com")
-  console.log("  Reporting Manager: manager@demo.com   (BS-MNG-D0001, Daniel Kim)")
-  console.log("  Employee:          employee@demo.com  (BS-EMP-D0001, Ayesha Rahman, reports to Daniel Kim)")
+  console.log("Seed complete. All demo logins use the password: Demo@12345\n")
+  console.log("Administrative roles sign in with an EMAIL:")
+  console.log("  Super Admin:        admin@demo.com")
+  console.log("  HR Admin:           hr@demo.com")
+  console.log("  Finance Officer:    finance@demo.com\n")
+  console.log("Staff roles sign in with an EMPLOYEE ID (email is not accepted):")
+  console.log("  Reporting Manager:  BS-MNG-DEMO   Daniel Kim")
+  console.log("  Employee:           BS-EMP-DEMO   Ayesha Rahman, reports to Daniel Kim\n")
   console.log("Additional staff accounts are created via POST /api/employees/staff.")
 }
 
