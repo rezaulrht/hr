@@ -17,7 +17,13 @@ vi.mock("../../config/prisma", () => ({
 
 import prisma from "../../config/prisma"
 import { parseDateOnly } from "./leave.dates"
-import { computeEntitlement, getBalancesForEmployee, isUnpaidType } from "./leave.service"
+import {
+  computeEntitlement,
+  getBalancesForEmployee,
+  getTeamStatus,
+  isUnpaidType,
+  listLeaveRequests,
+} from "./leave.service"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -124,5 +130,116 @@ describe("getBalancesForEmployee", () => {
       })
     )
     expect(result[0].balance).toBe(18)
+  })
+})
+
+describe("listLeaveRequests scoping", () => {
+  beforeEach(() => {
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+    vi.mocked(prisma.user.findMany).mockResolvedValue([])
+  })
+
+  it("scopes an EMPLOYEE to their own requests", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as any)
+    await listLeaveRequests({ sub: "user-1", role: "EMPLOYEE" } as any)
+    expect(prisma.leaveRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { employeeId: "emp-1" } })
+    )
+  })
+
+  it("scopes a REPORTING_MANAGER to themselves plus their direct reports", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "mgr-1" } as any)
+    await listLeaveRequests({ sub: "user-2", role: "REPORTING_MANAGER" } as any)
+    expect(prisma.leaveRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ employeeId: "mgr-1" }, { employee: { reportingManagerId: "mgr-1" } }] },
+      })
+    )
+  })
+
+  it("does not scope HR_ADMIN at all", async () => {
+    await listLeaveRequests({ sub: "user-3", role: "HR_ADMIN" } as any)
+    expect(prisma.leaveRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} })
+    )
+  })
+})
+
+describe("getTeamStatus", () => {
+  const today = new Date()
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+
+  function report(over: Record<string, unknown> = {}) {
+    return {
+      id: "r1",
+      fullName: "Report One",
+      employeeCode: "BS-EMP-00001",
+      designation: "Analyst",
+      employmentStatus: "ACTIVE",
+      leaveRequests: [],
+      ...over,
+    }
+  }
+
+  beforeEach(() => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "mgr-1" } as any)
+  })
+
+  it("reports a resigned or terminated employee as LEFT, even if on approved leave", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      report({
+        employmentStatus: "RESIGNED",
+        leaveRequests: [
+          {
+            status: "APPROVED",
+            startDate: parseDateOnly(iso(today)),
+            endDate: parseDateOnly(iso(today)),
+            leaveType: { name: "Annual" },
+          },
+        ],
+      }),
+    ] as any)
+    const result = await getTeamStatus("user-2")
+    expect(result[0].status).toBe("LEFT")
+  })
+
+  it("reports ON_LEAVE when an approved request covers today", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      report({
+        leaveRequests: [
+          {
+            status: "APPROVED",
+            startDate: parseDateOnly(iso(today)),
+            endDate: parseDateOnly(iso(today)),
+            leaveType: { name: "Annual" },
+          },
+        ],
+      }),
+    ] as any)
+    const result = await getTeamStatus("user-2")
+    expect(result[0].status).toBe("ON_LEAVE")
+    expect(result[0].currentLeave?.leaveTypeName).toBe("Annual")
+  })
+
+  it("reports ACTIVE with no current leave when nothing covers today", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([report()] as any)
+    const result = await getTeamStatus("user-2")
+    expect(result[0].status).toBe("ACTIVE")
+    expect(result[0].currentLeave).toBeNull()
+  })
+
+  it("only counts approved leave covering today, so pending and future leave never set a status", async () => {
+    // This is enforced in the query, not in the mapping — a PENDING request or
+    // a future-dated approval is never returned, so it can never read as
+    // ON_LEAVE. Applying for leave says nothing about where someone is today.
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([report()] as any)
+    await getTeamStatus("user-2")
+
+    const args = vi.mocked(prisma.employee.findMany).mock.calls[0][0] as any
+    expect(args.select.leaveRequests.where).toEqual({
+      status: "APPROVED",
+      startDate: { lte: expect.any(Date) },
+      endDate: { gte: expect.any(Date) },
+    })
   })
 })

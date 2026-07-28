@@ -3,7 +3,12 @@ import { Router } from "express"
 import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
-import { getMyBalancesHandler, listLeaveTypesHandler } from "./leave.controller"
+import {
+  getMyBalancesHandler,
+  getTeamStatusHandler,
+  listLeaveRequestsHandler,
+  listLeaveTypesHandler,
+} from "./leave.controller"
 
 const router = Router()
 
@@ -12,5 +17,7 @@ const STAFF_ROLES = [Role.EMPLOYEE, Role.REPORTING_MANAGER] as const
 
 router.get("/types", requireAuth, listLeaveTypesHandler)
 router.get("/balances/me", requireAuth, requireRole(...STAFF_ROLES), getMyBalancesHandler)
+router.get("/requests", requireAuth, listLeaveRequestsHandler)
+router.get("/team-status", requireAuth, requireRole(Role.REPORTING_MANAGER), getTeamStatusHandler)
 
 export default router

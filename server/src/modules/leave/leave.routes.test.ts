@@ -4,6 +4,8 @@ import request from "supertest"
 vi.mock("./leave.service", () => ({
   listLeaveTypes: vi.fn(),
   getMyBalances: vi.fn(),
+  listLeaveRequests: vi.fn(),
+  getTeamStatus: vi.fn(),
 }))
 
 import app from "../../app"
@@ -83,5 +85,45 @@ describe("GET /api/leave/balances/me", () => {
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
     expect(res.status).toBe(200)
     expect(res.body[0].balance).toBe(13)
+  })
+})
+
+describe("GET /api/leave/requests", () => {
+  it("returns 401 with no Authorization header", async () => {
+    const res = await request(app).get("/api/leave/requests")
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 200 for every authenticated role", async () => {
+    vi.mocked(leaveService.listLeaveRequests).mockResolvedValue([])
+    for (const role of [
+      "EMPLOYEE",
+      "REPORTING_MANAGER",
+      "HR_ADMIN",
+      "SUPER_ADMIN",
+      "FINANCE_OFFICER",
+    ] as const) {
+      const res = await request(app)
+        .get("/api/leave/requests")
+        .set("Authorization", `Bearer ${tokenFor(role)}`)
+      expect(res.status).toBe(200)
+    }
+  })
+})
+
+describe("GET /api/leave/team-status", () => {
+  it("returns 403 for a non-manager", async () => {
+    const res = await request(app)
+      .get("/api/leave/team-status")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 200 for a reporting manager", async () => {
+    vi.mocked(leaveService.getTeamStatus).mockResolvedValue([])
+    const res = await request(app)
+      .get("/api/leave/team-status")
+      .set("Authorization", `Bearer ${tokenFor("REPORTING_MANAGER")}`)
+    expect(res.status).toBe(200)
   })
 })
