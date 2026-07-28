@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { cancelLeaveRequest, getMyLeaveBalances, listLeaveRequests, listLeaveTypes } from "@/lib/api/leave"
+import {
+  cancelLeaveRequest,
+  getMyLeaveBalances,
+  getTeamStatus,
+  listLeaveRequests,
+  listLeaveTypes,
+} from "@/lib/api/leave"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { LeaveRequestItem } from "@/lib/api/types"
@@ -19,6 +25,8 @@ import {
   isFutureDated,
   STATUS_LABEL,
   STATUS_TONE,
+  TEAM_STATUS_LABEL,
+  TEAM_STATUS_TONE,
 } from "@/components/leave/leave-shared"
 
 /** Roles that hold leave of their own — the only ones with an Employee profile. */
@@ -73,6 +81,14 @@ export function LeavePage() {
     enabled: isAuthed && isStaff,
   })
 
+  const isManager = user?.role === "REPORTING_MANAGER"
+
+  const teamStatusQuery = useQuery({
+    queryKey: ["leave-team-status"],
+    queryFn: () => getTeamStatus(accessToken!),
+    enabled: isAuthed && isManager,
+  })
+
   function invalidateMine() {
     queryClient.invalidateQueries({ queryKey: ["leave-requests"] })
     queryClient.invalidateQueries({ queryKey: ["leave-balances", "me"] })
@@ -107,6 +123,14 @@ export function LeavePage() {
     return requests.filter((r) => r.employee.id === ownEmployeeId)
   }, [isStaff, ownEmployeeId, requests])
 
+  // The endpoint already scopes a manager to themselves plus their reports, so
+  // with no own-request to identify, showing every returned row is still safe.
+  const teamRequests = useMemo(() => {
+    if (!isManager) return []
+    if (!ownEmployeeId) return requests
+    return requests.filter((r) => r.employee.id !== ownEmployeeId)
+  }, [isManager, ownEmployeeId, requests])
+
   const stats = useMemo(() => {
     const pending = myRequests.filter((r) => r.status === "PENDING").length
     const takenYtd = myRequests
@@ -134,6 +158,26 @@ export function LeavePage() {
   function canCancel(r: LeaveRequestItem): boolean {
     return r.status === "PENDING" || (r.status === "APPROVED" && isFutureDated(r.startDate))
   }
+
+  const teamStatusRows: TableCell[][] = (teamStatusQuery.data ?? []).map((m) => [
+    { text: m.fullName, sub: m.employeeCode, weight: 600 },
+    { text: m.designation },
+    { tag: TEAM_STATUS_LABEL[m.status], tone: TEAM_STATUS_TONE[m.status] },
+    {
+      text: m.currentLeave ? m.currentLeave.leaveTypeName : "—",
+      ...(m.currentLeave
+        ? { sub: formatRange(m.currentLeave.startDate, m.currentLeave.endDate) }
+        : {}),
+    },
+  ])
+
+  const teamRequestRows: TableCell[][] = teamRequests.map((r) => [
+    { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 600 },
+    { text: r.leaveType.name },
+    { text: formatRange(r.startDate, r.endDate) },
+    { text: String(r.days) },
+    { tag: STATUS_LABEL[r.status], tone: STATUS_TONE[r.status] },
+  ])
 
   const myRows: TableCell[][] = myRequests.map((r) => [
     { text: r.leaveType.name, sub: r.leaveType.isPaid ? "Paid" : "Unpaid", weight: 600 },
@@ -197,6 +241,33 @@ export function LeavePage() {
       {actionError ? (
         <div className="mb-4 rounded-md border border-[#E4E9EF] bg-white p-4 text-[13px] font-semibold text-[#B03A3A]">
           {actionError}
+        </div>
+      ) : null}
+
+      {isManager ? (
+        <div className="mb-5 space-y-5">
+          {teamStatusQuery.isPending ? (
+            <TableSkeleton />
+          ) : teamStatusQuery.isError ? (
+            <LoadError label="your team" onRetry={() => teamStatusQuery.refetch()} />
+          ) : (
+            <DataTable
+              title="My team"
+              action=""
+              cols="1.4fr 1fr 0.9fr 1.2fr"
+              headers={["Employee", "Designation", "Status", "Currently on"]}
+              rows={teamStatusRows}
+            />
+          )}
+          {requestsQuery.isPending ? null : (
+            <DataTable
+              title="Team requests"
+              action=""
+              cols="1.4fr 1fr 1fr 0.5fr 0.9fr"
+              headers={["Employee", "Type", "Dates", "Days", "Status"]}
+              rows={teamRequestRows}
+            />
+          )}
         </div>
       ) : null}
 
