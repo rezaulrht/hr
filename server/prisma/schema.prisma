@@ -140,6 +140,8 @@ model LeaveType {
   annualQuota     Int
   carryForwardPct Int              @default(0)
   maxConsecutive  Int?
+  // Sick leave is filed after the fact — you can't schedule getting ill.
+  allowsBackdating Boolean         @default(false)
   eligibleFor     EmploymentType[]
   leaveRequests   LeaveRequest[]
   leaveBalances   LeaveBalance[]
@@ -168,6 +170,10 @@ model LeaveRequest {
   reason      String?
   status      LeaveStatus @default(PENDING)
   approvedBy  String?
+  // Set on any terminal transition (approve/reject/cancel/revert), so a
+  // decision can be audited — createdAt alone can't tell you when.
+  decidedAt    DateTime?
+  decisionNote String?
   createdAt   DateTime    @default(now())
 }
 

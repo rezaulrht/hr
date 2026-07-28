@@ -1,6 +1,6 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { PrismaClient, Role } from "../src/generated/prisma"
+import { PrismaClient, Role, type EmploymentType } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
@@ -28,16 +28,30 @@ async function main() {
   }
 
   const leaveTypes = [
-    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50 },
-    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0 },
-    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0 },
+    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50, allowsBackdating: false },
+    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0, allowsBackdating: true },
+    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0, allowsBackdating: false },
+    // Zero-quota unpaid type: the fallback when an annual allowance is spent.
+    { name: "Leave Without Pay", isPaid: false, annualQuota: 0, carryForwardPct: 0, allowsBackdating: false },
   ] as const
 
   for (const leaveType of leaveTypes) {
+    const eligibleFor: EmploymentType[] =
+      leaveType.name === "Leave Without Pay"
+        ? ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]
+        : ["FULL_TIME", "PART_TIME", "CONTRACT"]
+
     await prisma.leaveType.upsert({
       where: { name: leaveType.name },
-      update: {},
-      create: { ...leaveType, eligibleFor: ["FULL_TIME", "PART_TIME", "CONTRACT"] },
+      // Not `{}` — an empty update makes re-seeding silently skip rows that
+      // already exist, so new fields would never reach them.
+      update: {
+        isPaid: leaveType.isPaid,
+        annualQuota: leaveType.annualQuota,
+        carryForwardPct: leaveType.carryForwardPct,
+        allowsBackdating: leaveType.allowsBackdating,
+      },
+      create: { ...leaveType, eligibleFor },
     })
   }
 
