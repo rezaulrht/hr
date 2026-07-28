@@ -7,6 +7,7 @@ import morgan from "morgan"
 import { env } from "./config/env"
 import { errorHandler } from "./middleware/errorHandler"
 import authRoutes from "./modules/auth/auth.routes"
+import userRoutes from "./modules/auth/user.routes"
 
 const app = express()
 
@@ -26,6 +27,7 @@ app.get("/health", (_req, res) => {
 })
 
 app.use("/api/auth", authRoutes)
+app.use("/api/users", userRoutes)
 
 app.use(errorHandler)
 
