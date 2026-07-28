@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 const PROTECTED_PREFIXES = ["/admin", "/hr", "/finance", "/manager", "/employee"]
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => request.nextUrl.pathname.startsWith(prefix))
   if (!isProtected) {
     return NextResponse.next()
