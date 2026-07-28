@@ -4,6 +4,7 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
 import {
+  applyForLeaveHandler,
   getMyBalancesHandler,
   getTeamStatusHandler,
   listLeaveRequestsHandler,
@@ -19,5 +20,6 @@ router.get("/types", requireAuth, listLeaveTypesHandler)
 router.get("/balances/me", requireAuth, requireRole(...STAFF_ROLES), getMyBalancesHandler)
 router.get("/requests", requireAuth, listLeaveRequestsHandler)
 router.get("/team-status", requireAuth, requireRole(Role.REPORTING_MANAGER), getTeamStatusHandler)
+router.post("/requests", requireAuth, requireRole(...STAFF_ROLES), applyForLeaveHandler)
 
 export default router

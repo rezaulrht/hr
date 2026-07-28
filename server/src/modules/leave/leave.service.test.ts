@@ -18,6 +18,7 @@ vi.mock("../../config/prisma", () => ({
 import prisma from "../../config/prisma"
 import { parseDateOnly } from "./leave.dates"
 import {
+  applyForLeave,
   computeEntitlement,
   getBalancesForEmployee,
   getTeamStatus,
@@ -241,5 +242,198 @@ describe("getTeamStatus", () => {
       startDate: { lte: expect.any(Date) },
       endDate: { gte: expect.any(Date) },
     })
+  })
+})
+
+describe("applyForLeave validation", () => {
+  const employee = {
+    id: "emp-1",
+    employmentType: "FULL_TIME",
+    joiningDate: parseDateOnly("2020-01-01"),
+  }
+  const annual = {
+    id: "lt-1",
+    name: "Annual",
+    isPaid: true,
+    annualQuota: 18,
+    maxConsecutive: null,
+    allowsBackdating: false,
+    eligibleFor: ["FULL_TIME"],
+  }
+
+  function futureDate(offsetDays: number) {
+    const d = new Date(Date.now() + offsetDays * 86_400_000)
+    return d.toISOString().slice(0, 10)
+  }
+
+  beforeEach(() => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(annual as any)
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([annual] as any)
+  })
+
+  it("rejects an end date before the start date", async () => {
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(10),
+        endDate: futureDate(5),
+      })
+    ).rejects.toThrow(/end date/i)
+  })
+
+  it("rejects a range spanning two calendar years", async () => {
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: "2026-12-28",
+        endDate: "2027-01-05",
+      })
+    ).rejects.toThrow(/same year|two|split/i)
+  })
+
+  it("rejects a backdated request for a type that disallows it", async () => {
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(-3),
+        endDate: futureDate(-2),
+      })
+    ).rejects.toThrow(/past|backdat/i)
+  })
+
+  it("allows a backdated request for a type that permits it", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...annual,
+      allowsBackdating: true,
+    } as any)
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue({
+      id: "req-1",
+      employee: { id: "emp-1", fullName: "A", employeeCode: "BS-EMP-00001" },
+      leaveType: { id: "lt-1", name: "Annual", isPaid: true },
+      startDate: parseDateOnly(futureDate(-3)),
+      endDate: parseDateOnly(futureDate(-2)),
+      reason: null,
+      status: "PENDING",
+      createdAt: new Date(),
+    } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(-3),
+        endDate: futureDate(-2),
+      })
+    ).resolves.toBeDefined()
+  })
+
+  it("rejects a backdated request beyond the 30-day window", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...annual,
+      allowsBackdating: true,
+    } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(-45),
+        endDate: futureDate(-44),
+      })
+    ).rejects.toThrow(/30 days/i)
+  })
+
+  it("rejects a range that is entirely Fridays", async () => {
+    // 2026-08-14 is a Friday.
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: "2026-08-14",
+        endDate: "2026-08-14",
+      })
+    ).rejects.toThrow(/working day/i)
+  })
+
+  it("rejects a request overlapping an existing pending or approved one", async () => {
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({ id: "existing" } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(5),
+        endDate: futureDate(7),
+      })
+    ).rejects.toThrow(/overlap/i)
+  })
+
+  it("rejects a leave type the employment type is not eligible for", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...annual,
+      eligibleFor: ["INTERN"],
+    } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(5),
+        endDate: futureDate(7),
+      })
+    ).rejects.toThrow(/eligible/i)
+  })
+
+  it("measures maxConsecutive against the calendar span, not charged days", async () => {
+    // Thu 13th -> Wed 19th Aug 2026 = 7 calendar days, 6 charged (one Friday).
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...annual,
+      maxConsecutive: 6,
+    } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: "2026-08-13",
+        endDate: "2026-08-19",
+      })
+    ).rejects.toThrow(/consecutive/i)
+  })
+
+  it("rejects when approved + pending + new would exceed the entitlement", async () => {
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly("2026-03-02"),
+        endDate: parseDateOnly("2026-03-20"),
+      },
+    ] as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(5),
+        endDate: futureDate(9),
+      })
+    ).rejects.toThrow(/balance|remain|Leave Without Pay/i)
+  })
+
+  it("skips the balance check for an unpaid, zero-quota type", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...annual,
+      name: "Leave Without Pay",
+      isPaid: false,
+      annualQuota: 0,
+    } as any)
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue({
+      id: "req-1",
+      employee: { id: "emp-1", fullName: "A", employeeCode: "BS-EMP-00001" },
+      leaveType: { id: "lt-1", name: "Leave Without Pay", isPaid: false },
+      startDate: parseDateOnly(futureDate(5)),
+      endDate: parseDateOnly(futureDate(9)),
+      reason: null,
+      status: "PENDING",
+      createdAt: new Date(),
+    } as any)
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(5),
+        endDate: futureDate(9),
+      })
+    ).resolves.toBeDefined()
   })
 })

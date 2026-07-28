@@ -2,8 +2,17 @@ import prisma from "../../config/prisma"
 import type { Employee } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import type { AccessTokenPayload } from "../auth/auth.types"
-import { countLeaveDays, formatDateOnly, todayUtc } from "./leave.dates"
+import {
+  addDays,
+  calendarSpan,
+  countLeaveDays,
+  formatDateOnly,
+  MAX_BACKDATE_DAYS,
+  parseDateOnly,
+  todayUtc,
+} from "./leave.dates"
 import type {
+  ApplyLeaveInput,
   DecidedBy,
   LeaveBalanceItem,
   LeaveRequestItem,
@@ -214,4 +223,124 @@ export async function getTeamStatus(userId: string): Promise<TeamMemberStatus[]>
           : null,
     }
   })
+}
+
+export async function applyForLeave(
+  userId: string,
+  input: ApplyLeaveInput
+): Promise<LeaveRequestItem> {
+  const employee = await requireEmployeeForUser(userId)
+
+  let start: Date
+  let end: Date
+  try {
+    start = parseDateOnly(input.startDate)
+    end = parseDateOnly(input.endDate)
+  } catch (err) {
+    throw new AppError(400, (err as Error).message)
+  }
+
+  // 1. Ordering
+  if (end.getTime() < start.getTime()) {
+    throw new AppError(400, "The end date cannot be before the start date")
+  }
+
+  // 2. Single leave year — a range crossing Dec 31 makes the balance ambiguous
+  if (start.getUTCFullYear() !== end.getUTCFullYear()) {
+    throw new AppError(
+      400,
+      "A request cannot span two years. Please split it into one request per year."
+    )
+  }
+
+  const leaveType = await prisma.leaveType.findUnique({ where: { id: input.leaveTypeId } })
+  if (!leaveType) {
+    throw new AppError(400, "That leave type no longer exists")
+  }
+
+  // 3. Backdating
+  const today = todayUtc()
+  if (start.getTime() < today.getTime()) {
+    if (!leaveType.allowsBackdating) {
+      throw new AppError(400, `${leaveType.name} leave cannot start in the past`)
+    }
+    if (start.getTime() < addDays(today, -MAX_BACKDATE_DAYS).getTime()) {
+      throw new AppError(400, `Backdated leave cannot start more than ${MAX_BACKDATE_DAYS} days ago`)
+    }
+  }
+
+  // 4. Must contain at least one working day
+  const days = countLeaveDays(start, end)
+  if (days === 0) {
+    throw new AppError(400, "That range contains no working days (Fridays are a weekly holiday)")
+  }
+
+  // 5. Overlap with anything already live
+  const clash = await prisma.leaveRequest.findFirst({
+    where: {
+      employeeId: employee.id,
+      status: { in: ["PENDING", "APPROVED"] },
+      startDate: { lte: end },
+      endDate: { gte: start },
+    },
+  })
+  if (clash) {
+    throw new AppError(400, "You already have a pending or approved request overlapping those dates")
+  }
+
+  // 6. Eligibility
+  if (!leaveType.eligibleFor.includes(employee.employmentType)) {
+    throw new AppError(
+      400,
+      `${employee.employmentType} employees are not eligible for ${leaveType.name} leave`
+    )
+  }
+
+  // 7. Max consecutive absence — measured in calendar days, because the policy
+  // caps how long someone is away, not how much balance they burn.
+  if (leaveType.maxConsecutive !== null && calendarSpan(start, end) > leaveType.maxConsecutive) {
+    throw new AppError(
+      400,
+      `${leaveType.name} leave is limited to ${leaveType.maxConsecutive} consecutive days`
+    )
+  }
+
+  // 8. Balance — pending counts here so requests can't be stacked past quota
+  if (!isUnpaidType(leaveType)) {
+    const balances = await getBalancesForEmployee(employee, start.getUTCFullYear())
+    const balance = balances.find((b) => b.leaveTypeId === leaveType.id)
+    if (!balance || balance.balance < days) {
+      throw new AppError(
+        400,
+        `That request needs ${days} day(s) but only ${balance?.balance ?? 0} remain. Consider applying for Leave Without Pay instead.`
+      )
+    }
+  }
+
+  const created = await prisma.leaveRequest.create({
+    data: {
+      employeeId: employee.id,
+      leaveTypeId: leaveType.id,
+      startDate: start,
+      endDate: end,
+      reason: input.reason ?? null,
+      status: "PENDING",
+    },
+    include: REQUEST_INCLUDE,
+  })
+
+  return {
+    id: created.id,
+    employee: created.employee,
+    leaveType: created.leaveType,
+    startDate: formatDateOnly(created.startDate),
+    endDate: formatDateOnly(created.endDate),
+    days,
+    reason: created.reason,
+    status: created.status,
+    decidedBy: null,
+    decidedAt: null,
+    decisionNote: null,
+    createdAt: created.createdAt.toISOString(),
+  }
 }

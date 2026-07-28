@@ -6,6 +6,7 @@ vi.mock("./leave.service", () => ({
   getMyBalances: vi.fn(),
   listLeaveRequests: vi.fn(),
   getTeamStatus: vi.fn(),
+  applyForLeave: vi.fn(),
 }))
 
 import app from "../../app"
@@ -125,5 +126,39 @@ describe("GET /api/leave/team-status", () => {
       .get("/api/leave/team-status")
       .set("Authorization", `Bearer ${tokenFor("REPORTING_MANAGER")}`)
     expect(res.status).toBe(200)
+  })
+})
+
+describe("POST /api/leave/requests", () => {
+  const body = { leaveTypeId: "lt-1", startDate: "2026-09-07", endDate: "2026-09-09" }
+
+  it("returns 401 with no Authorization header", async () => {
+    const res = await request(app).post("/api/leave/requests").send(body)
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 403 for a reviewer role", async () => {
+    const res = await request(app)
+      .post("/api/leave/requests")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send(body)
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 400 for a malformed body", async () => {
+    const res = await request(app)
+      .post("/api/leave/requests")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+      .send({ leaveTypeId: "lt-1", startDate: "07/09/2026", endDate: "2026-09-09" })
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 201 for a valid application", async () => {
+    vi.mocked(leaveService.applyForLeave).mockResolvedValue({ id: "req-1" } as any)
+    const res = await request(app)
+      .post("/api/leave/requests")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+      .send(body)
+    expect(res.status).toBe(201)
   })
 })
