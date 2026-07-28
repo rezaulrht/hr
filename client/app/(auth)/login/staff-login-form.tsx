@@ -9,6 +9,7 @@ import { useSession } from "@/lib/auth/session-context"
 import { ROLE_ROUTES } from "@/lib/auth/role-routes"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 
 export function StaffLoginForm() {
   const router = useRouter()
@@ -53,9 +54,8 @@ export function StaffLoginForm() {
         <Label htmlFor="employee-password" className="mb-1.5 text-xs font-bold">
           Password
         </Label>
-        <Input
+        <PasswordInput
           id="employee-password"
-          type="password"
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
