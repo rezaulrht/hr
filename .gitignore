@@ -31,3 +31,6 @@ build/
 coverage/
 .cache/
 *.tsbuildinfo
+
+# Subagent-driven-development scratch workspace (ledgers, briefs, reports)
+.superpowers/
