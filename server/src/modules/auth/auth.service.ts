@@ -2,7 +2,8 @@ import { env } from "../../config/env"
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
 import { Role } from "../../generated/prisma"
-import { generateOpaqueToken, hashToken, signAccessToken, toPublicUser, verifyPassword } from "./auth.utils"
+import { generateOpaqueToken, hashPassword, hashToken, signAccessToken, toPublicUser, verifyPassword } from "./auth.utils"
+import { sendPasswordResetEmail } from "./mailer"
 import type { PublicUser } from "./auth.types"
 
 export interface SessionResult {
@@ -130,4 +131,67 @@ export async function logout(rawRefreshToken: string): Promise<void> {
     return
   }
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } })
+}
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email } })
+  if (!user) {
+    return // don't reveal whether the email exists
+  }
+  const raw = generateOpaqueToken()
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) },
+  })
+  const resetLink = `${env.CLIENT_ORIGIN}/reset-password?token=${raw}`
+  await sendPasswordResetEmail(email, resetLink)
+}
+
+export async function resetPassword(rawToken: string, newPassword: string): Promise<void> {
+  const tokenHash = hashToken(rawToken)
+  const stored = await prisma.passwordResetToken.findUnique({ where: { tokenHash } })
+  if (!stored) {
+    throw new AppError(400, "Invalid or expired reset token")
+  }
+  if (stored.usedAt) {
+    throw new AppError(400, "This reset token has already been used")
+  }
+  if (stored.expiresAt.getTime() < Date.now()) {
+    throw new AppError(400, "This reset token has expired")
+  }
+
+  const passwordHash = await hashPassword(newPassword)
+  await prisma.user.update({
+    where: { id: stored.userId },
+    data: { passwordHash, mustChangePassword: false },
+  })
+  await prisma.passwordResetToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } })
+}
+
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ accessToken: string; user: PublicUser }> {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) {
+    throw new AppError(404, "User not found")
+  }
+  const valid = await verifyPassword(currentPassword, user.passwordHash)
+  if (!valid) {
+    throw new AppError(401, "Current password is incorrect")
+  }
+  const passwordHash = await hashPassword(newPassword)
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, mustChangePassword: false },
+  })
+  const accessToken = signAccessToken({
+    sub: updated.id,
+    role: updated.role,
+    email: updated.email,
+    mustChangePassword: false,
+  })
+  return { accessToken, user: toPublicUser(updated) }
 }

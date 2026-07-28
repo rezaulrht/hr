@@ -2,20 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../config/prisma", () => ({
   default: {
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn() },
     employee: { findUnique: vi.fn() },
     refreshToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    passwordResetToken: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   },
 }))
 
 import prisma from "../../config/prisma"
 import { hashPassword } from "./auth.utils"
-import { loginAdmin, loginStaff, logout, refresh } from "./auth.service"
+import { changePassword, loginAdmin, loginStaff, logout, refresh, requestPasswordReset, resetPassword } from "./auth.service"
 
 const mockedPrisma = prisma as unknown as {
-  user: { findUnique: ReturnType<typeof vi.fn> }
+  user: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }
   employee: { findUnique: ReturnType<typeof vi.fn> }
   refreshToken: {
+    create: ReturnType<typeof vi.fn>
+    findUnique: ReturnType<typeof vi.fn>
+    update: ReturnType<typeof vi.fn>
+  }
+  passwordResetToken: {
     create: ReturnType<typeof vi.fn>
     findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
@@ -232,5 +238,126 @@ describe("logout", () => {
   it("does nothing (no throw) if the token doesn't exist", async () => {
     mockedPrisma.refreshToken.findUnique.mockResolvedValue(null)
     await expect(logout("unknown-token")).resolves.toBeUndefined()
+  })
+})
+
+vi.mock("./mailer", () => ({
+  sendPasswordResetEmail: vi.fn(),
+  sendStaffCredentialsEmail: vi.fn(),
+}))
+
+describe("requestPasswordReset", () => {
+  it("creates a reset token and sends an email when the user exists", async () => {
+    mockedPrisma.user.findUnique.mockResolvedValue({ id: "u1", email: "a@b.com" })
+    mockedPrisma.passwordResetToken.create.mockResolvedValue({})
+    const { sendPasswordResetEmail } = await import("./mailer")
+
+    await requestPasswordReset("a@b.com")
+
+    expect(mockedPrisma.passwordResetToken.create).toHaveBeenCalledOnce()
+    expect(sendPasswordResetEmail).toHaveBeenCalledWith("a@b.com", expect.stringContaining("token="))
+  })
+
+  it("resolves without error when the email doesn't exist (no user enumeration)", async () => {
+    mockedPrisma.user.findUnique.mockResolvedValue(null)
+    await expect(requestPasswordReset("nobody@b.com")).resolves.toBeUndefined()
+    expect(mockedPrisma.passwordResetToken.create).not.toHaveBeenCalled()
+  })
+})
+
+describe("resetPassword", () => {
+  it("updates the password and clears mustChangePassword for a valid token", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: "prt1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      usedAt: null,
+    })
+    mockedPrisma.user.update.mockResolvedValue({})
+    mockedPrisma.passwordResetToken.update.mockResolvedValue({})
+
+    await resetPassword("raw-reset-token", "newlongpassword")
+
+    expect(mockedPrisma.user.update).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { passwordHash: expect.any(String), mustChangePassword: false },
+    })
+    expect(mockedPrisma.passwordResetToken.update).toHaveBeenCalledWith({
+      where: { id: "prt1" },
+      data: { usedAt: expect.any(Date) },
+    })
+  })
+
+  it("throws AppError 400 for an unknown token", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue(null)
+    await expect(resetPassword("unknown", "newlongpassword")).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("throws AppError 400 for an already-used token", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: "prt1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      usedAt: new Date(),
+    })
+    await expect(resetPassword("used", "newlongpassword")).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("throws AppError 400 for an expired token", async () => {
+    mockedPrisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: "prt1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() - 1000),
+      usedAt: null,
+    })
+    await expect(resetPassword("expired", "newlongpassword")).rejects.toMatchObject({ statusCode: 400 })
+  })
+})
+
+describe("changePassword", () => {
+  it("updates the password, clears mustChangePassword, and returns a fresh access token", async () => {
+    const passwordHash = await hashPassword("old-password")
+    mockedPrisma.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "a@b.com",
+      passwordHash,
+      role: "EMPLOYEE",
+      isActive: true,
+      mustChangePassword: true,
+    })
+    mockedPrisma.user.update.mockResolvedValue({
+      id: "u1",
+      email: "a@b.com",
+      role: "EMPLOYEE",
+      isActive: true,
+      mustChangePassword: false,
+    })
+
+    const result = await changePassword("u1", "old-password", "brand-new-password")
+
+    expect(result.accessToken).toBeTruthy()
+    expect(result.user.mustChangePassword).toBe(false)
+  })
+
+  it("throws AppError 401 for an incorrect current password", async () => {
+    const passwordHash = await hashPassword("old-password")
+    mockedPrisma.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "a@b.com",
+      passwordHash,
+      role: "EMPLOYEE",
+      isActive: true,
+      mustChangePassword: true,
+    })
+    await expect(changePassword("u1", "wrong-password", "brand-new-password")).rejects.toMatchObject({
+      statusCode: 401,
+    })
+  })
+
+  it("throws AppError 404 for an unknown user id", async () => {
+    mockedPrisma.user.findUnique.mockResolvedValue(null)
+    await expect(changePassword("unknown", "old", "brand-new-password")).rejects.toMatchObject({
+      statusCode: 404,
+    })
   })
 })
