@@ -91,6 +91,11 @@ model Employee {
   joiningDate        DateTime
   officeLocation     String?
   shiftId            String?
+  shift              Shift?            @relation(fields: [shiftId], references: [id])
+  // ZKTeco devices identify people by an on-device enrolment ID, not by
+  // employeeCode. Unused until the hardware phase — without it, device
+  // punches can't be attributed to a person.
+  deviceUserId       String?           @unique
   bankAccountNumber  String?
   bankName           String?
   salaryStructureId  String?
@@ -185,12 +190,52 @@ enum LeaveStatus {
 }
 
 model Holiday {
-  id   String   @id @default(uuid())
+  id   String      @id @default(uuid())
   name String
   date DateTime
+  type HolidayType @default(GENERAL)
+
+  // Unique on (date, name), not on date alone: 2026-05-01 is both May Day
+  // and Buddha Purnima, and a unique-on-date makes that pair unseedable.
+  @@unique([date, name])
+  @@index([date])
+}
+
+enum HolidayType {
+  GENERAL
+  EXECUTIVE_ORDER
+  OPTIONAL
+  // Inverts: a normal off-day declared working. The cabinet cancelled the
+  // weekly holiday on 2026-05-23 when it extended Eid-ul-Azha to seven days,
+  // and a calendar that can only take days away cannot express that.
+  WORKING_DAY
 }
 
 // ── ATTENDANCE ────────────────────────────────
+
+// Fills a hole the schema always had: Employee.shiftId existed with no model
+// behind it. Times are "HH:mm" strings, not DateTime — a shift start is a
+// time-of-day with no date and no timezone, and a DateTime would force both.
+model Shift {
+  id            String     @id @default(uuid())
+  name          String     @unique
+  startTime     String
+  endTime       String
+  // Lunch + breaks sit *inside* the span, so the 09:00-18:00 expectation is
+  // 9 elapsed hours and nothing subtracts the break anywhere.
+  breakMinutes  Int        @default(60)
+  graceMinutes  Int        @default(15)
+  // 0=Sun … 6=Sat. [5] is Friday.
+  weeklyOffDays Int[]
+  // A dated shift is a company-wide override for its window — Ramadan hours,
+  // without reassigning every employee. Null/null is the standing default.
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  employees     Employee[]
+
+  @@index([effectiveFrom, effectiveTo])
+}
+
 model Attendance {
   id          String    @id @default(uuid())
   employeeId  String
@@ -200,6 +245,69 @@ model Attendance {
   checkOut    DateTime?
   workedHours Float?
   isLate      Boolean   @default(false)
+  isEarlyOut  Boolean   @default(false)
+
+  source AttendanceSource @default(WEB)
+
+  approval     AttendanceApproval @default(PENDING)
+  // User id of the manager or HR who decided. Null when AUTO_APPROVED.
+  approvedBy   String?
+  approvedAt   DateTime?
+  approvalNote String?
+
+  // Set when the *employee* amends their own record. A regularised record can
+  // never auto-approve — the time came from the person it benefits.
+  regularisedAt   DateTime?
+  regularisedNote String?
+
+  // User id, set when HR edits the record.
+  correctedBy    String?
+  correctedAt    DateTime?
+  correctionNote String?
+
+  audits AttendanceAudit[]
+
+  // Without this, a double-tapped check-in button creates two rows. It also
+  // makes check-in a single atomic create instead of a read-then-write race.
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([approval])
+}
+
+enum AttendanceApproval {
+  PENDING
+  APPROVED
+  // Distinct from APPROVED, not APPROVED-with-a-null-approver: reporting has
+  // to be able to answer "how many records did a human actually look at?".
+  AUTO_APPROVED
+  REJECTED
+}
+
+enum AttendanceSource {
+  WEB
+  MANUAL
+  RFID
+  FACE
+  FINGERPRINT
+}
+
+// correctedBy/At/Note hold only the *most recent* edit. The dispute that
+// matters is always about the value before someone changed it, so every
+// mutation appends here inside the same transaction.
+model AttendanceAudit {
+  id           String     @id @default(uuid())
+  attendanceId String
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  action       String
+  // User id. Null for machine actions such as AUTO_APPROVE.
+  changedBy    String?
+  changedAt    DateTime   @default(now())
+  // Only the fields that changed, not whole snapshots.
+  before       Json?
+  after        Json?
+  note         String?
+
+  @@index([attendanceId, changedAt])
 }
 
 // ── PAYROLL ───────────────────────────────────
