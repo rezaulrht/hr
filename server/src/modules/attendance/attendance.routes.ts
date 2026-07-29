@@ -4,11 +4,15 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
 import {
+  createHolidayHandler,
+  deleteHolidayHandler,
   getDailySummaryHandler,
   getEmployeeAttendanceHandler,
   getMonthlySummaryHandler,
   getMyAttendanceHandler,
   getTodayHandler,
+  listHolidaysHandler,
+  updateHolidayHandler,
 } from "./attendance.controller"
 
 const router = Router()
@@ -40,5 +44,11 @@ router.get("/history/:employeeId", requireAuth, getEmployeeAttendanceHandler)
 // response rather than a 403, so the route shape stays uniform.
 router.get("/summary/daily", requireAuth, getDailySummaryHandler)
 router.get("/summary/monthly", requireAuth, getMonthlySummaryHandler)
+
+// Everyone reads the calendar; only HR writes it.
+router.get("/holidays", requireAuth, listHolidaysHandler)
+router.post("/holidays", requireAuth, requireRole(...HR_ROLES), createHolidayHandler)
+router.patch("/holidays/:id", requireAuth, requireRole(...HR_ROLES), updateHolidayHandler)
+router.delete("/holidays/:id", requireAuth, requireRole(...HR_ROLES), deleteHolidayHandler)
 
 export default router
