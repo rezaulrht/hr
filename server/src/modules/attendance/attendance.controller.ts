@@ -11,14 +11,24 @@ import {
   listHolidays,
   updateHoliday,
 } from "./attendance.holidays"
+import {
+  approveAttendance,
+  bulkDecide,
+  listApprovals,
+  rejectAttendance,
+} from "./attendance.approval"
 import { checkIn, checkOut } from "./attendance.punch"
 import { getDailySummary, getMonthlySummary } from "./attendance.summary"
 import {
+  approvalsQuerySchema,
+  approveSchema,
+  bulkDecisionSchema,
   dailyQuerySchema,
   dateRangeQuerySchema,
   holidaySchema,
   holidayUpdateSchema,
   monthQuerySchema,
+  rejectSchema,
   yearQuerySchema,
 } from "./attendance.validators"
 
@@ -90,6 +100,51 @@ export async function getMonthlySummaryHandler(req: Request, res: Response, next
   try {
     const { month, year } = monthQuerySchema.parse(req.query)
     return res.status(200).json(await getMonthlySummary(req.user!, month, year))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function listApprovalsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { status, minAgingDays } = approvalsQuerySchema.parse(req.query)
+    return res.status(200).json(await listApprovals(req.user!, status, minAgingDays))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function approveAttendanceHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { note } = approveSchema.parse(req.body ?? {})
+    return res.status(200).json(await approveAttendance(req.user!, req.params.id, note))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function rejectAttendanceHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { note } = rejectSchema.parse(req.body)
+    return res.status(200).json(await rejectAttendance(req.user!, req.params.id, note))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function bulkDecideHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { ids, decision, note } = bulkDecisionSchema.parse(req.body)
+    // 200 with a per-id result list: one bad id must not void the batch.
+    return res.status(200).json(await bulkDecide(req.user!, ids, decision, note))
   } catch (err) {
     return next(err)
   }

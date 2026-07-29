@@ -145,6 +145,35 @@ export interface PunchResult {
   shift: ShiftInfo
 }
 
+/** Why a record needs a human. Empty means it auto-approves. */
+export type ExceptionCode =
+  | "LATE"
+  | "EARLY_OUT"
+  | "MISSING_CHECKOUT"
+  | "SHORTFALL"
+  | "LEAVE_CONFLICT"
+  | "WORKED_OFF_DAY"
+  | "REGULARISED"
+  | "MANUAL_ENTRY"
+
+export interface ApprovalItem {
+  id: string
+  employee: EmployeeRef
+  date: string
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval
+  regularised: boolean
+  regularisedNote: string | null
+  /** Named so the queue explains itself; undifferentiated rows get bulk-approved unread. */
+  exceptions: ExceptionCode[]
+  agingDays: number
+  stalled: boolean
+}
+
 export interface DailySummaryRow {
   employee: EmployeeRef
   status: AttendanceStatus

@@ -4,6 +4,8 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
 import {
+  approveAttendanceHandler,
+  bulkDecideHandler,
   checkInHandler,
   checkOutHandler,
   createHolidayHandler,
@@ -13,7 +15,9 @@ import {
   getMonthlySummaryHandler,
   getMyAttendanceHandler,
   getTodayHandler,
+  listApprovalsHandler,
   listHolidaysHandler,
+  rejectAttendanceHandler,
   updateHolidayHandler,
 } from "./attendance.controller"
 
@@ -51,6 +55,17 @@ router.get("/history/:employeeId", requireAuth, getEmployeeAttendanceHandler)
 // response rather than a 403, so the route shape stays uniform.
 router.get("/summary/daily", requireAuth, getDailySummaryHandler)
 router.get("/summary/monthly", requireAuth, getMonthlySummaryHandler)
+
+// Declared before the /:id routes for clarity. They do not actually
+// collide — /:id/approve cannot match /approvals/bulk — but relying on that
+// is a trap for the next person to add a route here.
+router.patch("/approvals/bulk", requireAuth, requireRole(...APPROVER_ROLES), bulkDecideHandler)
+router.get("/approvals", requireAuth, requireRole(...APPROVER_ROLES), listApprovalsHandler)
+
+// Role alone is not enough: entitlement is re-checked per record in the
+// service, because a manager may only decide their own reports.
+router.patch("/:id/approve", requireAuth, requireRole(...APPROVER_ROLES), approveAttendanceHandler)
+router.patch("/:id/reject", requireAuth, requireRole(...APPROVER_ROLES), rejectAttendanceHandler)
 
 // Everyone reads the calendar; only HR writes it.
 router.get("/holidays", requireAuth, listHolidaysHandler)

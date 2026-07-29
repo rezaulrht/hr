@@ -11,6 +11,7 @@ import prisma from "../../config/prisma"
 import type { Attendance, Prisma, Shift } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { formatDateOnly } from "../../utils/dates"
+import { settleApproval } from "./attendance.approval"
 import { auditAttendance } from "./attendance.audit"
 import { resolveShift, shiftInfo } from "./attendance.grid"
 import { requireEmployeeForUser } from "./attendance.service"
@@ -183,5 +184,9 @@ export async function checkOut(userId: string): Promise<PunchResult> {
     return updated
   })
 
-  return describe(row, shift)
+  // The record is only complete now, so this is the moment its content can
+  // decide whether a human needs to look at it.
+  const approval = await settleApproval(row.id, employee.id, open.date, shift)
+
+  return describe({ ...row, approval }, shift)
 }

@@ -8,7 +8,9 @@ vi.mock("../../config/prisma", () => {
   return {
     default: {
       employee: { findUnique: vi.fn() },
-      attendance: { findFirst: vi.fn() },
+      // findUnique is used by settleApproval, which check-out invokes once
+      // the record is complete.
+      attendance: { findFirst: vi.fn(), findUnique: vi.fn() },
       holiday: { findMany: vi.fn() },
       leaveRequest: { findFirst: vi.fn() },
       shift: { findMany: vi.fn() },
@@ -87,6 +89,9 @@ beforeEach(() => {
   vi.mocked(prisma.holiday.findMany).mockResolvedValue([])
   vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
   tx.attendanceAudit.create.mockResolvedValue({})
+  // Read back by settleApproval after check-out writes. The approval
+  // outcome itself is covered in attendance.approval.test.ts.
+  vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row() as never)
 })
 
 afterEach(() => {
