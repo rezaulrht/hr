@@ -11,6 +11,7 @@ import {
   listHolidays,
   updateHoliday,
 } from "./attendance.holidays"
+import { checkIn, checkOut } from "./attendance.punch"
 import { getDailySummary, getMonthlySummary } from "./attendance.summary"
 import {
   dailyQuerySchema,
@@ -31,6 +32,23 @@ type RequestWithId = Request<{ id: string }>
 export async function getTodayHandler(req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await getToday(req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function checkInHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    // No body is read at all — the server owns the time.
+    return res.status(201).json(await checkIn(req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function checkOutHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await checkOut(req.user!.sub))
   } catch (err) {
     return next(err)
   }

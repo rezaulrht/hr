@@ -122,6 +122,29 @@ export interface TodayAttendance {
   detail: string | null
 }
 
+/**
+ * A punch, plus the derived context the card needs to explain itself —
+ * "you're working a holiday", "you have approved leave today" — without a
+ * second round trip.
+ */
+export interface PunchResult {
+  attendanceId: string
+  date: string
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval
+  status: AttendanceStatus
+  isHoliday: boolean
+  holidayName: string | null
+  isWeeklyOff: boolean
+  onApprovedLeave: boolean
+  leaveTypeName: string | null
+  shift: ShiftInfo
+}
+
 export interface DailySummaryRow {
   employee: EmployeeRef
   status: AttendanceStatus

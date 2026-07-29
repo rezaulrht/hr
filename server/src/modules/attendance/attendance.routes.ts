@@ -4,6 +4,8 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
 import {
+  checkInHandler,
+  checkOutHandler,
   createHolidayHandler,
   deleteHolidayHandler,
   getDailySummaryHandler,
@@ -29,6 +31,11 @@ export const APPROVER_ROLES = [
 
 /** Roles that can correct a record or manage the holiday calendar. */
 export const HR_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
+
+// Neither punch route reads a body: a client-supplied time is spoofable and
+// wrong the moment somebody opens the app from another timezone.
+router.post("/check-in", requireAuth, requireRole(...STAFF_ROLES), checkInHandler)
+router.post("/check-out", requireAuth, requireRole(...STAFF_ROLES), checkOutHandler)
 
 router.get("/today", requireAuth, requireRole(...STAFF_ROLES), getTodayHandler)
 router.get("/me", requireAuth, requireRole(...STAFF_ROLES), getMyAttendanceHandler)
