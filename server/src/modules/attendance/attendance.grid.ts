@@ -274,6 +274,8 @@ export function resolveGrid(
         status,
         isWorkingDay,
         isOffDay,
+        isHoliday,
+        isWeeklyOff,
         checkIn: row?.checkIn?.toISOString() ?? null,
         checkOut: row?.checkOut?.toISOString() ?? null,
         workedHours: row?.workedHours ?? null,

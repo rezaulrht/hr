@@ -5,7 +5,12 @@ import {
   getMyAttendance,
   getToday,
 } from "./attendance.service"
-import { dateRangeQuerySchema } from "./attendance.validators"
+import { getDailySummary, getMonthlySummary } from "./attendance.summary"
+import {
+  dailyQuerySchema,
+  dateRangeQuerySchema,
+  monthQuerySchema,
+} from "./attendance.validators"
 
 /**
  * `:employeeId` is a plain named param, so it is always a single string,
@@ -39,6 +44,24 @@ export async function getEmployeeAttendanceHandler(
     const { from, to } = dateRangeQuerySchema.parse(req.query)
     const days = await getEmployeeAttendance(req.user!, req.params.employeeId, from, to)
     return res.status(200).json(days)
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getDailySummaryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { date } = dailyQuerySchema.parse(req.query)
+    return res.status(200).json(await getDailySummary(req.user!, date))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getMonthlySummaryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { month, year } = monthQuerySchema.parse(req.query)
+    return res.status(200).json(await getMonthlySummary(req.user!, month, year))
   } catch (err) {
     return next(err)
   }

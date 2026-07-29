@@ -4,7 +4,9 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import { Role } from "../../generated/prisma/client"
 import {
+  getDailySummaryHandler,
   getEmployeeAttendanceHandler,
+  getMonthlySummaryHandler,
   getMyAttendanceHandler,
   getTodayHandler,
 } from "./attendance.controller"
@@ -33,5 +35,10 @@ router.get("/me", requireAuth, requireRole(...STAFF_ROLES), getMyAttendanceHandl
 // Only requireAuth here: visibility is scoped inside the service, because
 // the rule differs per role rather than per route.
 router.get("/history/:employeeId", requireAuth, getEmployeeAttendanceHandler)
+
+// Rosters are scoped in the service too. An employee gets a one-row
+// response rather than a 403, so the route shape stays uniform.
+router.get("/summary/daily", requireAuth, getDailySummaryHandler)
+router.get("/summary/monthly", requireAuth, getMonthlySummaryHandler)
 
 export default router

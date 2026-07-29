@@ -52,6 +52,13 @@ export interface AttendanceDay {
   isWorkingDay: boolean
   /** A holiday or weekly off, regardless of whether it was worked. */
   isOffDay: boolean
+  /**
+   * Why it is an off day. Kept explicit rather than inferred from `detail`,
+   * which also carries leave-type names — leave taken on a Friday would
+   * otherwise be miscounted as a holiday.
+   */
+  isHoliday: boolean
+  isWeeklyOff: boolean
   /** ISO instants, or null when nobody punched. */
   checkIn: string | null
   checkOut: string | null
