@@ -2,6 +2,9 @@ import { Tag } from "@/components/dashboard/tag"
 import type { SubpageData, TableCell } from "@/components/dashboard/types"
 
 function Cell({ cell }: { cell: TableCell }) {
+  if (cell.node) {
+    return <div className="border-b border-[#EEF1F5] py-3">{cell.node}</div>
+  }
   if (cell.tag) {
     return (
       <div className="border-b border-[#EEF1F5] py-3">

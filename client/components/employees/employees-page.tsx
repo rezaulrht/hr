@@ -7,6 +7,7 @@ import { createStaffAccount, listEmployees } from "@/lib/api/employees"
 import { listDepartments } from "@/lib/api/departments"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
+import { parseDateString, toDateString } from "@/lib/utils"
 import type { CreateStaffAccountInput, CreateStaffAccountResult, Department, Employee } from "@/lib/api/types"
 import { DataTable } from "@/components/dashboard/data-table"
 import { MiniStat } from "@/components/dashboard/page-header"
@@ -75,7 +76,7 @@ const STAFF_ROLES: { value: CreateStaffAccountInput["role"]; label: string }[] =
 ]
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toDateString(new Date())
 }
 
 export function EmployeesPage() {
@@ -260,8 +261,8 @@ export function EmployeesPage() {
                 <PopoverContent className="w-auto p-0">
                   <Calendar
                     mode="single"
-                    selected={new Date(joiningDate)}
-                    onSelect={(d) => d && setJoiningDate(d.toISOString().slice(0, 10))}
+                    selected={parseDateString(joiningDate)}
+                    onSelect={(d) => d && setJoiningDate(toDateString(d))}
                   />
                 </PopoverContent>
               </Popover>

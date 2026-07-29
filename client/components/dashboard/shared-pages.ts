@@ -27,28 +27,6 @@ export const attendance: SubpageData = {
   ],
 }
 
-export const leave: SubpageData = {
-  kicker: "Workspace",
-  title: "Leave",
-  sub: "Balances, requests, and team calendar",
-  cta: "Request leave",
-  stats: [
-    { label: "Balance", value: "14 days", sub: "9 annual · 5 sick" },
-    { label: "Pending requests", value: "1", sub: "Aug 10 – Aug 14, awaiting manager" },
-    { label: "Taken YTD", value: "6 days", sub: "4 annual · 2 sick" },
-  ],
-  tableTitle: "Leave history",
-  cols: "1fr 1.3fr 0.7fr 1.1fr 0.9fr",
-  headers: ["Type", "Dates", "Days", "Approver", "Status"],
-  rows: [
-    [{ text: "Annual", weight: 600 }, { text: "Aug 10 – Aug 14" }, { text: "5" }, { text: "Daniel Kim" }, { tag: "Pending", tone: "yellow" }],
-    [{ text: "Sick", weight: 600 }, { text: "Jul 22" }, { text: "1" }, { text: "Auto-approved" }, { tag: "Approved", tone: "green" }],
-    [{ text: "Sick", weight: 600 }, { text: "Jul 30" }, { text: "1" }, { text: "Daniel Kim" }, { tag: "Rejected", tone: "red" }],
-    [{ text: "Annual", weight: 600 }, { text: "May 5 – May 8" }, { text: "4" }, { text: "Daniel Kim" }, { tag: "Approved", tone: "green" }],
-    [{ text: "Personal", weight: 600 }, { text: "Mar 14" }, { text: "1" }, { text: "Daniel Kim" }, { tag: "Approved", tone: "green" }],
-  ],
-}
-
 export const payroll: SubpageData = {
   kicker: "Workspace",
   title: "Payroll",

@@ -1,10 +1,14 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
+import { RiLoader4Line, RiLogoutBoxRLine } from "@remixicon/react"
 
 import { cn } from "@/lib/utils"
 import { icons } from "@/components/dashboard/icons"
+import { useSession } from "@/lib/auth/session-context"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import type { NavGroup } from "@/components/dashboard/types"
@@ -23,6 +27,25 @@ export function Sidebar({
   roleLabel: string
 }) {
   const pathname = usePathname()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { clearSession } = useSession()
+  const [signingOut, setSigningOut] = useState(false)
+
+  async function handleSignOut() {
+    if (signingOut) return
+    setSigningOut(true)
+    // clearSession revokes the refresh token and drops the in-memory access
+    // token; it swallows network errors so a failed call still logs you out
+    // locally rather than trapping you in the dashboard.
+    await clearSession()
+    // Wipe cached rows too. Query keys like ["leave-requests"] aren't
+    // per-user, so without this the next person to sign in on this browser
+    // would briefly see the previous user's data before the refetch lands.
+    queryClient.clear()
+    // replace, not push — the dashboard must not come back via the back button.
+    router.replace("/login")
+  }
 
   return (
     <aside className="flex w-[236px] shrink-0 flex-col bg-linear-to-b from-[#17191C] to-[#0B0D0F] px-3 pt-[18px] pb-3.5 text-white">
@@ -77,12 +100,26 @@ export function Sidebar({
         <Avatar className="shrink-0">
           <AvatarFallback className="bg-[#9AA3AD] text-xs font-bold text-[#101214]">{userInitials}</AvatarFallback>
         </Avatar>
-        <div className="min-w-0 leading-tight">
+        <div className="min-w-0 flex-1 leading-tight">
           <div className="overflow-hidden text-[12.5px] font-semibold text-ellipsis whitespace-nowrap">
             {userName}
           </div>
           <div className="text-[10.5px] text-white/55">{roleLabel}</div>
         </div>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          title="Sign out"
+          aria-label="Sign out"
+          className="grid size-7 shrink-0 place-items-center rounded text-white/55 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        >
+          {signingOut ? (
+            <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <RiLogoutBoxRLine className="size-4" aria-hidden="true" />
+          )}
+        </button>
       </div>
     </aside>
   )

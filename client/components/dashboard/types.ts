@@ -1,3 +1,5 @@
+import type { ReactNode } from "react"
+
 import type { IconName } from "@/components/dashboard/icons"
 
 export type Tone = "green" | "yellow" | "red" | "neutral"
@@ -35,6 +37,8 @@ export type TableCell = {
   weight?: number
   tag?: string
   tone?: Tone
+  /** Rendered instead of text/tag — the escape hatch for per-row action buttons. */
+  node?: ReactNode
 }
 
 export type SubpageData = {

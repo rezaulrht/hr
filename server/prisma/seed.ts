@@ -1,6 +1,6 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { PrismaClient, Role } from "../src/generated/prisma"
+import { PrismaClient, Role, type EmploymentType } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
@@ -17,6 +17,61 @@ async function seedAdminUser(email: string, role: Role) {
   })
 }
 
+/**
+ * Demo staff account with an Employee profile. Unlike the administrative
+ * logins, these roles hold leave of their own, so leave can't be exercised
+ * without them.
+ *
+ * Staff sign in with their employee code, never their email, so the code is
+ * the credential that matters here — hence the readable `BS-EMP-DEMO` rather
+ * than a serial. The IdCounter only ever emits zero-padded digits, so a
+ * `DEMO` suffix can never collide with a real hire's generated code.
+ */
+async function seedStaffAccount(input: {
+  email: string
+  role: Extract<Role, "EMPLOYEE" | "REPORTING_MANAGER">
+  employeeCode: string
+  fullName: string
+  designation: string
+  departmentName: string
+  reportingManagerId?: string
+}) {
+  const passwordHash = await hashPassword(SEED_PASSWORD)
+  const user = await prisma.user.upsert({
+    where: { email: input.email },
+    update: {},
+    create: { email: input.email, passwordHash, role: input.role, mustChangePassword: false },
+  })
+
+  const department = await prisma.department.findUniqueOrThrow({
+    where: { name: input.departmentName },
+  })
+
+  const employee = await prisma.employee.upsert({
+    where: { userId: user.id },
+    // Keep the sign-in code and the reporting line current. Without
+    // employeeCode here, a demo account seeded under an older code would keep
+    // it forever and the documented login would simply not work.
+    update: {
+      employeeCode: input.employeeCode,
+      reportingManagerId: input.reportingManagerId ?? null,
+    },
+    create: {
+      userId: user.id,
+      employeeCode: input.employeeCode,
+      fullName: input.fullName,
+      designation: input.designation,
+      departmentId: department.id,
+      employmentType: "FULL_TIME",
+      // A prior-year joining date means a full, un-pro-rated entitlement.
+      joiningDate: new Date(Date.UTC(new Date().getUTCFullYear() - 1, 0, 6)),
+      reportingManagerId: input.reportingManagerId,
+    },
+  })
+
+  return employee
+}
+
 async function main() {
   await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
@@ -28,24 +83,62 @@ async function main() {
   }
 
   const leaveTypes = [
-    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50 },
-    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0 },
-    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0 },
+    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50, allowsBackdating: false },
+    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0, allowsBackdating: true },
+    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0, allowsBackdating: false },
+    // Zero-quota unpaid type: the fallback when an annual allowance is spent.
+    { name: "Leave Without Pay", isPaid: false, annualQuota: 0, carryForwardPct: 0, allowsBackdating: false },
   ] as const
 
   for (const leaveType of leaveTypes) {
+    const eligibleFor: EmploymentType[] =
+      leaveType.name === "Leave Without Pay"
+        ? ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]
+        : ["FULL_TIME", "PART_TIME", "CONTRACT"]
+
     await prisma.leaveType.upsert({
       where: { name: leaveType.name },
-      update: {},
-      create: { ...leaveType, eligibleFor: ["FULL_TIME", "PART_TIME", "CONTRACT"] },
+      // Not `{}` — an empty update makes re-seeding silently skip rows that
+      // already exist, so new fields would never reach them.
+      update: {
+        isPaid: leaveType.isPaid,
+        annualQuota: leaveType.annualQuota,
+        carryForwardPct: leaveType.carryForwardPct,
+        allowsBackdating: leaveType.allowsBackdating,
+      },
+      create: { ...leaveType, eligibleFor },
     })
   }
 
-  console.log("Seed complete. Administrative logins (all password: Demo@12345):")
-  console.log("  Super Admin:     admin@demo.com")
-  console.log("  HR Admin:        hr@demo.com")
-  console.log("  Finance Officer: finance@demo.com")
-  console.log("Staff accounts are created via POST /api/employees/staff, not seeded.")
+  // The manager must exist first — the employee's reporting line points at it.
+  const manager = await seedStaffAccount({
+    email: "manager@demo.com",
+    role: Role.REPORTING_MANAGER,
+    employeeCode: "BS-MNG-DEMO",
+    fullName: "Daniel Kim",
+    designation: "Engineering Manager",
+    departmentName: "Engineering",
+  })
+
+  await seedStaffAccount({
+    email: "employee@demo.com",
+    role: Role.EMPLOYEE,
+    employeeCode: "BS-EMP-DEMO",
+    fullName: "Ayesha Rahman",
+    designation: "Software Engineer",
+    departmentName: "Engineering",
+    reportingManagerId: manager.id,
+  })
+
+  console.log("Seed complete. All demo logins use the password: Demo@12345\n")
+  console.log("Administrative roles sign in with an EMAIL:")
+  console.log("  Super Admin:        admin@demo.com")
+  console.log("  HR Admin:           hr@demo.com")
+  console.log("  Finance Officer:    finance@demo.com\n")
+  console.log("Staff roles sign in with an EMPLOYEE ID (email is not accepted):")
+  console.log("  Reporting Manager:  BS-MNG-DEMO   Daniel Kim")
+  console.log("  Employee:           BS-EMP-DEMO   Ayesha Rahman, reports to Daniel Kim\n")
+  console.log("Additional staff accounts are created via POST /api/employees/staff.")
 }
 
 main()
