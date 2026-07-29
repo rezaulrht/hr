@@ -1,9 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { applyForLeave } from "@/lib/api/leave"
+import { listHolidays } from "@/lib/api/attendance"
 import { ApiError } from "@/lib/api/client"
 import type { LeaveBalanceItem, LeaveType } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
@@ -25,7 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { countWorkingDays, isWeeklyOff, parseDateString, toDateString } from "@/lib/utils"
+import {
+  countLeaveDays,
+  EMPTY_LEAVE_CALENDAR,
+  isNonWorkingDay,
+  parseDateString,
+  toDateString,
+  type LeaveCalendar,
+} from "@/lib/utils"
 
 /** Mirrors MAX_BACKDATE_DAYS on the server. */
 const MAX_BACKDATE_DAYS = 30
@@ -69,26 +77,56 @@ export function ApplyLeaveDialog({
   // Unpaid, zero-quota types have no balance to run down, so no warning applies.
   const isUnpaidType = !!selectedType && !selectedType.isPaid && selectedType.annualQuota === 0
 
+  // §117: earned and maternity leave are charged in calendar days, so a
+  // holiday inside the range is a day of leave rather than a day that
+  // vanishes. Casual and sick are the other way round.
+  const countsHolidays = !!selectedType?.countsHolidays
+
+  // The gazetted calendar, so the preview charges what the server will. A
+  // preview that quietly disagrees is worse than none: the employee reads
+  // "2 days", the balance drops by 3, and nothing on screen explains it.
+  const thisYear = new Date().getFullYear()
+  const holidaysQuery = useQuery({
+    queryKey: ["holidays", thisYear],
+    queryFn: () => listHolidays(accessToken, thisYear),
+    enabled: open,
+  })
+
+  const calendar: LeaveCalendar = useMemo(() => {
+    if (!holidaysQuery.data) return EMPTY_LEAVE_CALENDAR
+    const built: LeaveCalendar = { holidayDates: new Set(), workingOverrides: new Set() }
+    for (const holiday of holidaysQuery.data) {
+      if (holiday.type === "WORKING_DAY") built.workingOverrides.add(holiday.date)
+      else built.holidayDates.add(holiday.date)
+    }
+    return built
+  }, [holidaysQuery.data])
+
   const earliestSelectable = useMemo(() => {
     const today = startOfToday()
     if (selectedType?.allowsBackdating) return addDays(today, -MAX_BACKDATE_DAYS)
     return today
   }, [selectedType])
 
-  /** Fridays are never selectable; past dates only for backdating-enabled types. */
+  /**
+   * Past dates are selectable only for backdating-enabled types. Days off are
+   * blocked only for types that would not charge them — blocking them for
+   * earned or maternity leave would make a 120-day range impossible to pick.
+   */
   const isDateDisabled = (date: Date) =>
-    isWeeklyOff(date) || date.getTime() < earliestSelectable.getTime()
+    (!countsHolidays && isNonWorkingDay(date, calendar)) ||
+    date.getTime() < earliestSelectable.getTime()
 
-  const workingDays = useMemo(() => {
+  const chargedDays = useMemo(() => {
     if (!startDate || !endDate) return null
     const start = parseDateString(startDate)
     const end = parseDateString(endDate)
     if (end.getTime() < start.getTime()) return null
-    return countWorkingDays(start, end)
-  }, [startDate, endDate])
+    return countLeaveDays(start, end, { countsHolidays, calendar })
+  }, [startDate, endDate, countsHolidays, calendar])
 
   const exceedsBalance =
-    workingDays !== null && !isUnpaidType && !!selectedBalance && workingDays > selectedBalance.balance
+    chargedDays !== null && !isUnpaidType && !!selectedBalance && chargedDays > selectedBalance.balance
 
   const applyMutation = useMutation({
     mutationFn: () =>
@@ -239,10 +277,15 @@ export function ApplyLeaveDialog({
             </div>
           </div>
 
-          {workingDays !== null ? (
+          {chargedDays !== null ? (
             <div className="space-y-1">
               <p className="text-[13px] font-semibold">
-                {workingDays} working day{workingDays === 1 ? "" : "s"} (Fridays excluded)
+                {chargedDays} day{chargedDays === 1 ? "" : "s"}{" "}
+                <span className="font-normal text-[#7A8698]">
+                  {countsHolidays
+                    ? "(holidays inside the period count as leave)"
+                    : "(weekly and public holidays excluded)"}
+                </span>
               </p>
               {exceedsBalance ? (
                 <p className="text-[12.5px] font-semibold text-[#9A6B10]">

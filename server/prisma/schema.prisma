@@ -138,8 +138,31 @@ model Document {
 }
 
 // ── LEAVE ─────────────────────────────────────
+
+// How a type's entitlement is arrived at. The Bangladesh Labour Act 2006 does
+// not use one rule for all leave: casual and sick are flat annual grants,
+// earned leave is bought with days actually worked, and maternity is granted
+// per occasion rather than per year.
+enum LeaveAccrualBasis {
+  // `annualQuota`, pro-rated across the joining year.
+  PRO_RATED
+  // `annualQuota` in full, per occasion. Never pro-rated — a §46 maternity
+  // benefit is not smaller because the employee joined in October.
+  PER_EVENT
+  // §117: one day for every `EARNED_LEAVE_DAYS_PER_DAY` days actually worked
+  // in the preceding twelve months, capped at `maxAccrual`, and nothing at
+  // all until `minServiceMonths` of continuous service.
+  EARNED
+  // Zero-quota unpaid. There is no balance to run down.
+  NONE
+}
+
 model LeaveType {
   id              String           @id @default(uuid())
+  // Stable machine key. Every policy rule below is looked up by code, never
+  // by `name` — HR renaming "Casual" to "Casual Leave" must not silently
+  // switch off the §115 holiday rule attached to it.
+  code            String           @unique
   name            String           @unique
   isPaid          Boolean          @default(true)
   annualQuota     Int
@@ -148,6 +171,22 @@ model LeaveType {
   // Sick leave is filed after the fact — you can't schedule getting ill.
   allowsBackdating Boolean         @default(false)
   eligibleFor     EmploymentType[]
+
+  // Granted by the Act rather than by company policy. The seed only rewrites
+  // rows where this is true, so a future statutory amendment can never
+  // overwrite a benefit the company chose to give on top.
+  statutory        Boolean           @default(false)
+  // §117(3) counts holidays falling inside earned leave as leave; §115 and
+  // §116 do not, for casual and sick. So this is a per-type flag, not one
+  // global rule — the same Thu–Sat range charges 3 days as earned leave and
+  // 2 as casual.
+  countsHolidays   Boolean           @default(false)
+  accrualBasis     LeaveAccrualBasis @default(PRO_RATED)
+  // §117 needs one year of continuous service; §46 maternity needs six months.
+  minServiceMonths Int               @default(0)
+  // Ceiling on accumulated earned leave (§117: 60 days). Null means no cap.
+  maxAccrual       Int?
+
   leaveRequests   LeaveRequest[]
   leaveBalances   LeaveBalance[]
 }

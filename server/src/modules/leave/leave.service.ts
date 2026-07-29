@@ -1,7 +1,18 @@
 import prisma from "../../config/prisma"
-import type { Employee } from "../../generated/prisma/client"
+import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import type { AccessTokenPayload } from "../auth/auth.types"
+import {
+  computeEarnedAccrual,
+  completedServiceMonths,
+  type AccrualEmployee,
+  type EarnedAccrual,
+} from "./leave.accrual"
+import {
+  loadCalendarForYear,
+  loadCalendarSpanning,
+  loadLeaveCalendar,
+} from "./leave.calendar"
 import {
   addDays,
   calendarSpan,
@@ -10,8 +21,11 @@ import {
   MAX_BACKDATE_DAYS,
   parseDateOnly,
   todayUtc,
+  type LeaveCalendar,
 } from "./leave.dates"
+import { EARNED_LEAVE_DAYS_PER_DAY } from "./leave.policy"
 import type {
+  AccrualDetail,
   ApplyLeaveInput,
   DecidedBy,
   LeaveBalanceItem,
@@ -20,6 +34,15 @@ import type {
   TeamMemberStatus,
   TeamStatus,
 } from "./leave.types"
+
+/** Everything the balance maths needs about an employee. */
+export type BalanceEmployee = Pick<Employee, "employmentType"> & AccrualEmployee
+
+/** The policy fields that decide how a type is counted and entitled. */
+type PolicyType = Pick<
+  LeaveType,
+  "annualQuota" | "accrualBasis" | "minServiceMonths" | "maxAccrual" | "countsHolidays"
+>
 
 /**
  * Annual entitlement, pro-rated across the joining year. A November hire
@@ -34,6 +57,33 @@ export function computeEntitlement(annualQuota: number, joiningDate: Date, year:
 }
 
 /**
+ * Entitlement for one type in one year, dispatched on its accrual basis.
+ *
+ * `accrual` is passed in rather than computed here because deriving it costs
+ * a day-grid build over twelve months — worth doing once per employee, not
+ * once per leave type.
+ */
+export function entitlementFor(
+  leaveType: PolicyType,
+  employee: Pick<Employee, "joiningDate">,
+  year: number,
+  accrual: EarnedAccrual | null
+): number {
+  switch (leaveType.accrualBasis) {
+    case "NONE":
+      return 0
+    // Per occasion, never pro-rated: a §46 maternity benefit is not smaller
+    // because the employee joined in October.
+    case "PER_EVENT":
+      return leaveType.annualQuota
+    case "EARNED":
+      return accrual?.days ?? 0
+    default:
+      return computeEntitlement(leaveType.annualQuota, employee.joiningDate, year)
+  }
+}
+
+/**
  * Unpaid leave is modelled as a zero-quota unpaid type rather than a schema
  * flag — these skip balance checks entirely, so an employee whose annual
  * allowance is spent still has a way to take time off.
@@ -42,11 +92,32 @@ export function isUnpaidType(leaveType: { isPaid: boolean; annualQuota: number }
   return !leaveType.isPaid && leaveType.annualQuota === 0
 }
 
+/**
+ * Where to measure accrual from for a given leave year: today, or the end of
+ * that year if it is already over. Asking for 2025's balance in 2026 must not
+ * keep accruing 2026's work into it.
+ */
+function accrualAsOf(year: number): Date {
+  const today = todayUtc()
+  const yearEnd = new Date(Date.UTC(year, 11, 31))
+  return today.getTime() < yearEnd.getTime() ? today : yearEnd
+}
+
+const toAccrualDetail = (accrual: EarnedAccrual, minServiceMonths: number): AccrualDetail => ({
+  daysWorked: accrual.daysWorked,
+  perDaysWorked: EARNED_LEAVE_DAYS_PER_DAY,
+  windowStart: accrual.windowStart,
+  windowEnd: accrual.windowEnd,
+  untrackedDays: accrual.untrackedDays,
+  eligible: accrual.eligible,
+  minServiceMonths,
+})
+
 export async function getBalancesForEmployee(
-  employee: Pick<Employee, "id" | "employmentType" | "joiningDate">,
+  employee: BalanceEmployee,
   year: number
 ): Promise<LeaveBalanceItem[]> {
-  const [leaveTypes, requests] = await Promise.all([
+  const [leaveTypes, requests, calendar] = await Promise.all([
     prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
     prisma.leaveRequest.findMany({
       where: {
@@ -59,38 +130,63 @@ export async function getBalancesForEmployee(
       },
       select: { leaveTypeId: true, status: true, startDate: true, endDate: true },
     }),
+    loadCalendarForYear(year),
   ])
 
-  return leaveTypes
-    .filter((lt) => lt.eligibleFor.includes(employee.employmentType))
-    .map((lt) => {
-      const mine = requests.filter((r) => r.leaveTypeId === lt.id)
-      const sum = (status: string) =>
-        mine
-          .filter((r) => r.status === status)
-          .reduce((total, r) => total + countLeaveDays(r.startDate, r.endDate), 0)
+  const eligible = leaveTypes.filter((lt) => lt.eligibleFor.includes(employee.employmentType))
 
-      const used = sum("APPROVED")
-      const pending = sum("PENDING")
-      const entitlement = computeEntitlement(lt.annualQuota, employee.joiningDate, year)
+  // At most one day-grid build, and only when an accrual type is actually on
+  // offer — every other type answers from the quota alone.
+  const earnedType = eligible.find((lt) => lt.accrualBasis === "EARNED")
+  const accrual = earnedType
+    ? await computeEarnedAccrual(employee, accrualAsOf(year), {
+        minServiceMonths: earnedType.minServiceMonths,
+        maxAccrual: earnedType.maxAccrual,
+      })
+    : null
 
-      return {
-        leaveTypeId: lt.id,
-        name: lt.name,
-        isPaid: lt.isPaid,
-        annualQuota: lt.annualQuota,
-        entitlement,
-        used,
-        pending,
-        balance: entitlement - used - pending,
-      }
-    })
+  return eligible.map((lt) => {
+    const mine = requests.filter((r) => r.leaveTypeId === lt.id)
+    const sum = (status: string) =>
+      mine
+        .filter((r) => r.status === status)
+        .reduce(
+          (total, r) =>
+            total +
+            countLeaveDays(r.startDate, r.endDate, {
+              countsHolidays: lt.countsHolidays,
+              calendar,
+            }),
+          0
+        )
+
+    const used = sum("APPROVED")
+    const pending = sum("PENDING")
+    const entitlement = entitlementFor(lt, employee, year, accrual)
+
+    return {
+      leaveTypeId: lt.id,
+      code: lt.code,
+      name: lt.name,
+      isPaid: lt.isPaid,
+      annualQuota: lt.annualQuota,
+      entitlement,
+      used,
+      pending,
+      balance: entitlement - used - pending,
+      accrual:
+        lt.accrualBasis === "EARNED" && accrual
+          ? toAccrualDetail(accrual, lt.minServiceMonths)
+          : null,
+    }
+  })
 }
 
 export async function listLeaveTypes(): Promise<LeaveTypeItem[]> {
   const types = await prisma.leaveType.findMany({ orderBy: { name: "asc" } })
   return types.map((t) => ({
     id: t.id,
+    code: t.code,
     name: t.name,
     isPaid: t.isPaid,
     annualQuota: t.annualQuota,
@@ -98,6 +194,11 @@ export async function listLeaveTypes(): Promise<LeaveTypeItem[]> {
     maxConsecutive: t.maxConsecutive,
     allowsBackdating: t.allowsBackdating,
     eligibleFor: t.eligibleFor,
+    statutory: t.statutory,
+    countsHolidays: t.countsHolidays,
+    accrualBasis: t.accrualBasis,
+    minServiceMonths: t.minServiceMonths,
+    maxAccrual: t.maxAccrual,
   }))
 }
 
@@ -115,10 +216,34 @@ export async function getMyBalances(userId: string): Promise<LeaveBalanceItem[]>
   return getBalancesForEmployee(employee, new Date().getUTCFullYear())
 }
 
+// `countsHolidays` is selected but not returned: `days` is server-computed,
+// so the client never needs to know how a stored request was charged — only
+// how a type it is about to file against will be.
 const REQUEST_INCLUDE = {
   employee: { select: { id: true, fullName: true, employeeCode: true } },
-  leaveType: { select: { id: true, name: true, isPaid: true } },
+  leaveType: { select: { id: true, code: true, name: true, isPaid: true, countsHolidays: true } },
 } as const
+
+type IncludedRequest = {
+  startDate: Date
+  endDate: Date
+  leaveType: { id: string; code: string; name: string; isPaid: boolean; countsHolidays: boolean }
+}
+
+/** Charged days for a stored request, honouring its own type's holiday rule. */
+function chargedDays(request: IncludedRequest, calendar: LeaveCalendar): number {
+  return countLeaveDays(request.startDate, request.endDate, {
+    countsHolidays: request.leaveType.countsHolidays,
+    calendar,
+  })
+}
+
+const toLeaveTypeRef = (leaveType: IncludedRequest["leaveType"]) => ({
+  id: leaveType.id,
+  code: leaveType.code,
+  name: leaveType.name,
+  isPaid: leaveType.isPaid,
+})
 
 /**
  * `approvedBy` holds a user id. Resolve it to something displayable — a raw
@@ -155,17 +280,19 @@ export async function listLeaveRequests(actor: AccessTokenPayload): Promise<Leav
     orderBy: { createdAt: "desc" },
   })
 
-  const deciders = await resolveDeciders(
-    requests.map((r) => r.approvedBy).filter((id): id is string => !!id)
-  )
+  const [deciders, calendar] = await Promise.all([
+    resolveDeciders(requests.map((r) => r.approvedBy).filter((id): id is string => !!id)),
+    // One holiday query spanning every request on the page, not one per row.
+    loadCalendarSpanning(requests),
+  ])
 
   return requests.map((r) => ({
     id: r.id,
     employee: r.employee,
-    leaveType: r.leaveType,
+    leaveType: toLeaveTypeRef(r.leaveType),
     startDate: formatDateOnly(r.startDate),
     endDate: formatDateOnly(r.endDate),
-    days: countLeaveDays(r.startDate, r.endDate),
+    days: chargedDays(r, calendar),
     reason: r.reason,
     status: r.status,
     decidedBy: r.approvedBy ? (deciders.get(r.approvedBy) ?? null) : null,
@@ -269,13 +396,33 @@ export async function applyForLeave(
     }
   }
 
-  // 4. Must contain at least one working day
-  const days = countLeaveDays(start, end)
-  if (days === 0) {
-    throw new AppError(400, "That range contains no working days (Fridays are a weekly holiday)")
+  // 4. Continuous service. Earned leave needs a year of it (§117), maternity
+  // six months (§45) — measured at the leave start, not at filing, so a
+  // request that becomes valid before it begins is not refused today.
+  if (leaveType.minServiceMonths > 0) {
+    const served = completedServiceMonths(employee.joiningDate, start)
+    if (served < leaveType.minServiceMonths) {
+      throw new AppError(
+        400,
+        `${leaveType.name} leave needs ${leaveType.minServiceMonths} months of continuous service. You will have completed ${served} by ${input.startDate}.`
+      )
+    }
   }
 
-  // 5. Overlap with anything already live
+  // 5. Must charge at least one day
+  const calendar = await loadLeaveCalendar(start, end)
+  const days = countLeaveDays(start, end, {
+    countsHolidays: leaveType.countsHolidays,
+    calendar,
+  })
+  if (days === 0) {
+    throw new AppError(
+      400,
+      "That range is entirely weekly holidays and public holidays, so there is nothing to charge"
+    )
+  }
+
+  // 6. Overlap with anything already live
   const clash = await prisma.leaveRequest.findFirst({
     where: {
       employeeId: employee.id,
@@ -288,7 +435,7 @@ export async function applyForLeave(
     throw new AppError(400, "You already have a pending or approved request overlapping those dates")
   }
 
-  // 6. Eligibility
+  // 7. Eligibility
   if (!leaveType.eligibleFor.includes(employee.employmentType)) {
     throw new AppError(
       400,
@@ -296,7 +443,7 @@ export async function applyForLeave(
     )
   }
 
-  // 7. Max consecutive absence — measured in calendar days, because the policy
+  // 8. Max consecutive absence — measured in calendar days, because the policy
   // caps how long someone is away, not how much balance they burn.
   if (leaveType.maxConsecutive !== null && calendarSpan(start, end) > leaveType.maxConsecutive) {
     throw new AppError(
@@ -305,7 +452,7 @@ export async function applyForLeave(
     )
   }
 
-  // 8. Balance — pending counts here so requests can't be stacked past quota
+  // 9. Balance — pending counts here so requests can't be stacked past quota
   if (!isUnpaidType(leaveType)) {
     const balances = await getBalancesForEmployee(employee, start.getUTCFullYear())
     const balance = balances.find((b) => b.leaveTypeId === leaveType.id)
@@ -332,7 +479,7 @@ export async function applyForLeave(
   return {
     id: created.id,
     employee: created.employee,
-    leaveType: created.leaveType,
+    leaveType: toLeaveTypeRef(created.leaveType),
     startDate: formatDateOnly(created.startDate),
     endDate: formatDateOnly(created.endDate),
     days,
@@ -359,14 +506,17 @@ async function finishDecision(id: string): Promise<LeaveRequestItem> {
   const updated = await prisma.leaveRequest.findUnique({ where: { id }, include: REQUEST_INCLUDE })
   if (!updated) throw new AppError(404, "Leave request not found")
 
-  const deciders = await resolveDeciders(updated.approvedBy ? [updated.approvedBy] : [])
+  const [deciders, calendar] = await Promise.all([
+    resolveDeciders(updated.approvedBy ? [updated.approvedBy] : []),
+    loadLeaveCalendar(updated.startDate, updated.endDate),
+  ])
   return {
     id: updated.id,
     employee: updated.employee,
-    leaveType: updated.leaveType,
+    leaveType: toLeaveTypeRef(updated.leaveType),
     startDate: formatDateOnly(updated.startDate),
     endDate: formatDateOnly(updated.endDate),
-    days: countLeaveDays(updated.startDate, updated.endDate),
+    days: chargedDays(updated, calendar),
     reason: updated.reason,
     status: updated.status,
     decidedBy: updated.approvedBy ? (deciders.get(updated.approvedBy) ?? null) : null,
@@ -385,7 +535,11 @@ export async function approveLeaveRequest(
     throw new AppError(409, `This request is already ${found.status.toLowerCase()}`)
   }
 
-  const days = countLeaveDays(found.startDate, found.endDate)
+  const calendar = await loadLeaveCalendar(found.startDate, found.endDate)
+  const days = countLeaveDays(found.startDate, found.endDate, {
+    countsHolidays: found.leaveType.countsHolidays,
+    calendar,
+  })
 
   // Re-check against APPROVED requests only. State moves between filing and
   // approval — without this, two 5-day requests against a 5-day balance both

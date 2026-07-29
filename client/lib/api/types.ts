@@ -57,8 +57,12 @@ export interface CreateStaffAccountResult {
 export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"
 export type TeamStatus = "ACTIVE" | "ON_LEAVE" | "LEFT"
 
+export type LeaveAccrualBasis = "PRO_RATED" | "PER_EVENT" | "EARNED" | "NONE"
+
 export interface LeaveType {
   id: string
+  /** Stable machine key (CASUAL, SICK, EARNED, MATERNITY, LWP, …). */
+  code: string
   name: string
   isPaid: boolean
   annualQuota: number
@@ -66,6 +70,17 @@ export interface LeaveType {
   maxConsecutive: number | null
   allowsBackdating: boolean
   eligibleFor: EmploymentType[]
+  /** Granted by the Bangladesh Labour Act rather than by company policy. */
+  statutory: boolean
+  /**
+   * §117(3): holidays inside an earned-leave period are part of the leave, so
+   * the day-count preview must charge calendar days for these types and
+   * working days for every other one.
+   */
+  countsHolidays: boolean
+  accrualBasis: LeaveAccrualBasis
+  minServiceMonths: number
+  maxAccrual: number | null
 }
 
 export interface DecidedBy {
@@ -77,7 +92,7 @@ export interface DecidedBy {
 export interface LeaveRequestItem {
   id: string
   employee: { id: string; fullName: string; employeeCode: string }
-  leaveType: { id: string; name: string; isPaid: boolean }
+  leaveType: { id: string; code: string; name: string; isPaid: boolean }
   startDate: string
   endDate: string
   days: number
@@ -89,8 +104,21 @@ export interface LeaveRequestItem {
   createdAt: string
 }
 
+/** Where an earned-leave entitlement came from. Only on EARNED types. */
+export interface AccrualDetail {
+  daysWorked: number
+  perDaysWorked: number
+  windowStart: string
+  windowEnd: string
+  /** Days in the window that predate attendance tracking, so are unknown. */
+  untrackedDays: number
+  eligible: boolean
+  minServiceMonths: number
+}
+
 export interface LeaveBalanceItem {
   leaveTypeId: string
+  code: string
   name: string
   isPaid: boolean
   annualQuota: number
@@ -98,6 +126,7 @@ export interface LeaveBalanceItem {
   used: number
   pending: number
   balance: number
+  accrual: AccrualDetail | null
 }
 
 export interface TeamMemberStatus {

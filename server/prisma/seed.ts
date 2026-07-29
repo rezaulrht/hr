@@ -1,12 +1,8 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
-import {
-  PrismaClient,
-  Role,
-  type EmploymentType,
-  type HolidayType,
-} from "../src/generated/prisma/client"
+import { PrismaClient, Role, type HolidayType } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
+import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -167,31 +163,37 @@ async function main() {
     })
   }
 
-  const leaveTypes = [
-    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50, allowsBackdating: false },
-    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0, allowsBackdating: true },
-    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0, allowsBackdating: false },
-    // Zero-quota unpaid type: the fallback when an annual allowance is spent.
-    { name: "Leave Without Pay", isPaid: false, annualQuota: 0, carryForwardPct: 0, allowsBackdating: false },
-  ] as const
+  // The Bangladesh Labour Act catalogue. Upserted by `code`, never by name —
+  // the migration renamed the old "Annual" row to code EARNED, and matching
+  // on name would create a duplicate instead of finding it.
+  for (const leaveType of LEAVE_TYPE_CATALOGUE) {
+    const existing = await prisma.leaveType.findUnique({ where: { code: leaveType.code } })
 
-  for (const leaveType of leaveTypes) {
-    const eligibleFor: EmploymentType[] =
-      leaveType.name === "Leave Without Pay"
-        ? ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]
-        : ["FULL_TIME", "PART_TIME", "CONTRACT"]
+    // A benefit the company grants on top of the Act is left exactly as HR
+    // tuned it. Only the statutory rows are rewritten, so correcting a
+    // section number in leave.policy.ts can never quietly reduce someone's
+    // company-policy allowance back to a default.
+    if (existing && !leaveType.statutory) continue
 
     await prisma.leaveType.upsert({
-      where: { name: leaveType.name },
+      where: { code: leaveType.code },
       // Not `{}` — an empty update makes re-seeding silently skip rows that
       // already exist, so new fields would never reach them.
       update: {
+        name: leaveType.name,
         isPaid: leaveType.isPaid,
         annualQuota: leaveType.annualQuota,
         carryForwardPct: leaveType.carryForwardPct,
+        maxConsecutive: leaveType.maxConsecutive,
         allowsBackdating: leaveType.allowsBackdating,
+        eligibleFor: leaveType.eligibleFor,
+        statutory: leaveType.statutory,
+        countsHolidays: leaveType.countsHolidays,
+        accrualBasis: leaveType.accrualBasis,
+        minServiceMonths: leaveType.minServiceMonths,
+        maxAccrual: leaveType.maxAccrual,
       },
-      create: { ...leaveType, eligibleFor },
+      create: leaveType,
     })
   }
 

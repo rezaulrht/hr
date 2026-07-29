@@ -42,20 +42,26 @@ describe("GET /api/leave/types", () => {
     vi.mocked(leaveService.listLeaveTypes).mockResolvedValue([
       {
         id: "lt-1",
-        name: "Annual",
+        code: "CASUAL",
+        name: "Casual",
         isPaid: true,
-        annualQuota: 18,
-        carryForwardPct: 50,
+        annualQuota: 10,
+        carryForwardPct: 0,
         maxConsecutive: null,
         allowsBackdating: false,
         eligibleFor: ["FULL_TIME"],
+        statutory: true,
+        countsHolidays: false,
+        accrualBasis: "PRO_RATED",
+        minServiceMonths: 0,
+        maxAccrual: null,
       },
     ] as any)
     const res = await request(app)
       .get("/api/leave/types")
       .set("Authorization", `Bearer ${tokenFor("FINANCE_OFFICER")}`)
     expect(res.status).toBe(200)
-    expect(res.body[0].name).toBe("Annual")
+    expect(res.body[0].name).toBe("Casual")
   })
 })
 
@@ -76,20 +82,21 @@ describe("GET /api/leave/balances/me", () => {
     vi.mocked(leaveService.getMyBalances).mockResolvedValue([
       {
         leaveTypeId: "lt-1",
-        name: "Annual",
+        code: "CASUAL",
+        name: "Casual",
         isPaid: true,
-        annualQuota: 18,
-        entitlement: 18,
+        annualQuota: 10,
+        entitlement: 10,
         used: 3,
         pending: 2,
-        balance: 13,
+        balance: 5,
       },
-    ])
+    ] as any)
     const res = await request(app)
       .get("/api/leave/balances/me")
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
     expect(res.status).toBe(200)
-    expect(res.body[0].balance).toBe(13)
+    expect(res.body[0].balance).toBe(5)
   })
 })
 

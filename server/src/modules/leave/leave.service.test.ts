@@ -12,7 +12,18 @@ vi.mock("../../config/prisma", () => ({
     },
     employee: { findUnique: vi.fn(), findMany: vi.fn() },
     user: { findMany: vi.fn() },
+    // Day counting reads the gazetted calendar now, so every path that
+    // charges days touches this table.
+    holiday: { findMany: vi.fn() },
   },
+}))
+
+// Earned-leave accrual is derived from the attendance day grid. These tests
+// are about leave policy, not about attendance, so the grid is stubbed and
+// the accrual maths is exercised directly in leave.accrual.test.ts.
+vi.mock("../attendance/attendance.grid", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../attendance/attendance.grid")>()),
+  buildDayGrid: vi.fn(async () => new Map()),
 }))
 
 import prisma from "../../config/prisma"
@@ -22,6 +33,7 @@ import {
   approveLeaveRequest,
   cancelLeaveRequest,
   computeEntitlement,
+  entitlementFor,
   getBalancesForEmployee,
   getTeamStatus,
   isUnpaidType,
@@ -30,8 +42,22 @@ import {
   revertLeaveRequest,
 } from "./leave.service"
 
+/** Policy defaults for a plain pro-rated type, so fixtures stay readable. */
+const PRO_RATED = {
+  carryForwardPct: 0,
+  maxConsecutive: null,
+  statutory: true,
+  countsHolidays: false,
+  accrualBasis: "PRO_RATED" as const,
+  minServiceMonths: 0,
+  maxAccrual: null,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  // clearAllMocks drops resolved values too, so the calendar has to be
+  // re-armed or every day count awaits an undefined.
+  vi.mocked(prisma.holiday.findMany).mockResolvedValue([])
 })
 
 describe("computeEntitlement", () => {
@@ -65,17 +91,66 @@ describe("isUnpaidType", () => {
   })
 })
 
+describe("entitlementFor", () => {
+  const employee = { joiningDate: parseDateOnly("2026-11-10") }
+
+  it("pro-rates the joining year for a PRO_RATED type", () => {
+    expect(
+      entitlementFor({ ...PRO_RATED, annualQuota: 14, countsHolidays: false }, employee, 2026, null)
+    ).toBe(2)
+  })
+
+  it("never pro-rates a PER_EVENT type", () => {
+    // §46 maternity is not smaller because the employee joined in November.
+    expect(
+      entitlementFor(
+        { ...PRO_RATED, accrualBasis: "PER_EVENT", annualQuota: 120 },
+        employee,
+        2026,
+        null
+      )
+    ).toBe(120)
+  })
+
+  it("takes an EARNED type's entitlement from the accrual, not the quota", () => {
+    expect(
+      entitlementFor(
+        { ...PRO_RATED, accrualBasis: "EARNED", annualQuota: 0 },
+        employee,
+        2026,
+        { days: 7, daysWorked: 130, windowStart: "", windowEnd: "", untrackedDays: 0, eligible: true }
+      )
+    ).toBe(7)
+  })
+
+  it("gives a NONE type nothing, whatever its quota says", () => {
+    expect(
+      entitlementFor({ ...PRO_RATED, accrualBasis: "NONE", annualQuota: 99 }, employee, 2026, null)
+    ).toBe(0)
+  })
+})
+
 describe("getBalancesForEmployee", () => {
   const employee = {
     id: "emp-1",
     employmentType: "FULL_TIME",
     joiningDate: parseDateOnly("2020-01-01"),
+    employmentStatus: "ACTIVE",
+    shiftId: null,
+  }
+
+  const casual = {
+    id: "lt-1",
+    code: "CASUAL",
+    name: "Casual",
+    isPaid: true,
+    annualQuota: 10,
+    eligibleFor: ["FULL_TIME"],
+    ...PRO_RATED,
   }
 
   it("subtracts approved and pending days from the pro-rated entitlement", async () => {
-    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
-      { id: "lt-1", name: "Annual", isPaid: true, annualQuota: 18, eligibleFor: ["FULL_TIME"] },
-    ] as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
     vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
       {
         leaveTypeId: "lt-1",
@@ -96,21 +171,88 @@ describe("getBalancesForEmployee", () => {
     expect(result).toEqual([
       {
         leaveTypeId: "lt-1",
-        name: "Annual",
+        code: "CASUAL",
+        name: "Casual",
         isPaid: true,
-        annualQuota: 18,
-        entitlement: 18,
+        annualQuota: 10,
+        entitlement: 10,
         used: 3,
         pending: 2,
-        balance: 13,
+        balance: 5,
+        accrual: null,
       },
     ])
   })
 
+  it("does not charge a gazetted holiday to a type that excludes them", async () => {
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
+    // Wed 2026-08-05 is July Uprising Day, inside a Mon-Thu range.
+    vi.mocked(prisma.holiday.findMany).mockResolvedValue([
+      { date: parseDateOnly("2026-08-05"), type: "GENERAL" },
+    ] as any)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly("2026-08-03"),
+        endDate: parseDateOnly("2026-08-06"),
+      },
+    ] as any)
+
+    const result = await getBalancesForEmployee(employee as any, 2026)
+
+    expect(result[0].used).toBe(3)
+  })
+
+  it("charges the same holiday to an earned-leave request (§117)", async () => {
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
+      { ...casual, code: "EARNED", name: "Earned", countsHolidays: true },
+    ] as any)
+    vi.mocked(prisma.holiday.findMany).mockResolvedValue([
+      { date: parseDateOnly("2026-08-05"), type: "GENERAL" },
+    ] as any)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly("2026-08-03"),
+        endDate: parseDateOnly("2026-08-06"),
+      },
+    ] as any)
+
+    const result = await getBalancesForEmployee(employee as any, 2026)
+
+    expect(result[0].used).toBe(4)
+  })
+
+  it("reports zero earned leave, with the reason, before a year of service", async () => {
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
+      {
+        ...casual,
+        code: "EARNED",
+        name: "Earned",
+        annualQuota: 0,
+        countsHolidays: true,
+        accrualBasis: "EARNED",
+        minServiceMonths: 12,
+        maxAccrual: 60,
+      },
+    ] as any)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+
+    const result = await getBalancesForEmployee(
+      { ...employee, joiningDate: parseDateOnly("2026-06-01") } as any,
+      2026
+    )
+
+    expect(result[0].entitlement).toBe(0)
+    expect(result[0].accrual).toMatchObject({ eligible: false, minServiceMonths: 12 })
+  })
+
   it("only returns types the employee's employment type is eligible for", async () => {
     vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
-      { id: "lt-1", name: "Annual", isPaid: true, annualQuota: 18, eligibleFor: ["FULL_TIME"] },
-      { id: "lt-2", name: "Intern Only", isPaid: true, annualQuota: 4, eligibleFor: ["INTERN"] },
+      casual,
+      { ...casual, id: "lt-2", code: "INTERN_ONLY", name: "Intern Only", eligibleFor: ["INTERN"] },
     ] as any)
     vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
 
@@ -121,9 +263,7 @@ describe("getBalancesForEmployee", () => {
   })
 
   it("ignores rejected and cancelled requests", async () => {
-    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
-      { id: "lt-1", name: "Annual", isPaid: true, annualQuota: 18, eligibleFor: ["FULL_TIME"] },
-    ] as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
     vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([] as any)
 
     const result = await getBalancesForEmployee(employee as any, 2026)
@@ -134,7 +274,7 @@ describe("getBalancesForEmployee", () => {
         where: expect.objectContaining({ status: { in: ["PENDING", "APPROVED"] } }),
       })
     )
-    expect(result[0].balance).toBe(18)
+    expect(result[0].balance).toBe(10)
   })
 })
 
@@ -254,15 +394,18 @@ describe("applyForLeave validation", () => {
     id: "emp-1",
     employmentType: "FULL_TIME",
     joiningDate: parseDateOnly("2020-01-01"),
+    employmentStatus: "ACTIVE",
+    shiftId: null,
   }
-  const annual = {
+  const casual = {
     id: "lt-1",
-    name: "Annual",
+    code: "CASUAL",
+    name: "Casual",
     isPaid: true,
-    annualQuota: 18,
-    maxConsecutive: null,
+    annualQuota: 10,
     allowsBackdating: false,
     eligibleFor: ["FULL_TIME"],
+    ...PRO_RATED,
   }
 
   function futureDate(offsetDays: number) {
@@ -272,10 +415,10 @@ describe("applyForLeave validation", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
-    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(annual as any)
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(casual as any)
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
-    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([annual] as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
   })
 
   it("rejects an end date before the start date", async () => {
@@ -310,7 +453,7 @@ describe("applyForLeave validation", () => {
 
   it("allows a backdated request for a type that permits it", async () => {
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
-      ...annual,
+      ...casual,
       allowsBackdating: true,
     } as any)
     vi.mocked(prisma.leaveRequest.create).mockResolvedValue({
@@ -334,7 +477,7 @@ describe("applyForLeave validation", () => {
 
   it("rejects a backdated request beyond the 30-day window", async () => {
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
-      ...annual,
+      ...casual,
       allowsBackdating: true,
     } as any)
     await expect(
@@ -346,7 +489,7 @@ describe("applyForLeave validation", () => {
     ).rejects.toThrow(/30 days/i)
   })
 
-  it("rejects a range that is entirely Fridays", async () => {
+  it("rejects a range with nothing chargeable in it", async () => {
     // 2026-08-14 is a Friday.
     await expect(
       applyForLeave("user-1", {
@@ -354,7 +497,62 @@ describe("applyForLeave validation", () => {
         startDate: "2026-08-14",
         endDate: "2026-08-14",
       })
-    ).rejects.toThrow(/working day/i)
+    ).rejects.toThrow(/nothing to charge/i)
+  })
+
+  it("accepts that same Friday for a type that counts holidays as leave", async () => {
+    // §117: an earned-leave range is charged in calendar days, so a Friday
+    // inside it is a day of leave rather than a day that vanishes.
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...casual,
+      code: "EARNED",
+      name: "Earned",
+      countsHolidays: true,
+      allowsBackdating: true,
+    } as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([
+      { ...casual, code: "EARNED", name: "Earned", countsHolidays: true },
+    ] as any)
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue({
+      id: "req-1",
+      employee: { id: "emp-1", fullName: "A", employeeCode: "BS-EMP-00001" },
+      leaveType: { id: "lt-1", code: "EARNED", name: "Earned", isPaid: true, countsHolidays: true },
+      startDate: parseDateOnly(futureDate(5)),
+      endDate: parseDateOnly(futureDate(5)),
+      reason: null,
+      status: "PENDING",
+      createdAt: new Date(),
+    } as any)
+
+    const created = await applyForLeave("user-1", {
+      leaveTypeId: "lt-1",
+      startDate: "2026-08-14",
+      endDate: "2026-08-14",
+    })
+    expect(created.days).toBe(1)
+  })
+
+  it("refuses a type the employee has not served long enough for", async () => {
+    // §117 earned leave: one year of continuous service, measured at the
+    // leave start rather than at filing.
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({
+      ...employee,
+      joiningDate: parseDateOnly(futureDate(-30)),
+    } as any)
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...casual,
+      code: "EARNED",
+      name: "Earned",
+      minServiceMonths: 12,
+    } as any)
+
+    await expect(
+      applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(5),
+        endDate: futureDate(7),
+      })
+    ).rejects.toThrow(/continuous service/i)
   })
 
   it("rejects a request overlapping an existing pending or approved one", async () => {
@@ -370,7 +568,7 @@ describe("applyForLeave validation", () => {
 
   it("rejects a leave type the employment type is not eligible for", async () => {
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
-      ...annual,
+      ...casual,
       eligibleFor: ["INTERN"],
     } as any)
     await expect(
@@ -385,7 +583,7 @@ describe("applyForLeave validation", () => {
   it("measures maxConsecutive against the calendar span, not charged days", async () => {
     // Thu 13th -> Wed 19th Aug 2026 = 7 calendar days, 6 charged (one Friday).
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
-      ...annual,
+      ...casual,
       maxConsecutive: 6,
     } as any)
     await expect(
@@ -417,7 +615,7 @@ describe("applyForLeave validation", () => {
 
   it("skips the balance check for an unpaid, zero-quota type", async () => {
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
-      ...annual,
+      ...casual,
       name: "Leave Without Pay",
       isPaid: false,
       annualQuota: 0,
@@ -443,7 +641,7 @@ describe("applyForLeave validation", () => {
 })
 
 describe("leave decisions", () => {
-  const annual = {
+  const casual = {
     id: "lt-1",
     name: "Annual",
     isPaid: true,
@@ -474,13 +672,13 @@ describe("leave decisions", () => {
       decisionNote: null,
       createdAt: new Date(),
       employee,
-      leaveType: annual,
+      leaveType: casual,
       ...over,
     }
   }
 
   beforeEach(() => {
-    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([annual] as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
     vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.leaveRequest.update).mockResolvedValue({ id: "req-1" } as any)
