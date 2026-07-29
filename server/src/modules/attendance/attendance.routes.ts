@@ -8,8 +8,11 @@ import {
   bulkDecideHandler,
   checkInHandler,
   checkOutHandler,
+  correctAttendanceHandler,
   createHolidayHandler,
+  createManualAttendanceHandler,
   deleteHolidayHandler,
+  getAuditTrailHandler,
   getDailySummaryHandler,
   getEmployeeAttendanceHandler,
   getMonthlySummaryHandler,
@@ -17,6 +20,7 @@ import {
   getTodayHandler,
   listApprovalsHandler,
   listHolidaysHandler,
+  regulariseHandler,
   rejectAttendanceHandler,
   updateHolidayHandler,
 } from "./attendance.controller"
@@ -56,6 +60,13 @@ router.get("/history/:employeeId", requireAuth, getEmployeeAttendanceHandler)
 router.get("/summary/daily", requireAuth, getDailySummaryHandler)
 router.get("/summary/monthly", requireAuth, getMonthlySummaryHandler)
 
+// The employee amending their own day. A separate path from HR's PATCH
+// /:id on purpose: this one *requests* a change and cannot grant it.
+router.patch("/me/:id/regularise", requireAuth, requireRole(...STAFF_ROLES), regulariseHandler)
+
+// HR acting with authority.
+router.post("/manual", requireAuth, requireRole(...HR_ROLES), createManualAttendanceHandler)
+
 // Declared before the /:id routes for clarity. They do not actually
 // collide — /:id/approve cannot match /approvals/bulk — but relying on that
 // is a trap for the next person to add a route here.
@@ -66,6 +77,10 @@ router.get("/approvals", requireAuth, requireRole(...APPROVER_ROLES), listApprov
 // service, because a manager may only decide their own reports.
 router.patch("/:id/approve", requireAuth, requireRole(...APPROVER_ROLES), approveAttendanceHandler)
 router.patch("/:id/reject", requireAuth, requireRole(...APPROVER_ROLES), rejectAttendanceHandler)
+
+// The dispute trail. HR only — it names who changed what.
+router.get("/:id/audit", requireAuth, requireRole(...HR_ROLES), getAuditTrailHandler)
+router.patch("/:id", requireAuth, requireRole(...HR_ROLES), correctAttendanceHandler)
 
 // Everyone reads the calendar; only HR writes it.
 router.get("/holidays", requireAuth, listHolidaysHandler)

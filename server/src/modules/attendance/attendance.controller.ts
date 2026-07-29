@@ -17,17 +17,26 @@ import {
   listApprovals,
   rejectAttendance,
 } from "./attendance.approval"
+import {
+  correctAttendance,
+  createManualAttendance,
+  getAuditTrail,
+  regulariseAttendance,
+} from "./attendance.corrections"
 import { checkIn, checkOut } from "./attendance.punch"
 import { getDailySummary, getMonthlySummary } from "./attendance.summary"
 import {
   approvalsQuerySchema,
   approveSchema,
   bulkDecisionSchema,
+  correctionSchema,
   dailyQuerySchema,
   dateRangeQuerySchema,
   holidaySchema,
   holidayUpdateSchema,
+  manualAttendanceSchema,
   monthQuerySchema,
+  regulariseSchema,
   rejectSchema,
   yearQuerySchema,
 } from "./attendance.validators"
@@ -100,6 +109,49 @@ export async function getMonthlySummaryHandler(req: Request, res: Response, next
   try {
     const { month, year } = monthQuerySchema.parse(req.query)
     return res.status(200).json(await getMonthlySummary(req.user!, month, year))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function regulariseHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = regulariseSchema.parse(req.body)
+    return res.status(200).json(await regulariseAttendance(req.user!.sub, req.params.id, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function correctAttendanceHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const body = correctionSchema.parse(req.body)
+    return res.status(200).json(await correctAttendance(req.user!, req.params.id, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function createManualAttendanceHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const body = manualAttendanceSchema.parse(req.body)
+    return res.status(201).json(await createManualAttendance(req.user!, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getAuditTrailHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getAuditTrail(req.user!, req.params.id))
   } catch (err) {
     return next(err)
   }

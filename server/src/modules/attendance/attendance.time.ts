@@ -118,6 +118,21 @@ function clamp(total: number): number {
   return Math.min(Math.max(total, 0), 23 * 60 + 59)
 }
 
+/**
+ * An office-local "HH:mm" on a given business date, as a UTC instant.
+ *
+ * The inverse of `officeTimeOf`, used when a human types a time rather than
+ * punching one. The office's offset is measured from the date itself by
+ * round-tripping a midday probe, rather than hard-coded — so this stays
+ * correct if APP_TIMEZONE is ever pointed somewhere that observes DST.
+ */
+export function officeInstantOf(date: Date, time: string): Date {
+  const minutes = toMinutes(time)
+  const probe = new Date(date.getTime() + 12 * 3_600_000)
+  const offsetMinutes = toMinutes(officeTimeOf(probe)) - 12 * 60
+  return new Date(date.getTime() + (minutes - offsetMinutes) * 60_000)
+}
+
 /** Whole elapsed hours between two instants, rounded to 2dp. */
 export function elapsedHours(from: Date, to: Date): number {
   return Math.round(((to.getTime() - from.getTime()) / 3_600_000) * 100) / 100
