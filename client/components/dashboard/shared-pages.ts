@@ -4,29 +4,6 @@
 
 import type { SubpageData } from "@/components/dashboard/types"
 
-export const attendance: SubpageData = {
-  kicker: "Workspace",
-  title: "Attendance",
-  sub: "Daily check-ins, hours, and exceptions",
-  cta: "Log correction",
-  stats: [
-    { label: "This month", value: "96.4%", sub: "21 of 22 working days" },
-    { label: "Late check-ins", value: "2", sub: "Both under 15 minutes" },
-    { label: "Avg hours / day", value: "8h 12m", sub: "Shift 9:00 AM – 6:00 PM" },
-  ],
-  tableTitle: "Attendance log — July",
-  cols: "1.2fr 1fr 1fr 0.8fr 0.9fr",
-  headers: ["Date", "Check in", "Check out", "Hours", "Status"],
-  rows: [
-    [{ text: "Fri, Jul 25", weight: 600 }, { text: "8:58 AM" }, { text: "6:04 PM" }, { text: "9h 06m" }, { tag: "Present", tone: "green" }],
-    [{ text: "Thu, Jul 24", weight: 600 }, { text: "9:14 AM" }, { text: "6:22 PM" }, { text: "9h 08m" }, { tag: "Late", tone: "yellow" }],
-    [{ text: "Wed, Jul 23", weight: 600 }, { text: "8:55 AM" }, { text: "5:58 PM" }, { text: "9h 03m" }, { tag: "Present", tone: "green" }],
-    [{ text: "Tue, Jul 22", weight: 600 }, { text: "—" }, { text: "—" }, { text: "—" }, { tag: "Sick leave", tone: "red" }],
-    [{ text: "Mon, Jul 21", weight: 600 }, { text: "9:01 AM" }, { text: "6:10 PM" }, { text: "9h 09m" }, { tag: "Present", tone: "green" }],
-    [{ text: "Fri, Jul 18", weight: 600 }, { text: "8:47 AM" }, { text: "5:50 PM" }, { text: "9h 03m" }, { tag: "Present", tone: "green" }],
-  ],
-}
-
 export const payroll: SubpageData = {
   kicker: "Workspace",
   title: "Payroll",
