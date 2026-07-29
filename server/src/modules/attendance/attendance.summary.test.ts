@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+// Pinned so the go-live assertions do not shift with the deployment .env.
+vi.mock("../../config/env", () => ({
+  env: { APP_TIMEZONE: "Asia/Dhaka", ATTENDANCE_GO_LIVE: "2026-08-01" },
+}))
+
 vi.mock("../../config/prisma", () => ({
   default: {
     employee: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },

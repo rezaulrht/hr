@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+// Pin the tracking floor rather than inheriting whatever the deployment
+// .env happens to say. A unit test of the go-live rule must not change
+// meaning when somebody rolls the real rollout date forward.
+vi.mock("../../config/env", () => ({
+  env: { APP_TIMEZONE: "Asia/Dhaka", ATTENDANCE_GO_LIVE: "2026-08-01" },
+}))
+
 vi.mock("../../config/prisma", () => ({
   default: {
     attendance: { findMany: vi.fn() },
