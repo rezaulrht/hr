@@ -1,8 +1,16 @@
 /**
- * Date-only helpers for leave. Every date in this module is a calendar date
- * pinned to UTC midnight, never an instant — so day counts can't drift with
- * server locale, and a date the user picked never shifts by one.
+ * Date rules for leave policy. Every date here is a calendar date pinned to
+ * UTC midnight, never an instant — so day counts can't drift with server
+ * locale, and a date the user picked never shifts by one.
+ *
+ * The generic date-only arithmetic moved to `src/utils/dates.ts` so the
+ * attendance module can use it without importing from leave. It is
+ * re-exported below, so every existing call site here keeps working.
  */
+
+import { MS_PER_DAY, addDays, formatDateOnly, parseDateOnly } from "../../utils/dates"
+
+export { addDays, formatDateOnly, parseDateOnly }
 
 /** Friday. Compared against getUTCDay(). The weekly non-working day. */
 export const WEEKLY_OFF_DAY = 5
@@ -10,31 +18,9 @@ export const WEEKLY_OFF_DAY = 5
 /** How far back a backdating-enabled leave type may be filed. */
 export const MAX_BACKDATE_DAYS = 30
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
-const MS_PER_DAY = 86_400_000
-
-export function parseDateOnly(value: string): Date {
-  if (!DATE_ONLY.test(value)) {
-    throw new Error(`Expected a YYYY-MM-DD date, received "${value}"`)
-  }
-  const date = new Date(`${value}T00:00:00.000Z`)
-  if (Number.isNaN(date.getTime()) || formatDateOnly(date) !== value) {
-    throw new Error(`"${value}" is not a valid calendar date`)
-  }
-  return date
-}
-
-export function formatDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10)
-}
-
 /** Today, as a UTC-midnight calendar date. */
 export function todayUtc(): Date {
   return parseDateOnly(formatDateOnly(new Date()))
-}
-
-export function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * MS_PER_DAY)
 }
 
 /** Inclusive calendar-day span, ignoring which days are working days. */
