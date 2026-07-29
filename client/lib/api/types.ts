@@ -115,3 +115,214 @@ export interface ApplyLeaveInput {
   endDate: string
   reason?: string
 }
+
+// ── ATTENDANCE ────────────────────────────────
+// Hand-mirrored from server/src/modules/attendance/attendance.types.ts.
+// No shared package between client and server by design — keep in sync.
+
+export type AttendanceStatus =
+  | "PRESENT"
+  | "ABSENT"
+  | "ON_LEAVE"
+  | "HOLIDAY"
+  | "WEEKLY_OFF"
+  | "NOT_CHECKED_IN"
+  | "NOT_TRACKED"
+
+export type AttendanceApproval = "PENDING" | "APPROVED" | "AUTO_APPROVED" | "REJECTED"
+
+export type AttendanceSource = "WEB" | "MANUAL" | "RFID" | "FACE" | "FINGERPRINT"
+
+export type HolidayType = "GENERAL" | "EXECUTIVE_ORDER" | "OPTIONAL" | "WORKING_DAY"
+
+export type ExceptionCode =
+  | "LATE"
+  | "EARLY_OUT"
+  | "MISSING_CHECKOUT"
+  | "SHORTFALL"
+  | "LEAVE_CONFLICT"
+  | "WORKED_OFF_DAY"
+  | "REGULARISED"
+  | "MANUAL_ENTRY"
+
+export interface ShiftInfo {
+  id: string
+  name: string
+  startTime: string
+  endTime: string
+  breakMinutes: number
+  graceMinutes: number
+  weeklyOffDays: number[]
+  expectedHours: number
+}
+
+export interface AttendanceDay {
+  date: string
+  status: AttendanceStatus
+  isWorkingDay: boolean
+  isOffDay: boolean
+  isHoliday: boolean
+  isWeeklyOff: boolean
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  expectedHours: number
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval | null
+  source: AttendanceSource | null
+  detail: string | null
+  regularised: boolean
+  corrected: boolean
+  attendanceId: string | null
+}
+
+export interface TodayAttendance {
+  /** Anchors the client clock; never trust the browser's own. */
+  serverTime: string
+  date: string
+  status: AttendanceStatus
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval | null
+  shift: ShiftInfo
+  canCheckIn: boolean
+  canCheckOut: boolean
+  detail: string | null
+}
+
+export interface PunchResult {
+  attendanceId: string
+  date: string
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval
+  status: AttendanceStatus
+  isHoliday: boolean
+  holidayName: string | null
+  isWeeklyOff: boolean
+  onApprovedLeave: boolean
+  leaveTypeName: string | null
+  shift: ShiftInfo
+}
+
+export interface AttendanceEmployeeRef {
+  id: string
+  fullName: string
+  employeeCode: string
+  designation: string
+}
+
+export interface ApprovalItem {
+  id: string
+  employee: AttendanceEmployeeRef
+  date: string
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval
+  regularised: boolean
+  regularisedNote: string | null
+  exceptions: ExceptionCode[]
+  agingDays: number
+  stalled: boolean
+}
+
+export interface DailySummaryRow {
+  employee: AttendanceEmployeeRef
+  status: AttendanceStatus
+  checkIn: string | null
+  checkOut: string | null
+  workedHours: number | null
+  isLate: boolean
+  isEarlyOut: boolean
+  approval: AttendanceApproval | null
+  detail: string | null
+}
+
+export interface DailySummary {
+  date: string
+  totals: {
+    present: number
+    late: number
+    absent: number
+    onLeave: number
+    holiday: number
+    weeklyOff: number
+    notCheckedIn: number
+    pendingApproval: number
+  }
+  rows: DailySummaryRow[]
+  conflicts: Array<{
+    employeeId: string
+    fullName: string
+    reason: "CHECKED_IN_WHILE_ON_LEAVE"
+  }>
+}
+
+/** The payroll contract. Shape is frozen — see the attendance design doc. */
+export interface MonthlyAttendanceSummary {
+  employee: AttendanceEmployeeRef
+  month: number
+  year: number
+  workingDays: number
+  present: number
+  absent: number
+  onLeave: number
+  notCheckedIn: number
+  late: number
+  earlyOut: number
+  holidays: number
+  weeklyOffs: number
+  workedOnOffDays: number
+  workedHours: number
+  expectedHours: number
+  shortfallHours: number
+  missingCheckOut: number
+  pendingApproval: number
+  autoApproved: number
+  regularised: number
+  rejected: number
+}
+
+export interface HolidayItem {
+  id: string
+  name: string
+  date: string
+  type: HolidayType
+}
+
+export interface ImpactBlock {
+  affectedEmployees: number
+  affectedDates: string[]
+  monthsTouched: string[]
+}
+
+export interface HolidayWriteResult {
+  holiday: HolidayItem
+  impact?: ImpactBlock
+}
+
+export interface AuditEntry {
+  id: string
+  action: string
+  changedBy: string | null
+  changedAt: string
+  before: unknown
+  after: unknown
+  note: string | null
+}
+
+export interface BulkDecisionResult {
+  id: string
+  ok: boolean
+  error?: string
+}
