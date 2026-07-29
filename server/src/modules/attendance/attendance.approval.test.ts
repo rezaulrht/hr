@@ -28,7 +28,6 @@ import {
   exceptionsFor,
   listApprovals,
   rejectAttendance,
-  settleApproval,
   type EvaluatedDay,
 } from "./attendance.approval"
 
@@ -108,8 +107,8 @@ afterEach(() => {
 
 describe("exceptionsFor", () => {
   it("finds nothing wrong with an ordinary day", () => {
-    // The whole point: this is the ~95% that must never reach a human, or
-    // the queue gets cleared unread on the 1st under payroll pressure.
+    // An empty list means "nothing stands out", never "skip the review" —
+    // this record still goes to the approver like every other one.
     expect(exceptionsFor(ordinary())).toEqual([])
   })
 
@@ -122,7 +121,7 @@ describe("exceptionsFor", () => {
     ["work on a holiday or weekly off", { isOffDay: true }, "WORKED_OFF_DAY"],
     ["an employee-supplied time", { regularisedAt: new Date() }, "REGULARISED"],
     ["an HR-entered record", { source: "MANUAL" as const }, "MANUAL_ENTRY"],
-  ])("routes %s to a human", (_label, patch, code) => {
+  ])("flags %s for the approver", (_label, patch, code) => {
     const exceptions = exceptionsFor(ordinary(patch))
     expect(exceptions).toContain(code)
     expect(exceptions.length).toBeGreaterThan(0)
@@ -137,56 +136,26 @@ describe("exceptionsFor", () => {
   })
 })
 
-describe("settleApproval", () => {
-  it("auto-approves an unremarkable day with no human attached", async () => {
-    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row())
-    const result = await settleApproval("att-1", "emp-1", parseDateOnly("2026-08-03"), GENERAL)
-
-    expect(result).toBe("AUTO_APPROVED")
-    expect(tx.attendance.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ approval: "AUTO_APPROVED", approvedBy: null }),
-      })
-    )
+describe("no machine approval path", () => {
+  it("exposes no way to approve a record without an actor", () => {
+    // A regression guard with teeth: auto-approval was removed because a
+    // faked punch produces a *flawless* record, so anomaly-shaped filtering
+    // waves through exactly what it should catch. Every export that decides
+    // a record takes an actor.
+    const decideExports = ["approveAttendance", "rejectAttendance", "bulkDecide"] as const
+    for (const name of decideExports) {
+      const fn = { approveAttendance, rejectAttendance, bulkDecide }[name]
+      // (actor, ...) — the first parameter is always who is deciding.
+      expect(fn.length).toBeGreaterThanOrEqual(2)
+    }
   })
 
-  it("writes an audit row for the machine decision", async () => {
-    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row())
-    await settleApproval("att-1", "emp-1", parseDateOnly("2026-08-03"), GENERAL)
-    expect(tx.attendanceAudit.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ action: "AUTO_APPROVE", changedBy: null }),
-      })
-    )
-  })
-
-  it("leaves a late day pending", async () => {
-    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row({ isLate: true }))
-    expect(await settleApproval("att-1", "emp-1", parseDateOnly("2026-08-03"), GENERAL)).toBe(
-      "PENDING"
-    )
-    expect(tx.attendance.update).not.toHaveBeenCalled()
-  })
-
-  it("leaves a day worked on the weekly off pending", async () => {
-    // 2026-08-07 is a Friday.
-    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(
-      row({ date: parseDateOnly("2026-08-07") })
-    )
-    expect(await settleApproval("att-1", "emp-1", parseDateOnly("2026-08-07"), GENERAL)).toBe(
-      "PENDING"
-    )
-  })
-
-  it("never auto-approves a regularised record", async () => {
-    // The employee supplied a time nobody witnessed, however ordinary the
-    // numbers look.
-    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(
-      row({ regularisedAt: new Date("2026-08-04T04:00:00Z") })
-    )
-    expect(await settleApproval("att-1", "emp-1", parseDateOnly("2026-08-03"), GENERAL)).toBe(
-      "PENDING"
-    )
+  it("keeps exceptionsFor as a label, not a gate", () => {
+    // It still runs on ordinary days and still returns nothing; what changed
+    // is that nothing consumes the empty result as permission to skip a
+    // human. Both of these rows appear in the queue.
+    expect(exceptionsFor(ordinary())).toEqual([])
+    expect(exceptionsFor(ordinary({ isLate: true }))).toEqual(["LATE"])
   })
 })
 

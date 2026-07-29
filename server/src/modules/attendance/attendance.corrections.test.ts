@@ -120,10 +120,11 @@ describe("regulariseAttendance", () => {
   })
 
   it("forces the record back to PENDING so it cannot slip through", async () => {
-    // The employee supplied a time nobody witnessed. However ordinary the
-    // numbers look, a human has to see them.
+    // A rejected record the employee then corrects has to go back into the
+    // queue: the approver refused the old times, not the new ones. (An
+    // already-APPROVED record is refused outright a few tests below.)
     vi.mocked(prisma.attendance.findUnique).mockResolvedValue(
-      row({ approval: "AUTO_APPROVED", checkOut: new Date("2026-08-12T12:05:00.000Z") })
+      row({ approval: "REJECTED", checkOut: new Date("2026-08-12T12:05:00.000Z") })
     )
     await regulariseAttendance("user-1", "att-1", { checkOut: "18:05", note: "Wrong time" })
 

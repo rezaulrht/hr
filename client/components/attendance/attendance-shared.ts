@@ -30,18 +30,17 @@ export const STATUS_LABEL: Record<AttendanceStatus, string> = {
 export const APPROVAL_LABEL: Record<AttendanceApproval, string> = {
   PENDING: "Awaiting review",
   APPROVED: "Approved",
-  AUTO_APPROVED: "Approved automatically",
   REJECTED: "Rejected",
 }
 
 export const APPROVAL_TONE: Record<AttendanceApproval, Tone> = {
   PENDING: "yellow",
   APPROVED: "green",
-  AUTO_APPROVED: "green",
   REJECTED: "red",
 }
 
-/** Plain-English reasons a record reached a human, in the queue's own words. */
+/** Plain-English reasons a record is worth a closer look, in the queue's own
+ * words. Every record is reviewed; these say which ones to look at hardest. */
 export const EXCEPTION_LABEL: Record<ExceptionCode, string> = {
   LATE: "Late",
   EARLY_OUT: "Left early",

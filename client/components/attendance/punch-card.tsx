@@ -114,8 +114,9 @@ export function PunchCard({
           )}
 
           {/* The approval step is invisible to the person it affects unless
-              it is said out loud — and "approved automatically" and
-              "awaiting your manager" are different messages. */}
+              it is said out loud. Checking out never clears it — a named
+              manager or HR does, so the tag stays "awaiting review" until
+              somebody actually decides. */}
           {today.approval && today.checkOut ? (
             <Tag tone={APPROVAL_TONE[today.approval]} label={APPROVAL_LABEL[today.approval]} />
           ) : null}

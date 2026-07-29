@@ -8,9 +8,7 @@ vi.mock("../../config/prisma", () => {
   return {
     default: {
       employee: { findUnique: vi.fn() },
-      // findUnique is used by settleApproval, which check-out invokes once
-      // the record is complete.
-      attendance: { findFirst: vi.fn(), findUnique: vi.fn() },
+      attendance: { findFirst: vi.fn() },
       holiday: { findMany: vi.fn() },
       leaveRequest: { findFirst: vi.fn() },
       shift: { findMany: vi.fn() },
@@ -89,9 +87,6 @@ beforeEach(() => {
   vi.mocked(prisma.holiday.findMany).mockResolvedValue([])
   vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
   tx.attendanceAudit.create.mockResolvedValue({})
-  // Read back by settleApproval after check-out writes. The approval
-  // outcome itself is covered in attendance.approval.test.ts.
-  vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row() as never)
 })
 
 afterEach(() => {
@@ -231,6 +226,23 @@ describe("checkOut", () => {
     await checkOut("user-1")
     expect(tx.attendance.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ workedHours: 9 }) })
+    )
+  })
+
+  it("leaves even a flawless day PENDING", async () => {
+    // On time, full hours, nothing odd — and it still waits for a human.
+    // This is the whole reason auto-approval was removed: a punch faked
+    // from home looks exactly like this row, so "looks fine" can never be
+    // what clears it.
+    vi.setSystemTime(dhaka("2026-08-03", "18:00"))
+    vi.mocked(prisma.attendance.findFirst).mockResolvedValue(row())
+    tx.attendance.update.mockResolvedValue(row({ checkOut: dhaka("2026-08-03", "18:00") }))
+
+    const result = await checkOut("user-1")
+
+    expect(result.approval).toBe("PENDING")
+    expect(tx.attendance.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ approval: expect.anything() }) })
     )
   })
 

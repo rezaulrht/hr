@@ -210,7 +210,7 @@ export function summariseDays(
     shortfallHours: 0,
     missingCheckOut: 0,
     pendingApproval: 0,
-    autoApproved: 0,
+    approved: 0,
     regularised: 0,
     rejected: 0,
   }
@@ -262,7 +262,7 @@ export function summariseDays(
         if (day.isEarlyOut) summary.earlyOut++
         if (day.regularised) summary.regularised++
         if (day.approval === "PENDING") summary.pendingApproval++
-        if (day.approval === "AUTO_APPROVED") summary.autoApproved++
+        if (day.approval === "APPROVED") summary.approved++
 
         if (day.checkIn && !day.checkOut) {
           // Never guessed from the shift end — a fabricated number would be

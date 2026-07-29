@@ -81,7 +81,7 @@ export function getMonthlySummary(
 
 export function getApprovals(
   accessToken: string,
-  status: "PENDING" | "AUTO_APPROVED" = "PENDING",
+  status: "PENDING" | "APPROVED" | "REJECTED" = "PENDING",
   minAgingDays?: number
 ): Promise<ApprovalItem[]> {
   const params = new URLSearchParams({ status })

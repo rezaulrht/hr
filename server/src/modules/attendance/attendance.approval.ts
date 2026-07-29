@@ -1,17 +1,23 @@
 /**
- * Who decides on an attendance record, and which records need deciding at
- * all.
+ * Who decides on an attendance record.
  *
- * Requiring a human to look at every record is the version of this workflow
- * that fails, and it fails in the worst way: a manager facing roughly 440
- * decisions a month will not work the queue daily. They will clear it on the
- * 1st under payroll pressure, approving everything unread — which is
- * strictly worse than no approval, because payroll is blocked *and* no
- * oversight happens.
+ * **Every record is decided by a named human.** There is no auto-approval
+ * path, deliberately: a web punch proves identity and server time, nothing
+ * about whether the person was actually at work. The only thing that makes
+ * the record trustworthy is a manager or HR who *saw* them confirming it, so
+ * removing the human removes the entire control.
  *
- * So only exceptions reach a person. Content decides, never the clock:
- * time-based auto-approval ("anything nobody actioned in five days") would
- * rubber-stamp precisely the exceptional records, which is backwards.
+ * Filtering on "does this record look unusual" was tried and removed. It
+ * fails in the specific way that matters: a punch faked from home produces a
+ * flawless record — on time, full hours — and would sail through unseen,
+ * while an honest colleague who arrived seven minutes late got scrutinised.
+ * Anomaly-shaped filtering is inversely correlated with the risk it is meant
+ * to catch.
+ *
+ * `exceptionsFor` survives that removal and is still used, but only to
+ * *label* rows in the approval queue — it directs the approver's attention
+ * within a list they must work through regardless. It never decides
+ * anything.
  */
 
 import prisma from "../../config/prisma"
@@ -38,8 +44,8 @@ export interface EvaluatedDay {
 }
 
 /**
- * Why this record needs a human. An empty list means nothing interesting
- * happened, so it auto-approves.
+ * Why this record is worth a second look. Every record needs a human either
+ * way — an empty list means "nothing stands out", not "no review needed".
  */
 export function exceptionsFor(day: EvaluatedDay): ExceptionCode[] {
   const out: ExceptionCode[] = []
@@ -49,78 +55,11 @@ export function exceptionsFor(day: EvaluatedDay): ExceptionCode[] {
   else if (day.workedHours !== null && day.workedHours < day.expectedHours) out.push("SHORTFALL")
   if (day.onApprovedLeave) out.push("LEAVE_CONFLICT")
   if (day.isOffDay) out.push("WORKED_OFF_DAY")
-  // The employee supplied a time nobody witnessed, so this can never
-  // auto-approve regardless of how ordinary the numbers look.
+  // The employee supplied a time nobody witnessed — worth flagging even
+  // among rows that are all being reviewed anyway.
   if (day.regularisedAt) out.push("REGULARISED")
   if (day.source === "MANUAL") out.push("MANUAL_ENTRY")
   return out
-}
-
-/**
- * Evaluates a freshly closed record and settles its approval state.
- *
- * Called at check-out rather than on a schedule, so the decision is made
- * from the record's own content the moment that content is complete.
- */
-export async function settleApproval(
-  attendanceId: string,
-  employeeId: string,
-  date: Date,
-  shift: Shift
-): Promise<AttendanceApproval> {
-  const row = await prisma.attendance.findUnique({ where: { id: attendanceId } })
-  if (!row) throw new AppError(404, "Attendance record not found")
-
-  const [holidays, leave] = await Promise.all([
-    prisma.holiday.findMany({ where: { date } }),
-    prisma.leaveRequest.findFirst({
-      where: {
-        employeeId,
-        status: "APPROVED",
-        startDate: { lte: date },
-        endDate: { gte: date },
-      },
-      select: { id: true },
-    }),
-  ])
-
-  const workingDayOverride = holidays.some((h) => h.type === "WORKING_DAY")
-  const isHoliday = holidays.some((h) => h.type !== "WORKING_DAY")
-  const isWeeklyOff = shift.weeklyOffDays.includes(date.getUTCDay()) && !workingDayOverride
-
-  const exceptions = exceptionsFor({
-    isLate: row.isLate,
-    isEarlyOut: row.isEarlyOut,
-    checkOut: row.checkOut,
-    workedHours: row.workedHours,
-    expectedHours: shiftInfo(shift).expectedHours,
-    onApprovedLeave: leave !== null,
-    isOffDay: isHoliday || isWeeklyOff,
-    regularisedAt: row.regularisedAt,
-    source: row.source,
-  })
-
-  if (exceptions.length > 0) return "PENDING"
-
-  await prisma.$transaction(async (tx) => {
-    await tx.attendance.update({
-      where: { id: attendanceId },
-      // approvedBy stays null: nobody looked at it. AUTO_APPROVED is a
-      // distinct value rather than APPROVED-with-a-null-approver so
-      // reporting can answer "how many did a human actually see?".
-      data: { approval: "AUTO_APPROVED", approvedAt: new Date(), approvedBy: null },
-    })
-    await auditAttendance(tx, {
-      attendanceId,
-      action: "AUTO_APPROVE",
-      changedBy: null,
-      before: { approval: "PENDING" },
-      after: { approval: "AUTO_APPROVED" },
-      note: "No exceptions",
-    })
-  })
-
-  return "AUTO_APPROVED"
 }
 
 const DECIDER_INCLUDE = {

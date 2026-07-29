@@ -70,8 +70,8 @@ function attendanceRow(date: string, overrides: Partial<Attendance> = {}): Atten
     isLate: false,
     isEarlyOut: false,
     source: "WEB",
-    approval: "AUTO_APPROVED",
-    approvedBy: null,
+    approval: "APPROVED",
+    approvedBy: "user-mgr",
     approvedAt: null,
     approvalNote: null,
     regularisedAt: null,
@@ -238,15 +238,15 @@ describe("hours", () => {
 })
 
 describe("approval counters", () => {
-  it("separates human approvals from automatic ones", () => {
+  it("separates decided records from those still waiting", () => {
     const s = august({
       attendances: [
-        attendanceRow("2026-08-03", { approval: "AUTO_APPROVED" }),
+        attendanceRow("2026-08-03", { approval: "APPROVED", approvedBy: "user-mgr" }),
         attendanceRow("2026-08-04", { approval: "PENDING" }),
-        attendanceRow("2026-08-06", { approval: "APPROVED", approvedBy: "user-mgr" }),
+        attendanceRow("2026-08-06", { approval: "APPROVED", approvedBy: "user-hr" }),
       ],
     })
-    expect(s.autoApproved).toBe(1)
+    expect(s.approved).toBe(2)
     expect(s.pendingApproval).toBe(1)
     expect(s.present).toBe(3)
   })

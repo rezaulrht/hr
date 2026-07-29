@@ -145,7 +145,8 @@ export interface PunchResult {
   shift: ShiftInfo
 }
 
-/** Why a record needs a human. Empty means it auto-approves. */
+/** Why a record is worth a closer look. Empty means nothing stands out — the
+ * approver still has to decide it. */
 export type ExceptionCode =
   | "LATE"
   | "EARLY_OUT"
@@ -241,7 +242,8 @@ export interface MonthlyAttendanceSummary {
   missingCheckOut: number
   /** Payroll gate: a month with any of these must not be run. */
   pendingApproval: number
-  autoApproved: number
+  /** Signed off by a named manager or HR — the only way a record is approved. */
+  approved: number
   regularised: number
   rejected: number
 }

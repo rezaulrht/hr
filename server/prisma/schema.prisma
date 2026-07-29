@@ -250,13 +250,14 @@ model Attendance {
   source AttendanceSource @default(WEB)
 
   approval     AttendanceApproval @default(PENDING)
-  // User id of the manager or HR who decided. Null when AUTO_APPROVED.
+  // User id of the manager or HR who decided. Every decided record has one —
+  // there is no machine approval path.
   approvedBy   String?
   approvedAt   DateTime?
   approvalNote String?
 
-  // Set when the *employee* amends their own record. A regularised record can
-  // never auto-approve — the time came from the person it benefits.
+  // Set when the *employee* amends their own record, flagging to the approver
+  // that the time came from the person it benefits.
   regularisedAt   DateTime?
   regularisedNote String?
 
@@ -274,12 +275,13 @@ model Attendance {
   @@index([approval])
 }
 
+// No AUTO_APPROVED. A web punch proves identity and server time, never that
+// the person was at work, so the approver's own eyes are the only real
+// control — and a machine path would bypass it on exactly the records that
+// look most ordinary, which is what a faked punch looks like.
 enum AttendanceApproval {
   PENDING
   APPROVED
-  // Distinct from APPROVED, not APPROVED-with-a-null-approver: reporting has
-  // to be able to answer "how many records did a human actually look at?".
-  AUTO_APPROVED
   REJECTED
 }
 
@@ -299,7 +301,7 @@ model AttendanceAudit {
   attendanceId String
   attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
   action       String
-  // User id. Null for machine actions such as AUTO_APPROVE.
+  // User id of whoever performed the action.
   changedBy    String?
   changedAt    DateTime   @default(now())
   // Only the fields that changed, not whole snapshots.

@@ -28,7 +28,7 @@ export const yearQuerySchema = z.object({
 export type YearQuery = z.infer<typeof yearQuerySchema>
 
 export const approvalsQuerySchema = z.object({
-  status: z.enum(["PENDING", "APPROVED", "AUTO_APPROVED", "REJECTED"]).optional(),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED"]).optional(),
   minAgingDays: z.coerce.number().int().min(0).max(365).optional(),
 })
 export type ApprovalsQuery = z.infer<typeof approvalsQuerySchema>

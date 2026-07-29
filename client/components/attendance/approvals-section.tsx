@@ -23,11 +23,14 @@ import {
 } from "@/components/attendance/attendance-ui"
 
 /**
- * The manager's queue. It contains **only exceptions** — ordinary days
- * auto-approve at check-out — so every row is here for a reason, and the
- * row leads with that reason rather than with a date. A queue of
- * undifferentiated rows is one that gets bulk-approved unread, which is the
- * failure the whole approval design exists to avoid.
+ * The manager's queue. **Every closed day lands here** — nothing approves
+ * itself, because a web punch proves identity and server time, never that
+ * the person was actually at work. The approver's own knowledge of who was
+ * there is the control.
+ *
+ * Rows still lead with their exception labels where they have any, so the
+ * eye goes to the odd ones first. Those labels direct attention within the
+ * list; they never shorten it.
  */
 export function ApprovalsSection({
   accessToken,
@@ -37,7 +40,7 @@ export function ApprovalsSection({
   isHr: boolean
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<"PENDING" | "AUTO_APPROVED">("PENDING")
+  const [tab, setTab] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [rejecting, setRejecting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -122,10 +125,10 @@ export function ApprovalsSection({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeading
           title={isHr ? "Attendance approvals" : "Approvals for my team"}
-          sub="Only records with something worth a look reach this queue — ordinary days approve themselves."
+          sub="Every closed day waits here for a named person to sign it off. Flags mark the ones worth a harder look."
         />
         <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
-          {(["PENDING", "AUTO_APPROVED"] as const).map((mode) => (
+          {(["PENDING", "APPROVED", "REJECTED"] as const).map((mode) => (
             <button
               key={mode}
               onClick={() => {
@@ -138,7 +141,7 @@ export function ApprovalsSection({
                   : "rounded px-3 py-1 text-[12px] font-semibold text-[#7A8698]"
               }
             >
-              {mode === "PENDING" ? "Needs review" : "Auto-approved"}
+              {mode === "PENDING" ? "Needs review" : mode === "APPROVED" ? "Approved" : "Rejected"}
             </button>
           ))}
         </div>
@@ -193,7 +196,11 @@ export function ApprovalsSection({
         <LoadError label="the approvals queue" onRetry={() => approvalsQuery.refetch()} />
       ) : items.length === 0 ? (
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
-          {isPending ? "Nothing needs your review." : "Nothing has been auto-approved yet."}
+          {isPending
+            ? "Nothing needs your review."
+            : tab === "APPROVED"
+              ? "You haven't approved anything yet."
+              : "Nothing has been rejected."}
         </div>
       ) : (
         <DataTable

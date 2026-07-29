@@ -129,7 +129,7 @@ export type AttendanceStatus =
   | "NOT_CHECKED_IN"
   | "NOT_TRACKED"
 
-export type AttendanceApproval = "PENDING" | "APPROVED" | "AUTO_APPROVED" | "REJECTED"
+export type AttendanceApproval = "PENDING" | "APPROVED" | "REJECTED"
 
 export type AttendanceSource = "WEB" | "MANUAL" | "RFID" | "FACE" | "FINGERPRINT"
 
@@ -288,7 +288,7 @@ export interface MonthlyAttendanceSummary {
   shortfallHours: number
   missingCheckOut: number
   pendingApproval: number
-  autoApproved: number
+  approved: number
   regularised: number
   rejected: number
 }

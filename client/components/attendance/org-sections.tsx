@@ -198,7 +198,7 @@ function MonthlyTable({
     s.shortfallHours > 0 ? { text: formatHours(s.shortfallHours), tone: "yellow" } : { text: "—" },
     s.pendingApproval > 0
       ? { tag: `${s.pendingApproval} pending`, tone: "yellow" }
-      : { text: s.autoApproved > 0 ? `${s.autoApproved} auto` : "—" },
+      : { text: s.approved > 0 ? `${s.approved} approved` : "—" },
   ])
 
   return (
@@ -354,7 +354,6 @@ function CorrectionTools({
                     <div className="text-[12.5px] font-bold">{entry.action}</div>
                     <div className="text-[11.5px] text-[#7A8698]">
                       {new Date(entry.changedAt).toLocaleString()}
-                      {entry.changedBy ? "" : " · automatic"}
                     </div>
                     {entry.note ? (
                       <div className="mt-0.5 text-[12px] text-[#3D4756]">{entry.note}</div>

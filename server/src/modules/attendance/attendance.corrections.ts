@@ -88,8 +88,9 @@ const timeSnapshot = (r: Pick<Attendance, "checkIn" | "checkOut" | "workedHours"
  *
  * Routing every one of those through HR buries them by the second week, and
  * the person who actually knows when they left is the employee. The trade is
- * that they supply a time nobody witnessed, which is exactly why this can
- * never auto-approve and why the audit row records who typed it.
+ * that they supply a time nobody witnessed, which is why the record is forced
+ * back to PENDING, flagged REGULARISED to the approver, and why the audit row
+ * records who typed it.
  */
 export async function regulariseAttendance(
   userId: string,
@@ -213,8 +214,8 @@ export async function createManualAttendance(
           employeeId: employee.id,
           date,
           ...applied,
-          // MANUAL is one of the auto-approve exclusions, but HR entering it
-          // is itself the approval, so it is settled here.
+          // HR entering the record is itself the human decision, so it is
+          // approved here rather than queued back to whoever created it.
           source: "MANUAL",
           approval: "APPROVED",
           approvedBy: actor.sub,

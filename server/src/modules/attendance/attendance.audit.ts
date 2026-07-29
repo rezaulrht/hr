@@ -16,13 +16,12 @@ export type AuditAction =
   | "REGULARISE"
   | "CORRECT"
   | "APPROVE"
-  | "AUTO_APPROVE"
   | "REJECT"
 
 export interface AuditEntry {
   attendanceId: string
   action: AuditAction
-  /** Null for machine actions such as AUTO_APPROVE. */
+  /** User id of whoever performed the action. */
   changedBy?: string | null
   /** Only the fields that changed, not whole snapshots. */
   before?: Prisma.InputJsonValue
