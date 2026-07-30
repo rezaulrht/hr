@@ -10,6 +10,7 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import type { Currency, PayrollStatus, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { assertMonthNotLocked } from "../../utils/month-lock"
 import { auditPayroll } from "./payroll.audit"
 import { computePayslip } from "./payroll.calc"
 import { resolveRateOrThrow } from "./payroll.fx"
@@ -21,6 +22,8 @@ import {
   toComponentInputs,
 } from "./payroll.preflight"
 import type {
+  AdjustmentBody,
+  AdjustmentQuery,
   CreateRunBody,
   ExchangeRateBody,
   ExchangeRateUpdateBody,
@@ -712,4 +715,95 @@ export async function getPayslip(actor: AccessTokenPayload, id: string) {
     }
   }
   return payslip
+}
+
+// ── Adjustments ──────────────────────────────────────────────────────────
+
+export async function listAdjustments(query: AdjustmentQuery) {
+  return prisma.payrollAdjustment.findMany({
+    where: {
+      month: query.month,
+      year: query.year,
+      employeeId: query.employeeId,
+    },
+    include: { employee: { select: { id: true, fullName: true, employeeCode: true } } },
+    orderBy: [{ year: "desc" }, { month: "desc" }, { createdAt: "desc" }],
+  })
+}
+
+export async function createAdjustment(actorUserId: string, body: AdjustmentBody) {
+  const employee = await prisma.employee.findUnique({ where: { id: body.employeeId } })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  // An adjustment changes what a month should pay, so it is illegal once
+  // that month's payroll is approved or disbursed.
+  await assertMonthNotLocked(new Date(Date.UTC(body.year, body.month - 1, 1)))
+
+  return prisma.$transaction(async (tx) => {
+    const adjustment = await tx.payrollAdjustment.create({
+      data: {
+        employeeId: body.employeeId,
+        month: body.month,
+        year: body.year,
+        kind: body.kind,
+        code: body.code,
+        label: body.label,
+        currency: body.currency,
+        amount: dec(body.amount),
+        reason: body.reason,
+        createdBy: actorUserId,
+      },
+    })
+    await auditPayroll(tx, {
+      entity: "ADJUSTMENT",
+      entityId: adjustment.id,
+      action: "CREATE",
+      changedBy: actorUserId,
+      after: {
+        employeeId: adjustment.employeeId,
+        month: adjustment.month,
+        year: adjustment.year,
+        kind: adjustment.kind,
+        code: adjustment.code,
+        currency: adjustment.currency,
+        amount: toMoneyString(adjustment.amount),
+      },
+      note: adjustment.reason,
+    })
+    return adjustment
+  })
+}
+
+export async function deleteAdjustment(id: string, actorUserId: string) {
+  const existing = await prisma.payrollAdjustment.findUnique({ where: { id } })
+  if (!existing) throw new AppError(404, "Adjustment not found")
+
+  // Reprocess the run to release it first, rather than silently orphaning a
+  // line that has already been paid.
+  if (existing.payslipId) {
+    throw new AppError(
+      409,
+      "This adjustment has already been paid on a payslip. Reprocess the run to release it before deleting."
+    )
+  }
+
+  await assertMonthNotLocked(new Date(Date.UTC(existing.year, existing.month - 1, 1)))
+
+  return prisma.$transaction(async (tx) => {
+    await tx.payrollAdjustment.delete({ where: { id } })
+    await auditPayroll(tx, {
+      entity: "ADJUSTMENT",
+      entityId: id,
+      action: "DELETE",
+      changedBy: actorUserId,
+      before: {
+        employeeId: existing.employeeId,
+        month: existing.month,
+        year: existing.year,
+        code: existing.code,
+        amount: toMoneyString(existing.amount),
+      },
+    })
+    return { id }
+  })
 }

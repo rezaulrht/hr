@@ -6,14 +6,17 @@ import { requireRole } from "../../middleware/requireRole"
 import {
   approveRunHandler,
   createRateHandler,
+  createAdjustmentHandler,
   createRunHandler,
   createStructureHandler,
+  deleteAdjustmentHandler,
   disburseRunHandler,
   getEmployeePayslipsHandler,
   getMyPayslipsHandler,
   getPayslipHandler,
   getRunHandler,
   getRunPreflightHandler,
+  listAdjustmentsHandler,
   listRatesHandler,
   listRunsHandler,
   listStructuresHandler,
@@ -71,5 +74,16 @@ router.get("/payslips/me", requireAuth, requireRole(...STAFF_ROLES), getMyPaysli
 // themselves, and a manager may not read their reports' pay.
 router.get("/payslips/employee/:employeeId", requireAuth, getEmployeePayslipsHandler)
 router.get("/payslips/:id", requireAuth, getPayslipHandler)
+
+// HR creates adjustments; Finance cannot. A festival bonus is an HR decision
+// that Finance pays. The matrix gives HR read-only on payroll precisely so
+// they cannot move money alone - an adjustment still has to survive Finance
+// processing and Super Admin approving. Giving HR the create right is what
+// stops Finance approving its own inputs.
+const HR_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
+
+router.get("/adjustments", requireAuth, requireRole(...READ_ROLES), listAdjustmentsHandler)
+router.post("/adjustments", requireAuth, requireRole(...HR_ROLES), createAdjustmentHandler)
+router.delete("/adjustments/:id", requireAuth, requireRole(...HR_ROLES), deleteAdjustmentHandler)
 
 export default router

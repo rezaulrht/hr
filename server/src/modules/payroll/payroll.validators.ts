@@ -79,3 +79,24 @@ export const rejectRunBody = z.object({
   note: z.string().min(1, "A note is required").max(1000),
 })
 export type RejectRunBody = z.infer<typeof rejectRunBody>
+
+export const adjustmentBody = z.object({
+  employeeId: z.string().min(1),
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  kind: z.enum(["EARNING", "DEDUCTION"]),
+  code: z.string().min(1).max(64),
+  label: z.string().min(1).max(200),
+  currency: z.enum(["BDT", "USD"]).default("BDT"),
+  amount: z.coerce.number().positive("amount must be greater than 0"),
+  // Required. An unexplained line on someone's pay is a dispute waiting.
+  reason: z.string().min(1, "A reason is required").max(500),
+})
+export type AdjustmentBody = z.infer<typeof adjustmentBody>
+
+export const adjustmentQuery = z.object({
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  employeeId: z.string().optional(),
+})
+export type AdjustmentQuery = z.infer<typeof adjustmentQuery>

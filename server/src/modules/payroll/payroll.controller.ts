@@ -3,14 +3,17 @@ import type { NextFunction, Request, Response } from "express"
 import {
   approveRun,
   createExchangeRate,
+  createAdjustment,
   createRun,
   createSalaryStructure,
+  deleteAdjustment,
   disburseRun,
   getEmployeePayslips,
   getMyPayslips,
   getPayslip,
   getRun,
   getRunPreflight,
+  listAdjustments,
   listExchangeRates,
   listRuns,
   listSalaryStructures,
@@ -21,6 +24,8 @@ import {
   updateSalaryStructure,
 } from "./payroll.service"
 import {
+  adjustmentBody,
+  adjustmentQuery,
   createRunBody,
   exchangeRateBody,
   exchangeRateUpdateBody,
@@ -184,6 +189,31 @@ export async function getEmployeePayslipsHandler(
 export async function getPayslipHandler(req: RequestWithId, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await getPayslip(req.user!, req.params.id))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function listAdjustmentsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await listAdjustments(adjustmentQuery.parse(req.query)))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function createAdjustmentHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = adjustmentBody.parse(req.body)
+    return res.status(201).json(await createAdjustment(req.user!.sub, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function deleteAdjustmentHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await deleteAdjustment(req.params.id, req.user!.sub))
   } catch (err) {
     return next(err)
   }
