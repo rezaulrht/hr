@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { settlements } from "@/components/dashboard/shared-pages"
+import { SettlementPage } from "@/components/settlement/settlement-page"
 
-export default function SettlementsPage() {
-  return <SubpagePage data={settlements} />
+export default function Page() {
+  return <SettlementPage />
 }

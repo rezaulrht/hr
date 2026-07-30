@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { payroll } from "@/components/dashboard/shared-pages"
+import { PayrollPage } from "@/components/payroll/payroll-page"
 
-export default function PayrollPage() {
-  return <SubpagePage data={payroll} />
+export default function Page() {
+  return <PayrollPage />
 }
