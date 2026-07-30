@@ -427,6 +427,27 @@ export async function processRun(id: string, actorUserId: string) {
         : await tx.payrollAdjustment.findMany({
             where: { employeeId: { in: rosterIds }, month: run.month, year: run.year, payslipId: null },
           })
+    // Only APPROVED claims with both payslipId and settlementId null, and
+    // only for employees in this run. A claim already on a settlement must
+    // never also be swept onto a payslip.
+    const unsweptClaims =
+      rosterIds.length === 0
+        ? []
+        : await tx.expenseClaim.findMany({
+            where: {
+              employeeId: { in: rosterIds },
+              status: "APPROVED",
+              payslipId: null,
+              settlementId: null,
+            },
+          })
+    const claimsByEmployee = new Map<string, typeof unsweptClaims>()
+    for (const claim of unsweptClaims) {
+      const list = claimsByEmployee.get(claim.employeeId) ?? []
+      list.push(claim)
+      claimsByEmployee.set(claim.employeeId, list)
+    }
+
     const adjustmentsByEmployee = new Map<string, typeof unclaimedAdjustments>()
     for (const adjustment of unclaimedAdjustments) {
       const list = adjustmentsByEmployee.get(adjustment.employeeId) ?? []
@@ -454,13 +475,30 @@ export async function processRun(id: string, actorUserId: string) {
         amount: convertBetween(dec(a.amount), a.currency, structure.currency, usdRate),
       }))
 
+      // Each claim was already converted once, at approval, at its own
+      // spend-date rate. Its BDT value is therefore fixed; only the final
+      // hop into this payslip's currency remains.
+      const employeeClaims = claimsByEmployee.get(employee.id) ?? []
+      const reimbursements = employeeClaims.map((claim) => {
+        const claimRate = claim.fxRateToBdt ?? dec(1)
+        const amountInBdt = dec(claim.amount).times(claimRate)
+        return {
+          claimId: claim.id,
+          category: claim.category,
+          expenseDate: claim.expenseDate.toISOString().slice(0, 10),
+          spentCurrency: claim.currency,
+          spentAmount: dec(claim.amount),
+          fxRateToBdt: claimRate,
+          amount:
+            structure.currency === REPORTING_CURRENCY ? amountInBdt : amountInBdt.dividedBy(usdRate!),
+        }
+      })
+
       const result = computePayslip({
         basic: dec(structure.basic),
         components: toComponentInputs(structure.components),
         adjustments,
-        // Expense-claim reimbursements are swept in by Task 11, once the
-        // expense module exists to approve and freeze them.
-        reimbursements: [],
+        reimbursements,
         calendarDays,
         workingDays: summary.workingDays,
         present: summary.present,
@@ -509,6 +547,12 @@ export async function processRun(id: string, actorUserId: string) {
       if (consumedIds.length > 0) {
         await tx.payrollAdjustment.updateMany({
           where: { id: { in: consumedIds } },
+          data: { payslipId: payslip.id },
+        })
+      }
+      if (employeeClaims.length > 0) {
+        await tx.expenseClaim.updateMany({
+          where: { id: { in: employeeClaims.map((c) => c.id) } },
           data: { payslipId: payslip.id },
         })
       }

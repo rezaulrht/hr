@@ -5,7 +5,7 @@ vi.mock("../../config/prisma", () => {
     payrollRun: { create: vi.fn(), update: vi.fn() },
     payslip: { deleteMany: vi.fn(), create: vi.fn() },
     payrollAdjustment: { findMany: vi.fn(), updateMany: vi.fn() },
-    expenseClaim: { updateMany: vi.fn() },
+    expenseClaim: { findMany: vi.fn(), updateMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
     payrollAudit: { create: vi.fn() },
   }
@@ -129,6 +129,7 @@ beforeEach(() => {
   vi.mocked(getMonthlySummary).mockResolvedValue([summaryFor()])
   vi.mocked(prisma.exchangeRate.findMany).mockResolvedValue([])
   tx.payrollAdjustment.findMany.mockResolvedValue([])
+  tx.expenseClaim.findMany.mockResolvedValue([])
   tx.idCounter.upsert.mockImplementation(async () => {
     idCounterValue += 1
     return { id: "PAY", value: idCounterValue }
@@ -324,6 +325,79 @@ describe("processRun", () => {
       const breakdown = call.data.breakdown as { adjustments: Array<{ code: string; amount: string }> }
       const adjustmentLine = breakdown.adjustments.find((l) => l.code === "ARREARS")
       expect(adjustmentLine?.amount).toBe("50.00")
+    })
+  })
+
+  describe("the expense sweep", () => {
+    const approvedClaim = {
+      id: "claim-1",
+      employeeId: "emp-bdt",
+      amount: dec("1200.00"),
+      category: "Travel",
+      currency: "BDT",
+      expenseDate: new Date("2026-07-03T00:00:00.000Z"),
+      fxRateToBdt: dec(1),
+      status: "APPROVED",
+    }
+
+    it("only asks for APPROVED claims that no payslip or settlement has taken", async () => {
+      vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(draftRun as never)
+      tx.payrollRun.update.mockResolvedValue(draftRun)
+      await processRun("run-1", "user-finance")
+      expect(tx.expenseClaim.findMany).toHaveBeenCalledWith({
+        where: {
+          employeeId: { in: ["emp-bdt"] },
+          status: "APPROVED",
+          payslipId: null,
+          settlementId: null,
+        },
+      })
+    })
+
+    it("adds the claim to netPayable without touching grossPay", async () => {
+      vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(draftRun as never)
+      tx.payrollRun.update.mockResolvedValue(draftRun)
+      tx.expenseClaim.findMany.mockResolvedValue([approvedClaim])
+      await processRun("run-1", "user-finance")
+      const data = tx.payslip.create.mock.calls[0][0].data
+      // A reimbursement returns money already spent: not wages, so outside
+      // gross, and therefore never pro-rated by attendance.
+      expect(data.reimbursements.toFixed(2)).toBe("1200.00")
+      expect(data.netPayable.equals(data.netPay.plus(dec("1200.00")))).toBe(true)
+      // Gross is exactly what a full month earns with no claim at all.
+      expect(data.grossPay.equals(data.grossFull)).toBe(true)
+    })
+
+    it("claims the swept claim onto the new payslip", async () => {
+      vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(draftRun as never)
+      tx.payrollRun.update.mockResolvedValue(draftRun)
+      tx.expenseClaim.findMany.mockResolvedValue([approvedClaim])
+      await processRun("run-1", "user-finance")
+      expect(tx.expenseClaim.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ["claim-1"] } },
+        data: { payslipId: "payslip-emp-bdt" },
+      })
+    })
+
+    it("converts a BDT claim at its own frozen rate onto a USD payslip", async () => {
+      // The claim crossed currency once, at approval, at its spend-date
+      // rate. Only the hop into the payslip's currency remains.
+      vi.mocked(prisma.employee.findMany).mockResolvedValue([
+        employeeRow({ id: "emp-usd", salaryStructureId: "struct-usd", salaryStructure: usdStructure }),
+      ] as never)
+      vi.mocked(getMonthlySummary).mockResolvedValue([
+        summaryFor({ employee: { id: "emp-usd", fullName: "Sam Lee", employeeCode: "BS-EMP-002", designation: "Engineer" } }),
+      ])
+      vi.mocked(prisma.exchangeRate.findMany).mockResolvedValue([usdRateRow] as never)
+      vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({ id: "run-1", month: 7, year: 2026, status: "DRAFT" } as never)
+      tx.payrollRun.update.mockResolvedValue({})
+      tx.expenseClaim.findMany.mockResolvedValue([
+        { ...approvedClaim, employeeId: "emp-usd", amount: dec("6125.00"), fxRateToBdt: dec(1) },
+      ])
+      await processRun("run-1", "user-finance")
+      const data = tx.payslip.create.mock.calls[0][0].data
+      // 6125 BDT / 122.5 = 50.00 USD
+      expect(data.reimbursements.toFixed(2)).toBe("50.00")
     })
   })
 
