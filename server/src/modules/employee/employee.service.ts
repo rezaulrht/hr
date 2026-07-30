@@ -6,6 +6,7 @@ import { sendStaffCredentialsEmail } from "../auth/mailer"
 import { auditPayroll } from "../payroll/payroll.audit"
 import type { ExitDetailsBody } from "../settlement/settlement.validators"
 import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
+import type { SetSalaryStructureBody } from "./employee.validators"
 
 const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
   EMPLOYEE: "EMP",
@@ -64,7 +65,7 @@ export async function createStaffAccount(input: CreateStaffAccountInput): Promis
 
 export async function listEmployees(): Promise<EmployeeListItem[]> {
   const employees = await prisma.employee.findMany({
-    include: { department: true, user: true },
+    include: { department: true, user: true, salaryStructure: true },
     orderBy: { fullName: "asc" },
   })
   return employees.map((e) => ({
@@ -77,7 +78,64 @@ export async function listEmployees(): Promise<EmployeeListItem[]> {
     employmentType: e.employmentType,
     employmentStatus: e.employmentStatus,
     joiningDate: e.joiningDate.toISOString(),
+    salaryStructure: e.salaryStructure
+      ? { id: e.salaryStructure.id, name: e.salaryStructure.name, currency: e.salaryStructure.currency }
+      : null,
   }))
+}
+
+/**
+ * Puts an employee on a pay structure.
+ *
+ * The split is deliberate and is the reason this lives here rather than in the
+ * payroll module: **Finance defines structures, HR assigns people to them.**
+ * Neither role can invent a salary and pay it alone — HR may only choose from
+ * bands Finance authored, and Finance cannot decide who sits in which band.
+ *
+ * No month lock. Reassigning does not disturb a paid month: a payslip is a
+ * frozen snapshot holding its own figures, not a reference to the structure,
+ * so June stays exactly as June was paid. The change lands on the next run.
+ */
+export async function setSalaryStructure(
+  employeeId: string,
+  actorUserId: string,
+  body: SetSalaryStructureBody
+) {
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    include: { salaryStructure: true },
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  let structure = null
+  if (body.salaryStructureId !== null) {
+    structure = await prisma.salaryStructure.findUnique({
+      where: { id: body.salaryStructureId },
+    })
+    if (!structure) throw new AppError(404, "Salary structure not found")
+    // An inactive structure is one Finance has retired. Assigning to it would
+    // pay a band that is no longer authorised.
+    if (!structure.isActive) {
+      throw new AppError(409, `"${structure.name}" is inactive and cannot be assigned`)
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.employee.update({
+      where: { id: employeeId },
+      data: { salaryStructureId: body.salaryStructureId },
+      include: { salaryStructure: true },
+    })
+    await auditPayroll(tx, {
+      entity: "EMPLOYEE_SALARY_STRUCTURE",
+      entityId: employeeId,
+      action: "UPDATE",
+      changedBy: actorUserId,
+      before: { salaryStructure: employee.salaryStructure?.name ?? null },
+      after: { salaryStructure: structure?.name ?? null },
+    })
+    return updated
+  })
 }
 
 /**

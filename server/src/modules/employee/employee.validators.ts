@@ -11,3 +11,14 @@ export const createStaffAccountSchema = z.object({
   reportingManagerId: z.string().optional(),
 })
 export type CreateStaffAccountBody = z.infer<typeof createStaffAccountSchema>
+
+/**
+ * `null` un-assigns. Kept explicit rather than inferring it from an absent
+ * key, because "leave the structure alone" and "this person is now on no
+ * structure" are different intentions and PATCH cannot distinguish them
+ * otherwise.
+ */
+export const setSalaryStructureSchema = z.object({
+  salaryStructureId: z.string().min(1).nullable(),
+})
+export type SetSalaryStructureBody = z.infer<typeof setSalaryStructureSchema>

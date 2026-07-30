@@ -599,6 +599,7 @@ model PayrollAdjustment {
 model PayrollAudit {
   // "PAYROLL_RUN" | "PAYSLIP" | "SALARY_STRUCTURE" | "ADJUSTMENT"
   //   | "EXPENSE_CLAIM" | "SETTLEMENT" | "EXCHANGE_RATE" | "EMPLOYEE_EXIT"
+  //   | "EMPLOYEE_SALARY_STRUCTURE"
   id        String   @id @default(uuid())
   entity    String
   entityId  String

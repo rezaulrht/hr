@@ -1,3 +1,7 @@
+// `export *` at the foot of this file re-exports payroll-types but does not
+// bring its names into local scope, so Employee's structure ref imports it.
+import type { Currency } from "./payroll-types"
+
 // Hand-mirrored from server/src/generated/prisma's Role enum. No shared
 // types package (client and server are separate projects) — if the
 // server's Role enum changes, update this by hand.
@@ -35,6 +39,8 @@ export interface Employee {
   employmentType: EmploymentType
   employmentStatus: EmploymentStatus
   joiningDate: string
+  /** `null` is preflight blocker 3 waiting to happen — the directory says so. */
+  salaryStructure: { id: string; name: string; currency: Currency } | null
 }
 
 export interface CreateStaffAccountInput {

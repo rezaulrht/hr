@@ -21,6 +21,7 @@ export type PayrollAuditEntity =
   | "SETTLEMENT"
   | "EXCHANGE_RATE"
   | "EMPLOYEE_EXIT"
+  | "EMPLOYEE_SALARY_STRUCTURE"
 
 export type PayrollAuditAction =
   | "CREATE"
