@@ -6,6 +6,8 @@ import { requireRole } from "../../middleware/requireRole"
 import {
   approveRunHandler,
   bankFileHandler,
+  emailRunHandler,
+  emailStatusHandler,
   bankFileSummaryHandler,
   createRateHandler,
   createAdjustmentHandler,
@@ -16,6 +18,7 @@ import {
   getEmployeePayslipsHandler,
   getMyPayslipsHandler,
   getPayslipHandler,
+  payslipPdfHandler,
   getRunHandler,
   getRunPreflightHandler,
   listAdjustmentsHandler,
@@ -86,6 +89,10 @@ router.get("/payslips/me", requireAuth, requireRole(...STAFF_ROLES), getMyPaysli
 // themselves, and a manager may not read their reports' pay.
 router.get("/payslips/employee/:employeeId", requireAuth, getEmployeePayslipsHandler)
 router.get("/payslips/:id", requireAuth, getPayslipHandler)
+router.get("/payslips/:id/pdf", requireAuth, payslipPdfHandler)
+
+router.post("/runs/:id/email", requireAuth, requireRole(...FINANCE_ROLES), emailRunHandler)
+router.get("/runs/:id/email-status", requireAuth, requireRole(...READ_ROLES), emailStatusHandler)
 
 // HR creates adjustments; Finance cannot. A festival bonus is an HR decision
 // that Finance pays. The matrix gives HR read-only on payroll precisely so

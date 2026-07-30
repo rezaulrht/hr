@@ -25,7 +25,9 @@ import {
   updateExchangeRate,
   updateSalaryStructure,
 } from "./payroll.service"
+import { emailPayslipsForRun, getEmailStatus } from "../../jobs/payslip-email.job"
 import { bankFileSummary, buildBankFile } from "./payroll.bankfile"
+import { getOrRenderPayslipPdf } from "./payroll.pdf"
 import {
   adjustmentBody,
   adjustmentQuery,
@@ -249,6 +251,45 @@ export async function bankFileHandler(req: RequestWithId, res: Response, next: N
 export async function bankFileSummaryHandler(req: RequestWithId, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await bankFileSummary(req.params.id))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function payslipPdfHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    // Reuses the same scoping as the JSON read, so a PDF cannot leak a
+    // payslip the caller may not see.
+    const payslip = await getPayslip(req.user!, req.params.id)
+    const pdf = await getOrRenderPayslipPdf(payslip.id)
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `inline; filename="${payslip.payslipNo}.pdf"`)
+    return res.status(200).send(pdf)
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function emailRunHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const run = await getRun(req.params.id)
+    if (run.status !== "APPROVED" && run.status !== "DISBURSED") {
+      throw new AppError(409, "Payslips can only be emailed once the run is approved")
+    }
+    // Queued, not awaited: the response returns immediately and progress is
+    // polled via /email-status.
+    void emailPayslipsForRun(req.params.id).catch((err) => {
+      console.error("[payslip email] run failed", err)
+    })
+    return res.status(202).json({ queued: true, runId: req.params.id })
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function emailStatusHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getEmailStatus(req.params.id))
   } catch (err) {
     return next(err)
   }
