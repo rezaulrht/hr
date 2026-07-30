@@ -1,27 +1,6 @@
-import nodemailer from "nodemailer"
-
-import { env } from "../../config/env"
-
-async function send(to: string, subject: string, text: string, html: string): Promise<void> {
-  if (!env.SMTP_HOST) {
-    console.log(`[dev email fallback] To: ${to} | Subject: ${subject}\n${text}`)
-    return
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-  })
-
-  await transporter.sendMail({
-    from: env.EMAIL_FROM ?? "no-reply@peoplecore.io",
-    to,
-    subject,
-    text,
-    html,
-  })
-}
+// The transport and its dev-mode console fallback moved to src/utils/mailer
+// so the attendance jobs could send mail without duplicating either.
+import { sendMail as send } from "../../utils/mailer"
 
 export async function sendPasswordResetEmail(to: string, resetLink: string): Promise<void> {
   await send(

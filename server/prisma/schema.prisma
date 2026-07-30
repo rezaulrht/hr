@@ -91,6 +91,11 @@ model Employee {
   joiningDate        DateTime
   officeLocation     String?
   shiftId            String?
+  shift              Shift?            @relation(fields: [shiftId], references: [id])
+  // ZKTeco devices identify people by an on-device enrolment ID, not by
+  // employeeCode. Unused until the hardware phase — without it, device
+  // punches can't be attributed to a person.
+  deviceUserId       String?           @unique
   bankAccountNumber  String?
   bankName           String?
   salaryStructureId  String?
@@ -133,8 +138,31 @@ model Document {
 }
 
 // ── LEAVE ─────────────────────────────────────
+
+// How a type's entitlement is arrived at. The Bangladesh Labour Act 2006 does
+// not use one rule for all leave: casual and sick are flat annual grants,
+// earned leave is bought with days actually worked, and maternity is granted
+// per occasion rather than per year.
+enum LeaveAccrualBasis {
+  // `annualQuota`, pro-rated across the joining year.
+  PRO_RATED
+  // `annualQuota` in full, per occasion. Never pro-rated — a §46 maternity
+  // benefit is not smaller because the employee joined in October.
+  PER_EVENT
+  // §117: one day for every `EARNED_LEAVE_DAYS_PER_DAY` days actually worked
+  // in the preceding twelve months, capped at `maxAccrual`, and nothing at
+  // all until `minServiceMonths` of continuous service.
+  EARNED
+  // Zero-quota unpaid. There is no balance to run down.
+  NONE
+}
+
 model LeaveType {
   id              String           @id @default(uuid())
+  // Stable machine key. Every policy rule below is looked up by code, never
+  // by `name` — HR renaming "Casual" to "Casual Leave" must not silently
+  // switch off the §115 holiday rule attached to it.
+  code            String           @unique
   name            String           @unique
   isPaid          Boolean          @default(true)
   annualQuota     Int
@@ -143,6 +171,22 @@ model LeaveType {
   // Sick leave is filed after the fact — you can't schedule getting ill.
   allowsBackdating Boolean         @default(false)
   eligibleFor     EmploymentType[]
+
+  // Granted by the Act rather than by company policy. The seed only rewrites
+  // rows where this is true, so a future statutory amendment can never
+  // overwrite a benefit the company chose to give on top.
+  statutory        Boolean           @default(false)
+  // §117(3) counts holidays falling inside earned leave as leave; §115 and
+  // §116 do not, for casual and sick. So this is a per-type flag, not one
+  // global rule — the same Thu–Sat range charges 3 days as earned leave and
+  // 2 as casual.
+  countsHolidays   Boolean           @default(false)
+  accrualBasis     LeaveAccrualBasis @default(PRO_RATED)
+  // §117 needs one year of continuous service; §46 maternity needs six months.
+  minServiceMonths Int               @default(0)
+  // Ceiling on accumulated earned leave (§117: 60 days). Null means no cap.
+  maxAccrual       Int?
+
   leaveRequests   LeaveRequest[]
   leaveBalances   LeaveBalance[]
 }
@@ -185,12 +229,52 @@ enum LeaveStatus {
 }
 
 model Holiday {
-  id   String   @id @default(uuid())
+  id   String      @id @default(uuid())
   name String
   date DateTime
+  type HolidayType @default(GENERAL)
+
+  // Unique on (date, name), not on date alone: 2026-05-01 is both May Day
+  // and Buddha Purnima, and a unique-on-date makes that pair unseedable.
+  @@unique([date, name])
+  @@index([date])
+}
+
+enum HolidayType {
+  GENERAL
+  EXECUTIVE_ORDER
+  OPTIONAL
+  // Inverts: a normal off-day declared working. The cabinet cancelled the
+  // weekly holiday on 2026-05-23 when it extended Eid-ul-Azha to seven days,
+  // and a calendar that can only take days away cannot express that.
+  WORKING_DAY
 }
 
 // ── ATTENDANCE ────────────────────────────────
+
+// Fills a hole the schema always had: Employee.shiftId existed with no model
+// behind it. Times are "HH:mm" strings, not DateTime — a shift start is a
+// time-of-day with no date and no timezone, and a DateTime would force both.
+model Shift {
+  id            String     @id @default(uuid())
+  name          String     @unique
+  startTime     String
+  endTime       String
+  // Lunch + breaks sit *inside* the span, so the 09:00-18:00 expectation is
+  // 9 elapsed hours and nothing subtracts the break anywhere.
+  breakMinutes  Int        @default(60)
+  graceMinutes  Int        @default(15)
+  // 0=Sun … 6=Sat. [5] is Friday.
+  weeklyOffDays Int[]
+  // A dated shift is a company-wide override for its window — Ramadan hours,
+  // without reassigning every employee. Null/null is the standing default.
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  employees     Employee[]
+
+  @@index([effectiveFrom, effectiveTo])
+}
+
 model Attendance {
   id          String    @id @default(uuid())
   employeeId  String
@@ -200,6 +284,71 @@ model Attendance {
   checkOut    DateTime?
   workedHours Float?
   isLate      Boolean   @default(false)
+  isEarlyOut  Boolean   @default(false)
+
+  source AttendanceSource @default(WEB)
+
+  approval     AttendanceApproval @default(PENDING)
+  // User id of the manager or HR who decided. Every decided record has one —
+  // there is no machine approval path.
+  approvedBy   String?
+  approvedAt   DateTime?
+  approvalNote String?
+
+  // Set when the *employee* amends their own record, flagging to the approver
+  // that the time came from the person it benefits.
+  regularisedAt   DateTime?
+  regularisedNote String?
+
+  // User id, set when HR edits the record.
+  correctedBy    String?
+  correctedAt    DateTime?
+  correctionNote String?
+
+  audits AttendanceAudit[]
+
+  // Without this, a double-tapped check-in button creates two rows. It also
+  // makes check-in a single atomic create instead of a read-then-write race.
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([approval])
+}
+
+// No AUTO_APPROVED. A web punch proves identity and server time, never that
+// the person was at work, so the approver's own eyes are the only real
+// control — and a machine path would bypass it on exactly the records that
+// look most ordinary, which is what a faked punch looks like.
+enum AttendanceApproval {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AttendanceSource {
+  WEB
+  MANUAL
+  RFID
+  FACE
+  FINGERPRINT
+}
+
+// correctedBy/At/Note hold only the *most recent* edit. The dispute that
+// matters is always about the value before someone changed it, so every
+// mutation appends here inside the same transaction.
+model AttendanceAudit {
+  id           String     @id @default(uuid())
+  attendanceId String
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  action       String
+  // User id of whoever performed the action.
+  changedBy    String?
+  changedAt    DateTime   @default(now())
+  // Only the fields that changed, not whole snapshots.
+  before       Json?
+  after        Json?
+  note         String?
+
+  @@index([attendanceId, changedAt])
 }
 
 // ── PAYROLL ───────────────────────────────────

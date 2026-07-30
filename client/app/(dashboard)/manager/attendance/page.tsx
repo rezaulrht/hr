@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { attendance } from "@/components/dashboard/shared-pages"
+import { AttendancePage } from "@/components/attendance/attendance-page"
 
-export default function AttendancePage() {
-  return <SubpagePage data={attendance} />
+export default function Page() {
+  return <AttendancePage />
 }

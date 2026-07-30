@@ -1,0 +1,232 @@
+"use client"
+
+import { useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+
+import { bulkDecideAttendance, getApprovals } from "@/lib/api/attendance"
+import { ApiError } from "@/lib/api/client"
+import { DataTable } from "@/components/dashboard/data-table"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import type { TableCell } from "@/components/dashboard/types"
+import { DecisionDialog } from "@/components/leave/decision-dialog"
+import {
+  EXCEPTION_LABEL,
+  formatClock,
+  formatDayLabel,
+  formatHours,
+} from "@/components/attendance/attendance-shared"
+import {
+  LoadError,
+  SectionHeading,
+  TableSkeleton,
+} from "@/components/attendance/attendance-ui"
+
+/**
+ * The manager's queue. **Every closed day lands here** — nothing approves
+ * itself, because a web punch proves identity and server time, never that
+ * the person was actually at work. The approver's own knowledge of who was
+ * there is the control.
+ *
+ * Rows still lead with their exception labels where they have any, so the
+ * eye goes to the odd ones first. Those labels direct attention within the
+ * list; they never shorten it.
+ */
+export function ApprovalsSection({
+  accessToken,
+  isHr,
+}: {
+  accessToken: string
+  isHr: boolean
+}) {
+  const queryClient = useQueryClient()
+  const [tab, setTab] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [rejecting, setRejecting] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const approvalsQuery = useQuery({
+    queryKey: ["attendance", "approvals", tab],
+    queryFn: () => getApprovals(accessToken, tab),
+    // Polling, not a socket: at this headcount it is within a rounding error
+    // of a live feed and adds no stateful connection to the API.
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  })
+
+  const items = useMemo(() => approvalsQuery.data ?? [], [approvalsQuery.data])
+
+  const decideMutation = useMutation({
+    mutationFn: (vars: { ids: string[]; decision: "APPROVE" | "REJECT"; note?: string }) =>
+      bulkDecideAttendance(accessToken, vars.ids, vars.decision, vars.note),
+    onSuccess: (results) => {
+      const failures = results.filter((r) => !r.ok)
+      // Per-id results, so a batch that partly worked says so rather than
+      // reporting a blanket failure.
+      setActionError(
+        failures.length > 0
+          ? `${failures.length} of ${results.length} could not be decided: ${failures[0]?.error ?? ""}`
+          : null
+      )
+      setSelected(new Set())
+      setRejecting(false)
+      queryClient.invalidateQueries({ queryKey: ["attendance"] })
+    },
+    onError: (err) => {
+      setActionError(
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again."
+      )
+    },
+  })
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const allSelected = items.length > 0 && selected.size === items.length
+  const isPending = tab === "PENDING"
+
+  const rows: TableCell[][] = items.map((item) => [
+    {
+      node: isPending ? (
+        <div className="flex items-center py-0.5">
+          <Checkbox
+            checked={selected.has(item.id)}
+            onCheckedChange={() => toggle(item.id)}
+            aria-label={`Select ${item.employee.fullName} on ${item.date}`}
+          />
+        </div>
+      ) : (
+        <span />
+      ),
+    },
+    {
+      // The reason leads, not the date: it is what the decision turns on.
+      text: item.exceptions.map((code) => EXCEPTION_LABEL[code]).join(" · ") || "—",
+      weight: 600,
+      sub: item.regularisedNote ?? undefined,
+    },
+    { text: item.employee.fullName, sub: item.employee.employeeCode },
+    { text: formatDayLabel(item.date) },
+    { text: `${formatClock(item.checkIn)} – ${formatClock(item.checkOut)}` },
+    { text: formatHours(item.workedHours) },
+    item.stalled
+      ? { tag: `${item.agingDays}d waiting`, tone: "red" }
+      : { text: item.agingDays > 0 ? `${item.agingDays}d` : "Today" },
+  ])
+
+  return (
+    <>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionHeading
+          title={isHr ? "Attendance approvals" : "Approvals for my team"}
+          sub="Every closed day waits here for a named person to sign it off. Flags mark the ones worth a harder look."
+        />
+        <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
+          {(["PENDING", "APPROVED", "REJECTED"] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => {
+                setTab(mode)
+                setSelected(new Set())
+              }}
+              className={
+                tab === mode
+                  ? "rounded bg-[#17191C] px-3 py-1 text-[12px] font-bold text-white"
+                  : "rounded px-3 py-1 text-[12px] font-semibold text-[#7A8698]"
+              }
+            >
+              {mode === "PENDING" ? "Needs review" : mode === "APPROVED" ? "Approved" : "Rejected"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isPending && items.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-[#E4E9EF] bg-white px-4 py-3">
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={() =>
+              setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))
+            }
+            aria-label="Select all"
+          />
+          <span className="text-[12.5px] font-semibold">
+            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+          </span>
+          <div className="ml-auto flex gap-2">
+            <Button
+              disabled={selected.size === 0 || decideMutation.isPending}
+              onClick={() =>
+                decideMutation.mutate({ ids: [...selected], decision: "APPROVE" })
+              }
+              className="h-auto rounded-md bg-[#17191C] px-4 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"
+            >
+              Approve
+            </Button>
+            <Button
+              variant="outline"
+              disabled={selected.size === 0 || decideMutation.isPending}
+              onClick={() => {
+                setActionError(null)
+                setRejecting(true)
+              }}
+              className="h-auto rounded-md px-4 py-2 text-[12.5px] font-bold"
+            >
+              Reject
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <div className="mb-3 rounded-md border border-[#F0D2D2] bg-[#FDF6F6] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#B03A3A]">
+          {actionError}
+        </div>
+      ) : null}
+
+      {approvalsQuery.isPending ? (
+        <TableSkeleton />
+      ) : approvalsQuery.isError ? (
+        <LoadError label="the approvals queue" onRetry={() => approvalsQuery.refetch()} />
+      ) : items.length === 0 ? (
+        <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
+          {isPending
+            ? "Nothing needs your review."
+            : tab === "APPROVED"
+              ? "You haven't approved anything yet."
+              : "Nothing has been rejected."}
+        </div>
+      ) : (
+        <DataTable
+          title=""
+          cols="0.3fr 1.3fr 1.1fr 0.9fr 1.1fr 0.7fr 0.7fr"
+          headers={["", "Why", "Employee", "Date", "In – Out", "Hours", "Waiting"]}
+          rows={rows}
+        />
+      )}
+
+      {rejecting ? (
+        <DecisionDialog
+          key={[...selected].join(",")}
+          open
+          onOpenChange={(open) => {
+            if (!open) setRejecting(false)
+          }}
+          title={`Reject ${selected.size} record${selected.size === 1 ? "" : "s"}`}
+          confirmLabel="Reject"
+          pending={decideMutation.isPending}
+          error={actionError}
+          onConfirm={(note) =>
+            decideMutation.mutate({ ids: [...selected], decision: "REJECT", note })
+          }
+        />
+      ) : null}
+    </>
+  )
+}

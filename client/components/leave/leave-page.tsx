@@ -198,16 +198,40 @@ export function LeavePage() {
       .filter((r) => r.status === "APPROVED")
       .reduce((total, r) => total + r.days, 0)
 
-    const balanceTiles = balances.map((b) => ({
-      label: b.name,
-      value: b.annualQuota === 0 ? "—" : `${b.balance}`,
-      sub:
-        b.annualQuota === 0
-          ? "Unpaid — no annual quota"
-          : b.entitlement < b.annualQuota
-            ? `of ${b.entitlement} (pro-rated from your joining date)`
-            : `of ${b.entitlement} days`,
-    }))
+    const balanceTiles = balances.map((b) => {
+      // Earned leave has no quota to quote — it is bought with days actually
+      // worked, so the tile shows the working rather than a bare number the
+      // employee has no way to check.
+      if (b.accrual) {
+        if (!b.accrual.eligible) {
+          return {
+            label: b.name,
+            value: "—",
+            sub: `Accrues after ${b.accrual.minServiceMonths} months of service`,
+          }
+        }
+        const worked = `from ${b.accrual.daysWorked} days worked since ${b.accrual.windowStart}`
+        return {
+          label: b.name,
+          value: `${b.balance}`,
+          sub:
+            b.accrual.untrackedDays > 0
+              ? `of ${b.entitlement}, ${worked} (${b.accrual.untrackedDays} days predate attendance)`
+              : `of ${b.entitlement}, ${worked}`,
+        }
+      }
+
+      return {
+        label: b.name,
+        value: b.annualQuota === 0 ? "—" : `${b.balance}`,
+        sub:
+          b.annualQuota === 0
+            ? "Unpaid — no annual quota"
+            : b.entitlement < b.annualQuota
+              ? `of ${b.entitlement} (pro-rated from your joining date)`
+              : `of ${b.entitlement} days`,
+      }
+    })
 
     return [
       ...balanceTiles,

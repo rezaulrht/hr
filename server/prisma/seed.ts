@@ -1,7 +1,8 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { PrismaClient, Role, type EmploymentType } from "../src/generated/prisma/client"
+import { PrismaClient, Role, type HolidayType } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
+import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -72,6 +73,52 @@ async function seedStaffAccount(input: {
   return employee
 }
 
+/**
+ * Bangladesh government holidays for 2026, compiled from the gazette as
+ * reported by The Daily Star and CalendarLabs, with the May cabinet
+ * amendment applied.
+ *
+ * The Islamic dates depend on moon sighting and are expected to shift by a
+ * day either way — and the government amends its own list mid-year, as the
+ * Eid-ul-Azha rows below show. This is a starting point, not an authority:
+ * HR owns the calendar from here via the holiday endpoints.
+ */
+const HOLIDAYS_2026 = [
+  ["2026-02-04", "Shab-e-Barat", "GENERAL"],
+  ["2026-02-21", "Shaheed Day / International Mother Language Day", "GENERAL"],
+  ["2026-03-18", "Laylatul Qadr", "GENERAL"],
+  ["2026-03-19", "Eid-ul-Fitr holiday", "EXECUTIVE_ORDER"],
+  ["2026-03-20", "Jumatul Bidah", "GENERAL"],
+  ["2026-03-21", "Eid-ul-Fitr", "GENERAL"],
+  ["2026-03-22", "Eid-ul-Fitr holiday", "EXECUTIVE_ORDER"],
+  ["2026-03-23", "Eid-ul-Fitr holiday", "EXECUTIVE_ORDER"],
+  ["2026-03-26", "Independence Day", "GENERAL"],
+  ["2026-04-14", "Pahela Baishakh", "GENERAL"],
+  ["2026-05-01", "May Day", "GENERAL"],
+  // Shares a date with May Day. This pair is why Holiday is unique on
+  // (date, name) rather than on date alone.
+  ["2026-05-01", "Buddha Purnima", "GENERAL"],
+  // The cabinet cancelled this weekly holiday when it extended Eid-ul-Azha
+  // to seven days. This row is the reason HolidayType.WORKING_DAY exists —
+  // a calendar that can only take days away could not express it.
+  ["2026-05-23", "Weekly holiday cancelled (Eid-ul-Azha adjustment)", "WORKING_DAY"],
+  ["2026-05-25", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-05-26", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-05-27", "Eid-ul-Azha", "GENERAL"],
+  ["2026-05-28", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-05-29", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-05-30", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-05-31", "Eid-ul-Azha holiday", "EXECUTIVE_ORDER"],
+  ["2026-06-26", "Ashura", "GENERAL"],
+  ["2026-08-05", "July Uprising Day", "GENERAL"],
+  ["2026-08-25", "Eid-e-Milad-un-Nabi", "GENERAL"],
+  ["2026-09-04", "Shuba Janmashtami", "GENERAL"],
+  ["2026-10-20", "Durga Puja (Maha Navami)", "EXECUTIVE_ORDER"],
+  ["2026-10-21", "Vijaya Dashami", "GENERAL"],
+  ["2026-12-16", "Victory Day", "GENERAL"],
+  ["2026-12-25", "Christmas Day", "GENERAL"],
+] as const satisfies ReadonlyArray<readonly [string, string, HolidayType]>
+
 async function main() {
   await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
@@ -82,31 +129,71 @@ async function main() {
     await prisma.department.upsert({ where: { name }, update: {}, create: { name } })
   }
 
-  const leaveTypes = [
-    { name: "Annual", isPaid: true, annualQuota: 18, carryForwardPct: 50, allowsBackdating: false },
-    { name: "Sick", isPaid: true, annualQuota: 10, carryForwardPct: 0, allowsBackdating: true },
-    { name: "Personal", isPaid: true, annualQuota: 5, carryForwardPct: 0, allowsBackdating: false },
-    // Zero-quota unpaid type: the fallback when an annual allowance is spent.
-    { name: "Leave Without Pay", isPaid: false, annualQuota: 0, carryForwardPct: 0, allowsBackdating: false },
-  ] as const
+  // The standing shift every employee falls back to when shiftId is null.
+  // 09:00-18:00 with the 1h lunch/break inside the span, so a full day is
+  // 9 elapsed hours and nothing subtracts the break downstream.
+  const generalShift = {
+    startTime: "09:00",
+    endTime: "18:00",
+    breakMinutes: 60,
+    graceMinutes: 15,
+    // Friday only, matching what the leave module already assumes. A
+    // Friday+Saturday weekend would be [5, 6] — one value, but it moves
+    // every workingDays count and therefore every payroll denominator.
+    weeklyOffDays: [5],
+  }
 
-  for (const leaveType of leaveTypes) {
-    const eligibleFor: EmploymentType[] =
-      leaveType.name === "Leave Without Pay"
-        ? ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]
-        : ["FULL_TIME", "PART_TIME", "CONTRACT"]
+  await prisma.shift.upsert({
+    where: { name: "General" },
+    // Filled in, not `{}` — an empty update makes re-seeding silently skip
+    // a row that already exists, so a changed shift would never take effect.
+    update: generalShift,
+    create: { name: "General", ...generalShift },
+  })
+
+  for (const [date, name, type] of HOLIDAYS_2026) {
+    // Pinned to UTC midnight. A stray time component would make the row
+    // silently never match a day-grid comparison — it would read as "the
+    // holiday just doesn't work" rather than as an error.
+    const at = new Date(`${date}T00:00:00.000Z`)
+    await prisma.holiday.upsert({
+      where: { date_name: { date: at, name } },
+      update: { type },
+      create: { date: at, name, type },
+    })
+  }
+
+  // The Bangladesh Labour Act catalogue. Upserted by `code`, never by name —
+  // the migration renamed the old "Annual" row to code EARNED, and matching
+  // on name would create a duplicate instead of finding it.
+  for (const leaveType of LEAVE_TYPE_CATALOGUE) {
+    const existing = await prisma.leaveType.findUnique({ where: { code: leaveType.code } })
+
+    // A benefit the company grants on top of the Act is left exactly as HR
+    // tuned it. Only the statutory rows are rewritten, so correcting a
+    // section number in leave.policy.ts can never quietly reduce someone's
+    // company-policy allowance back to a default.
+    if (existing && !leaveType.statutory) continue
 
     await prisma.leaveType.upsert({
-      where: { name: leaveType.name },
+      where: { code: leaveType.code },
       // Not `{}` — an empty update makes re-seeding silently skip rows that
       // already exist, so new fields would never reach them.
       update: {
+        name: leaveType.name,
         isPaid: leaveType.isPaid,
         annualQuota: leaveType.annualQuota,
         carryForwardPct: leaveType.carryForwardPct,
+        maxConsecutive: leaveType.maxConsecutive,
         allowsBackdating: leaveType.allowsBackdating,
+        eligibleFor: leaveType.eligibleFor,
+        statutory: leaveType.statutory,
+        countsHolidays: leaveType.countsHolidays,
+        accrualBasis: leaveType.accrualBasis,
+        minServiceMonths: leaveType.minServiceMonths,
+        maxAccrual: leaveType.maxAccrual,
       },
-      create: { ...leaveType, eligibleFor },
+      create: leaveType,
     })
   }
 

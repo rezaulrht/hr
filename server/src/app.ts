@@ -6,6 +6,7 @@ import morgan from "morgan"
 
 import { env } from "./config/env"
 import { errorHandler } from "./middleware/errorHandler"
+import attendanceRoutes from "./modules/attendance/attendance.routes"
 import authRoutes from "./modules/auth/auth.routes"
 import userRoutes from "./modules/auth/user.routes"
 import departmentRoutes from "./modules/department/department.routes"
@@ -34,6 +35,7 @@ app.use("/api/users", userRoutes)
 app.use("/api/employees", employeeRoutes)
 app.use("/api/departments", departmentRoutes)
 app.use("/api/leave", leaveRoutes)
+app.use("/api/attendance", attendanceRoutes)
 
 app.use(errorHandler)
 

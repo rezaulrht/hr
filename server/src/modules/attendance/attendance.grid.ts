@@ -1,0 +1,313 @@
+/**
+ * The derived day grid: one `AttendanceDay` per employee per date.
+ *
+ * Attendance status is computed on read, never stored. A row exists only
+ * when something actually happened — a check-in, or an HR entry. Absence,
+ * leave, holidays and weekly offs are derived here.
+ *
+ * The payoff is that retroactive changes fix themselves: HR approving last
+ * Tuesday's sick leave silently re-labels that day ON_LEAVE instead of
+ * ABSENT, with no backfill job and no window in which payroll would deduct
+ * for a day that was granted.
+ */
+
+import type { Attendance, Holiday, Shift } from "../../generated/prisma/client"
+import prisma from "../../config/prisma"
+import { env } from "../../config/env"
+import { addDays, formatDateOnly, parseDateOnly } from "../../utils/dates"
+import { officeToday, toMinutes } from "./attendance.time"
+import type { AttendanceDay, AttendanceStatus, GridEmployee, ShiftInfo } from "./attendance.types"
+
+/** The shift every employee falls back to when `shiftId` is null. */
+export const DEFAULT_SHIFT_NAME = "General"
+
+/**
+ * The date attendance became the record of truth. Nothing derives before it.
+ *
+ * Without this floor, staff who joined years ago would show ABSENT for every
+ * working day back to their joining date, because no rows exist for any of
+ * them — the first monthly summary payroll ever saw would be wrong for the
+ * entire company.
+ */
+export function goLiveDate(): Date {
+  return parseDateOnly(env.ATTENDANCE_GO_LIVE)
+}
+
+export function shiftInfo(shift: Shift): ShiftInfo {
+  return {
+    id: shift.id,
+    name: shift.name,
+    startTime: shift.startTime,
+    endTime: shift.endTime,
+    breakMinutes: shift.breakMinutes,
+    graceMinutes: shift.graceMinutes,
+    weeklyOffDays: shift.weeklyOffDays,
+    // Elapsed, break included. Nothing subtracts breakMinutes anywhere in
+    // the payroll path — the break sits inside both the expectation and the
+    // measurement, so elapsed-vs-elapsed compares correctly with no
+    // arithmetic and no "what do you subtract from a 3-hour day?" case.
+    expectedHours: Math.round(((toMinutes(shift.endTime) - toMinutes(shift.startTime)) / 60) * 100) / 100,
+  }
+}
+
+function windowSpan(shift: Shift): number {
+  if (!shift.effectiveFrom || !shift.effectiveTo) return Number.POSITIVE_INFINITY
+  return shift.effectiveTo.getTime() - shift.effectiveFrom.getTime()
+}
+
+/**
+ * The shift in force for an employee on a given date.
+ *
+ * A shift carrying a date window is a **company-wide override** for those
+ * dates — which is exactly what Ramadan hours are, and it needs no
+ * per-employee reassignment. The narrowest window wins, so a one-week
+ * override beats a one-month one.
+ *
+ * Per-employee dated assignment (a `ShiftAssignment` join table) is the
+ * upgrade path if departments ever diverge; it would be dead weight for one
+ * shortened month a year.
+ */
+export function resolveShift(employee: GridEmployee, date: Date, shifts: Shift[]): Shift {
+  let narrowest: Shift | undefined
+  for (const shift of shifts) {
+    if (!shift.effectiveFrom || !shift.effectiveTo) continue
+    if (date < shift.effectiveFrom || date > shift.effectiveTo) continue
+    if (!narrowest || windowSpan(shift) < windowSpan(narrowest)) narrowest = shift
+  }
+  if (narrowest) return narrowest
+
+  if (employee.shiftId) {
+    const assigned = shifts.find((s) => s.id === employee.shiftId)
+    if (assigned) return assigned
+  }
+
+  const fallback = shifts.find((s) => s.name === DEFAULT_SHIFT_NAME)
+  if (!fallback) {
+    throw new Error(`No "${DEFAULT_SHIFT_NAME}" shift exists — run the seed before using attendance`)
+  }
+  return fallback
+}
+
+/** Inclusive list of calendar dates, as YYYY-MM-DD strings. */
+export function eachDate(from: Date, to: Date): string[] {
+  const dates: string[] = []
+  for (let d = from; d.getTime() <= to.getTime(); d = addDays(d, 1)) {
+    dates.push(formatDateOnly(d))
+  }
+  return dates
+}
+
+const key = (employeeId: string, date: string) => `${employeeId}|${date}`
+
+interface GridSources {
+  attendances: Attendance[]
+  leaves: Array<{
+    employeeId: string
+    startDate: Date
+    endDate: Date
+    leaveType: { name: string }
+  }>
+  holidays: Holiday[]
+  shifts: Shift[]
+}
+
+/**
+ * Fetches everything the grid needs in a **fixed number of queries,
+ * regardless of headcount**.
+ *
+ * The obvious implementation queries per employee per concern — leave for
+ * Rahim, holidays for Rahim, attendance for Rahim, then the next person —
+ * which is over a thousand round trips for 500 people on one monthly
+ * summary. That cost would get blamed on the derived design when it is
+ * really just the naive loop, so bulk fetching is a required characteristic
+ * here, not an optimisation for later.
+ */
+export async function loadGridSources(
+  employeeIds: string[],
+  from: Date,
+  to: Date
+): Promise<GridSources> {
+  const [attendances, leaves, holidays, shifts] = await Promise.all([
+    prisma.attendance.findMany({
+      where: { employeeId: { in: employeeIds }, date: { gte: from, lte: to } },
+    }),
+    prisma.leaveRequest.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        status: "APPROVED",
+        startDate: { lte: to },
+        endDate: { gte: from },
+      },
+      select: {
+        employeeId: true,
+        startDate: true,
+        endDate: true,
+        leaveType: { select: { name: true } },
+      },
+    }),
+    prisma.holiday.findMany({ where: { date: { gte: from, lte: to } } }),
+    prisma.shift.findMany(),
+  ])
+
+  return { attendances, leaves, holidays, shifts }
+}
+
+interface DateHolidays {
+  /** Holidays that take the day off. */
+  offNames: string[]
+  /** A WORKING_DAY override cancels the weekly off for this date. */
+  isWorkingDayOverride: boolean
+}
+
+function indexHolidays(holidays: Holiday[]): Map<string, DateHolidays> {
+  const byDate = new Map<string, DateHolidays>()
+  for (const holiday of holidays) {
+    const date = formatDateOnly(holiday.date)
+    const entry = byDate.get(date) ?? { offNames: [], isWorkingDayOverride: false }
+    if (holiday.type === "WORKING_DAY") {
+      entry.isWorkingDayOverride = true
+    } else {
+      // A date can legitimately carry two holidays — 2026-05-01 is both May
+      // Day and Buddha Purnima — so names accumulate rather than overwrite.
+      entry.offNames.push(holiday.name)
+    }
+    byDate.set(date, entry)
+  }
+  return byDate
+}
+
+function indexLeaves(leaves: GridSources["leaves"], from: Date, to: Date): Map<string, string> {
+  const byKey = new Map<string, string>()
+  for (const leave of leaves) {
+    const start = leave.startDate < from ? from : leave.startDate
+    const end = leave.endDate > to ? to : leave.endDate
+    for (const date of eachDate(start, end)) {
+      byKey.set(key(leave.employeeId, date), leave.leaveType.name)
+    }
+  }
+  return byKey
+}
+
+/**
+ * Builds the grid from pre-fetched sources. Pure apart from `officeToday()`,
+ * so the resolution rules can be tested without touching Prisma.
+ */
+export function resolveGrid(
+  employees: GridEmployee[],
+  from: Date,
+  to: Date,
+  sources: GridSources
+): Map<string, AttendanceDay[]> {
+  const dates = eachDate(from, to)
+  const today = formatDateOnly(officeToday())
+  const floor = formatDateOnly(goLiveDate())
+
+  const attendanceByKey = new Map<string, Attendance>()
+  for (const row of sources.attendances) {
+    attendanceByKey.set(key(row.employeeId, formatDateOnly(row.date)), row)
+  }
+  const leaveByKey = indexLeaves(sources.leaves, from, to)
+  const holidaysByDate = indexHolidays(sources.holidays)
+
+  const grid = new Map<string, AttendanceDay[]>()
+
+  for (const employee of employees) {
+    const joined = formatDateOnly(employee.joiningDate)
+    // Employee has no exit date in the schema, only employmentStatus — so
+    // the best available guard is to stop tracking someone who has left
+    // from today forward, rather than accruing absences for them forever.
+    const hasLeft =
+      employee.employmentStatus === "RESIGNED" || employee.employmentStatus === "TERMINATED"
+
+    const days: AttendanceDay[] = dates.map((date) => {
+      const shift = resolveShift(employee, parseDateOnly(date), sources.shifts)
+      const info = shiftInfo(shift)
+      const row = attendanceByKey.get(key(employee.id, date))
+      const leaveName = leaveByKey.get(key(employee.id, date))
+      const holidayEntry = holidaysByDate.get(date)
+
+      const isHoliday = (holidayEntry?.offNames.length ?? 0) > 0
+      const weekday = parseDateOnly(date).getUTCDay()
+      const isWeeklyOff =
+        shift.weeklyOffDays.includes(weekday) && !holidayEntry?.isWorkingDayOverride
+      const isOffDay = isHoliday || isWeeklyOff
+
+      const beforeTracking = date < floor || date < joined
+      // `>=`, not `>`: somebody already flagged as left should not appear on
+      // today's board as "not checked in yet" either. Past days still derive
+      // normally, since they were employed then.
+      const afterLeaving = hasLeft && date >= today
+
+      // Precedence, first match wins. Each position is load-bearing:
+      // a check-in beats a holiday because physical facts beat records,
+      // and blocking a holiday check-in would leave someone who genuinely
+      // came in unable to record real work.
+      let status: AttendanceStatus
+      let detail: string | null = null
+
+      if (beforeTracking || afterLeaving) {
+        status = "NOT_TRACKED"
+      } else if (row && row.approval !== "REJECTED") {
+        status = "PRESENT"
+        detail = isHoliday ? (holidayEntry?.offNames.join(" · ") ?? null) : null
+      } else if (leaveName) {
+        status = "ON_LEAVE"
+        detail = leaveName
+      } else if (isHoliday) {
+        status = "HOLIDAY"
+        detail = holidayEntry?.offNames.join(" · ") ?? null
+      } else if (isWeeklyOff) {
+        status = "WEEKLY_OFF"
+      } else if (date < today) {
+        // A rejected record lands here: it is not an attendance.
+        status = "ABSENT"
+      } else {
+        // Today or later. Calling this ABSENT would report the whole
+        // company absent at 10am.
+        status = "NOT_CHECKED_IN"
+      }
+
+      const isWorkingDay = status !== "NOT_TRACKED" && !isOffDay
+
+      return {
+        date,
+        status,
+        isWorkingDay,
+        isOffDay,
+        isHoliday,
+        isWeeklyOff,
+        checkIn: row?.checkIn?.toISOString() ?? null,
+        checkOut: row?.checkOut?.toISOString() ?? null,
+        workedHours: row?.workedHours ?? null,
+        expectedHours: isWorkingDay ? info.expectedHours : 0,
+        isLate: row?.isLate ?? false,
+        isEarlyOut: row?.isEarlyOut ?? false,
+        approval: row?.approval ?? null,
+        source: row?.source ?? null,
+        detail,
+        regularised: row?.regularisedAt != null,
+        corrected: row?.correctedAt != null,
+        attendanceId: row?.id ?? null,
+      }
+    })
+
+    grid.set(employee.id, days)
+  }
+
+  return grid
+}
+
+/** Loads sources and resolves the grid. The entry point for every read. */
+export async function buildDayGrid(
+  employees: GridEmployee[],
+  from: Date,
+  to: Date
+): Promise<Map<string, AttendanceDay[]>> {
+  if (employees.length === 0) return new Map()
+  const sources = await loadGridSources(
+    employees.map((e) => e.id),
+    from,
+    to
+  )
+  return resolveGrid(employees, from, to, sources)
+}

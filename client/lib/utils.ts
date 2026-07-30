@@ -32,12 +32,60 @@ export function isWeeklyOff(date: Date): boolean {
   return date.getDay() === WEEKLY_OFF_DAY
 }
 
-/** Mirrors the server's countLeaveDays so the UI preview matches what's charged. */
-export function countWorkingDays(start: Date, end: Date): number {
+/**
+ * The gazetted calendar, as the day-count preview needs it. Mirrors
+ * `LeaveCalendar` on the server; both are built from the same Holiday rows.
+ */
+export interface LeaveCalendar {
+  /** YYYY-MM-DD dates that carry a holiday taking the day off. */
+  holidayDates: Set<string>
+  /** YYYY-MM-DD dates where a WORKING_DAY order cancels the weekly off. */
+  workingOverrides: Set<string>
+}
+
+export const EMPTY_LEAVE_CALENDAR: LeaveCalendar = {
+  holidayDates: new Set(),
+  workingOverrides: new Set(),
+}
+
+/** True when a date is neither a working day nor chargeable as leave. */
+export function isNonWorkingDay(
+  date: Date,
+  calendar: LeaveCalendar = EMPTY_LEAVE_CALENDAR
+): boolean {
+  const key = toDateString(date)
+  if (calendar.holidayDates.has(key)) return true
+  return isWeeklyOff(date) && !calendar.workingOverrides.has(key)
+}
+
+/** Inclusive calendar-day span, ignoring which days are working days. */
+export function countCalendarDays(start: Date, end: Date): number {
   let count = 0
   const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate())
   while (cursor.getTime() <= end.getTime()) {
-    if (!isWeeklyOff(cursor)) count++
+    count++
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return count
+}
+
+/**
+ * Mirrors the server's `countLeaveDays` so the UI preview matches what is
+ * charged — including the §117 split, where a holiday-counting type charges
+ * every calendar day and every other type skips the days off.
+ */
+export function countLeaveDays(
+  start: Date,
+  end: Date,
+  options: { countsHolidays?: boolean; calendar?: LeaveCalendar } = {}
+): number {
+  if (options.countsHolidays) return countCalendarDays(start, end)
+
+  const calendar = options.calendar ?? EMPTY_LEAVE_CALENDAR
+  let count = 0
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  while (cursor.getTime() <= end.getTime()) {
+    if (!isNonWorkingDay(cursor, calendar)) count++
     cursor.setDate(cursor.getDate() + 1)
   }
   return count
