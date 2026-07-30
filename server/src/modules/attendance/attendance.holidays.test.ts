@@ -10,6 +10,9 @@ vi.mock("../../config/prisma", () => ({
       delete: vi.fn(),
     },
     employee: { count: vi.fn() },
+    // The month lock reads this. Defaulted to null in beforeEach — without
+    // that, every holiday write test below hits an unmocked table.
+    payrollRun: { findUnique: vi.fn() },
   },
 }))
 
@@ -18,7 +21,6 @@ import type { Holiday } from "../../generated/prisma/client"
 import { parseDateOnly } from "../../utils/dates"
 import { resolveGrid } from "./attendance.grid"
 import {
-  assertMonthNotLocked,
   createHoliday,
   deleteHoliday,
   listHolidays,
@@ -42,6 +44,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
   vi.mocked(prisma.employee.count).mockResolvedValue(42)
+  vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -49,11 +52,50 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("assertMonthNotLocked", () => {
-  it("passes for now, because PayrollRun does not exist yet", () => {
-    // A named stub rather than a TODO comment, so the payroll phase has an
-    // obvious slot to fill instead of a rule to rediscover.
-    expect(() => assertMonthNotLocked(parseDateOnly("2020-01-01"))).not.toThrow()
+// The stub this file used to assert on is gone: assertMonthNotLocked is real,
+// lives in utils/month-lock.ts, and is unit-tested there. What matters here is
+// that each holiday write actually consults it — a holiday moves the
+// working-day count, and therefore the payroll denominator, for the whole
+// company in that month.
+describe("holiday writes respect the payroll month lock", () => {
+  const locked = () =>
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({ status: "APPROVED" } as never)
+
+  it("409s creating a holiday in an approved month", async () => {
+    locked()
+    await expect(
+      createHoliday({ name: "Ad-hoc holiday", date: "2026-07-20", type: "GENERAL" })
+    ).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.holiday.create).not.toHaveBeenCalled()
+  })
+
+  it("409s updating a holiday in an approved month", async () => {
+    vi.mocked(prisma.holiday.findUnique).mockResolvedValue(row({ date: parseDateOnly("2026-07-20") }))
+    locked()
+    await expect(updateHoliday("hol-1", { name: "Renamed" })).rejects.toMatchObject({
+      statusCode: 409,
+    })
+    expect(prisma.holiday.update).not.toHaveBeenCalled()
+  })
+
+  it("409s deleting a holiday in an approved month", async () => {
+    vi.mocked(prisma.holiday.findUnique).mockResolvedValue(row({ date: parseDateOnly("2026-07-20") }))
+    locked()
+    await expect(deleteHoliday("hol-1")).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.holiday.delete).not.toHaveBeenCalled()
+  })
+
+  it("checks both the old and the new month when a holiday moves", async () => {
+    // Moving a holiday *out* of a paid month is as damaging as moving one in.
+    vi.mocked(prisma.holiday.findUnique).mockResolvedValue(row({ date: parseDateOnly("2026-07-20") }))
+    vi.mocked(prisma.holiday.update).mockResolvedValue(row({ date: parseDateOnly("2026-08-20") }))
+    await updateHoliday("hol-1", { date: "2026-08-20" })
+    expect(prisma.payrollRun.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { month_year: { month: 7, year: 2026 } } })
+    )
+    expect(prisma.payrollRun.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { month_year: { month: 8, year: 2026 } } })
+    )
   })
 })
 

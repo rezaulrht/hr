@@ -15,6 +15,10 @@ vi.mock("../../config/prisma", () => ({
     // Day counting reads the gazetted calendar now, so every path that
     // charges days touches this table.
     holiday: { findMany: vi.fn() },
+    // Approval consults the payroll month lock. Defaulted to null in the
+    // global beforeEach — without that, every existing approval test hits an
+    // unmocked table.
+    payrollRun: { findUnique: vi.fn() },
   },
 }))
 
@@ -58,6 +62,9 @@ beforeEach(() => {
   // clearAllMocks drops resolved values too, so the calendar has to be
   // re-armed or every day count awaits an undefined.
   vi.mocked(prisma.holiday.findMany).mockResolvedValue([])
+  // No payroll run for any month unless a test says otherwise, so the month
+  // lock is open by default.
+  vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(null)
 })
 
 describe("computeEntitlement", () => {
@@ -726,6 +733,43 @@ describe("leave decisions", () => {
     vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({ id: "other" } as any)
     await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  // Approving a backdated sick day retroactively flips a derived attendance
+  // status from ABSENT to ON_LEAVE, moving that month's payable days. If the
+  // month is already paid, the money is already wrong.
+  it("409s when the leave starts in a month whose payroll is approved", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({
+        startDate: parseDateOnly("2026-07-06"),
+        endDate: parseDateOnly("2026-07-08"),
+      }) as any
+    )
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({ status: "APPROVED" } as any)
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.leaveRequest.update).not.toHaveBeenCalled()
+  })
+
+  it("approves normally when the month's run is still a draft", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({ status: "DRAFT" } as any)
+    await approveLeaveRequest("req-1", "hr-1")
+    expect(prisma.leaveRequest.update).toHaveBeenCalled()
+  })
+
+  it("409s for a range spanning an open month and a closed one", async () => {
+    // The start month is open, so checking only startDate would let this
+    // through — and it changes August's payable days too.
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      pendingRequest({
+        startDate: parseDateOnly("2026-07-30"),
+        endDate: parseDateOnly("2026-08-03"),
+      }) as any
+    )
+    vi.mocked(prisma.payrollRun.findUnique).mockImplementation((async (args: any) =>
+      args.where.month_year.month === 8 ? { status: "DISBURSED" } : null) as any)
+    await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.leaveRequest.update).not.toHaveBeenCalled()
   })
 
   it("requires a note to reject and records it", async () => {

@@ -1,6 +1,7 @@
 import prisma from "../../config/prisma"
 import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { assertMonthNotLocked } from "../../utils/month-lock"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import {
   computeEarnedAccrual,
@@ -533,6 +534,20 @@ export async function approveLeaveRequest(
   const found = await loadRequestOr404(id)
   if (found.status !== "PENDING") {
     throw new AppError(409, `This request is already ${found.status.toLowerCase()}`)
+  }
+
+  // Attendance status is derived, so approving a backdated sick day
+  // retroactively flips it from ABSENT to ON_LEAVE — moving that month's
+  // payable days after the fact. If the month was already paid, the money is
+  // already wrong and nothing else notices. Sick leave may be backdated 30
+  // days, so this is reachable in normal use, not a corner case.
+  //
+  // Both months, not just the start: a request cannot span two years (an
+  // existing rule) but it can span two months, and `endDate`'s month may be
+  // closed while `startDate`'s is still open.
+  await assertMonthNotLocked(found.startDate)
+  if (found.endDate.getUTCMonth() !== found.startDate.getUTCMonth()) {
+    await assertMonthNotLocked(found.endDate)
   }
 
   const calendar = await loadLeaveCalendar(found.startDate, found.endDate)
