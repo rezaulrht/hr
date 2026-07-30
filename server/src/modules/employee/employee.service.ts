@@ -1,6 +1,10 @@
 import prisma from "../../config/prisma"
+import { AppError } from "../../middleware/errorHandler"
+import { assertMonthNotLocked } from "../../utils/month-lock"
 import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
+import { auditPayroll } from "../payroll/payroll.audit"
+import type { ExitDetailsBody } from "../settlement/settlement.validators"
 import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
 
 const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
@@ -74,4 +78,76 @@ export async function listEmployees(): Promise<EmployeeListItem[]> {
     employmentStatus: e.employmentStatus,
     joiningDate: e.joiningDate.toISOString(),
   }))
+}
+
+/**
+ * Records the facts a settlement is computed from. HR owns this; the enum
+ * drives money, so it is not a filing category.
+ */
+export async function setExitDetails(
+  employeeId: string,
+  actorUserId: string,
+  body: ExitDetailsBody
+) {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  const lastWorkingDay = new Date(`${body.lastWorkingDay}T00:00:00.000Z`)
+  if (lastWorkingDay.getTime() < employee.joiningDate.getTime()) {
+    throw new AppError(400, "The last working day cannot precede the joining date")
+  }
+
+  // Otherwise a settlement would pay days a run already paid — the exact
+  // overlap the run's roster rule exists to prevent.
+  await assertMonthNotLocked(lastWorkingDay)
+
+  // Those fields *are* the money once a settlement has been agreed.
+  const settled = await prisma.settlement.findFirst({
+    where: { employeeId, status: { in: ["APPROVED", "PAID"] } },
+  })
+  if (settled) {
+    throw new AppError(
+      409,
+      `This employee's settlement is already ${settled.status.toLowerCase()}. Exit details are frozen once a settlement is approved.`
+    )
+  }
+
+  // §22/§23 are employer-ended; the rest read as the employee leaving.
+  const employmentStatus =
+    body.exitReason === "TERMINATION" ||
+    body.exitReason === "DISMISSAL" ||
+    body.exitReason === "DISCHARGE" ||
+    body.exitReason === "RETRENCHMENT"
+      ? "TERMINATED"
+      : "RESIGNED"
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.employee.update({
+      where: { id: employeeId },
+      data: {
+        lastWorkingDay,
+        exitReason: body.exitReason,
+        exitNote: body.exitNote,
+        employmentStatus,
+      },
+    })
+    await auditPayroll(tx, {
+      entity: "EMPLOYEE_EXIT",
+      entityId: employeeId,
+      action: "UPDATE",
+      changedBy: actorUserId,
+      before: {
+        lastWorkingDay: employee.lastWorkingDay?.toISOString().slice(0, 10) ?? null,
+        exitReason: employee.exitReason,
+        employmentStatus: employee.employmentStatus,
+      },
+      after: {
+        lastWorkingDay: body.lastWorkingDay,
+        exitReason: body.exitReason,
+        employmentStatus,
+      },
+      note: body.exitNote,
+    })
+    return updated
+  })
 }

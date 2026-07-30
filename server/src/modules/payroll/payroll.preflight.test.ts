@@ -270,3 +270,25 @@ describe("assertProcessable", () => {
     })
   })
 })
+
+describe("the payroll roster excludes leavers", () => {
+  it("asks only for ACTIVE and ON_LEAVE employees", async () => {
+    // A RESIGNED or TERMINATED employee's final money is the settlement's.
+    // This exclusion is what makes it impossible for both a run and a
+    // settlement to pay the same days.
+    await preflight(7, 2026)
+    expect(prisma.employee.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          employmentStatus: { in: ["ACTIVE", "ON_LEAVE"] },
+        }),
+      })
+    )
+  })
+
+  it("excludes anyone who joined after the month ended", async () => {
+    await preflight(7, 2026)
+    const where = vi.mocked(prisma.employee.findMany).mock.calls[0][0]!.where as Record<string, unknown>
+    expect(where.joiningDate).toEqual({ lte: new Date("2026-07-31T00:00:00.000Z") })
+  })
+})

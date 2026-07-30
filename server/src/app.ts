@@ -13,6 +13,7 @@ import departmentRoutes from "./modules/department/department.routes"
 import expenseRoutes from "./modules/expense/expense.routes"
 import employeeRoutes from "./modules/employee/employee.routes"
 import leaveRoutes from "./modules/leave/leave.routes"
+import settlementRoutes from "./modules/settlement/settlement.routes"
 import payrollRoutes from "./modules/payroll/payroll.routes"
 
 const app = express()
@@ -40,6 +41,7 @@ app.use("/api/leave", leaveRoutes)
 app.use("/api/attendance", attendanceRoutes)
 app.use("/api/payroll", payrollRoutes)
 app.use("/api/expenses", expenseRoutes)
+app.use("/api/settlements", settlementRoutes)
 
 app.use(errorHandler)
 

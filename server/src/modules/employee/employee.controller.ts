@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express"
 
-import { createStaffAccount, listEmployees } from "./employee.service"
+import { exitDetailsBody } from "../settlement/settlement.validators"
+import { createStaffAccount, listEmployees, setExitDetails } from "./employee.service"
 import { createStaffAccountSchema } from "./employee.validators"
 
 export async function createStaffAccountHandler(req: Request, res: Response, next: NextFunction) {
@@ -20,6 +21,19 @@ export async function listEmployeesHandler(_req: Request, res: Response, next: N
   try {
     const employees = await listEmployees()
     return res.status(200).json(employees)
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function setExitDetailsHandler(
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const body = exitDetailsBody.parse(req.body)
+    return res.status(200).json(await setExitDetails(req.params.id, req.user!.sub, body))
   } catch (err) {
     return next(err)
   }
