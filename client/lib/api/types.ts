@@ -355,3 +355,7 @@ export interface BulkDecisionResult {
   ok: boolean
   error?: string
 }
+
+// Payroll, expense and settlement types live in their own file; re-exported
+// here so importers see a single module.
+export * from "./payroll-types"
