@@ -23,6 +23,17 @@ const envSchema = z.object({
   ATTENDANCE_GO_LIVE: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "ATTENDANCE_GO_LIVE must be a YYYY-MM-DD date"),
+  // Company identity for the payslip and settlement documents. A payslip
+  // without an employer name on it is not a document. All three have
+  // defaults, unlike ATTENDANCE_GO_LIVE — a wrong company address is
+  // cosmetic; a wrong go-live date corrupts the entire dataset. Only the
+  // second justifies refusing to boot.
+  COMPANY_NAME: z.string().default("Byte Spate"),
+  COMPANY_ADDRESS: z.string().default(""),
+  // Local disk, a deliberate prototype choice with a known ceiling: it does
+  // not survive a restart on an ephemeral filesystem and does not work across
+  // replicas. Isolated to payroll.storage.ts so swapping in S3 is one file.
+  PAYSLIP_STORAGE_DIR: z.string().default("./storage/payslips"),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),

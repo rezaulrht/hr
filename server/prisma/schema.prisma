@@ -13,17 +13,17 @@ datasource db {
 
 // ── AUTH & USERS ──────────────────────────────
 model User {
-  id                  String                @id @default(uuid())
-  email               String                @unique
+  id                  String               @id @default(uuid())
+  email               String               @unique
   passwordHash        String
   role                Role
-  isActive            Boolean               @default(true)
-  mustChangePassword  Boolean               @default(false)
+  isActive            Boolean              @default(true)
+  mustChangePassword  Boolean              @default(false)
   employee            Employee?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 enum Role {
@@ -65,10 +65,10 @@ model IdCounter {
 
 // ── EMPLOYEE ──────────────────────────────────
 model Employee {
-  id                 String            @id @default(uuid())
-  userId             String            @unique
-  user               User              @relation(fields: [userId], references: [id])
-  employeeCode       String            @unique
+  id                 String           @id @default(uuid())
+  userId             String           @unique
+  user               User             @relation(fields: [userId], references: [id])
+  employeeCode       String           @unique
   fullName           String
   profilePicture     String?
   dateOfBirth        DateTime?
@@ -82,30 +82,62 @@ model Employee {
   emergencyContact   String?
   designation        String
   departmentId       String
-  department         Department        @relation(fields: [departmentId], references: [id])
+  department         Department       @relation(fields: [departmentId], references: [id])
   reportingManagerId String?
-  reportingManager   Employee?         @relation("ManagerRelation", fields: [reportingManagerId], references: [id])
-  subordinates       Employee[]        @relation("ManagerRelation")
+  reportingManager   Employee?        @relation("ManagerRelation", fields: [reportingManagerId], references: [id])
+  subordinates       Employee[]       @relation("ManagerRelation")
   employmentType     EmploymentType
-  employmentStatus   EmploymentStatus  @default(ACTIVE)
+  employmentStatus   EmploymentStatus @default(ACTIVE)
   joiningDate        DateTime
   officeLocation     String?
   shiftId            String?
-  shift              Shift?            @relation(fields: [shiftId], references: [id])
+  shift              Shift?           @relation(fields: [shiftId], references: [id])
   // ZKTeco devices identify people by an on-device enrolment ID, not by
   // employeeCode. Unused until the hardware phase — without it, device
   // punches can't be attributed to a person.
-  deviceUserId       String?           @unique
+  deviceUserId       String?          @unique
   bankAccountNumber  String?
   bankName           String?
+  // BEFTN identifies the beneficiary branch by a 9-digit routing number; a
+  // bank name string cannot be resolved to one. Nullable, and the bank-file
+  // export refuses to emit for anyone missing it rather than producing a file
+  // the bank rejects wholesale.
+  bankRoutingNumber  String?
   salaryStructureId  String?
-  salaryStructure    SalaryStructure?  @relation(fields: [salaryStructureId], references: [id])
-  documents          Document[]
-  attendances        Attendance[]
-  leaveRequests      LeaveRequest[]
-  leaveBalances      LeaveBalance[]
-  expenseClaims      ExpenseClaim[]
-  payslips           Payslip[]
+  salaryStructure    SalaryStructure? @relation(fields: [salaryStructureId], references: [id])
+
+  // ── exit ──
+  // Date-only at UTC midnight. Closes a hole with a visible symptom: the
+  // attendance day grid clipped leavers at *today* because no exit date
+  // existed.
+  lastWorkingDay DateTime?
+  // An enum, not free text: gratuity and notice-pay eligibility both depend
+  // on why employment ended, and a calculation driven by free text is a
+  // number somebody typed.
+  exitReason     ExitReason?
+  // The sentence the enum cannot hold — "60 days' notice waived by mutual
+  // agreement" is exactly what a settlement dispute turns on.
+  exitNote       String?
+
+  documents     Document[]
+  attendances   Attendance[]
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
+  expenseClaims ExpenseClaim[]
+  payslips      Payslip[]
+  adjustments   PayrollAdjustment[]
+  settlements   Settlement[]
+}
+
+enum ExitReason {
+  RESIGNATION // §27 — the worker gives notice
+  RETIREMENT // §28
+  TERMINATION // §26 — employer terminates with notice, no misconduct
+  DISMISSAL // §23 — misconduct
+  DISCHARGE // §22 — ill health, or physical/mental incapacity
+  RETRENCHMENT // §20 — redundancy
+  CONTRACT_END // fixed-term expiry
+  DEATH
 }
 
 enum EmploymentType {
@@ -158,19 +190,19 @@ enum LeaveAccrualBasis {
 }
 
 model LeaveType {
-  id              String           @id @default(uuid())
+  id               String           @id @default(uuid())
   // Stable machine key. Every policy rule below is looked up by code, never
   // by `name` — HR renaming "Casual" to "Casual Leave" must not silently
   // switch off the §115 holiday rule attached to it.
-  code            String           @unique
-  name            String           @unique
-  isPaid          Boolean          @default(true)
-  annualQuota     Int
-  carryForwardPct Int              @default(0)
-  maxConsecutive  Int?
+  code             String           @unique
+  name             String           @unique
+  isPaid           Boolean          @default(true)
+  annualQuota      Int
+  carryForwardPct  Int              @default(0)
+  maxConsecutive   Int?
   // Sick leave is filed after the fact — you can't schedule getting ill.
-  allowsBackdating Boolean         @default(false)
-  eligibleFor     EmploymentType[]
+  allowsBackdating Boolean          @default(false)
+  eligibleFor      EmploymentType[]
 
   // Granted by the Act rather than by company policy. The seed only rewrites
   // rows where this is true, so a future statutory amendment can never
@@ -187,8 +219,8 @@ model LeaveType {
   // Ceiling on accumulated earned leave (§117: 60 days). Null means no cap.
   maxAccrual       Int?
 
-  leaveRequests   LeaveRequest[]
-  leaveBalances   LeaveBalance[]
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
 }
 
 model LeaveBalance {
@@ -204,21 +236,21 @@ model LeaveBalance {
 }
 
 model LeaveRequest {
-  id          String      @id @default(uuid())
-  employeeId  String
-  employee    Employee    @relation(fields: [employeeId], references: [id])
-  leaveTypeId String
-  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
-  startDate   DateTime
-  endDate     DateTime
-  reason      String?
-  status      LeaveStatus @default(PENDING)
-  approvedBy  String?
+  id           String      @id @default(uuid())
+  employeeId   String
+  employee     Employee    @relation(fields: [employeeId], references: [id])
+  leaveTypeId  String
+  leaveType    LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  startDate    DateTime
+  endDate      DateTime
+  reason       String?
+  status       LeaveStatus @default(PENDING)
+  approvedBy   String?
   // Set on any terminal transition (approve/reject/cancel/revert), so a
   // decision can be audited — createdAt alone can't tell you when.
   decidedAt    DateTime?
   decisionNote String?
-  createdAt   DateTime    @default(now())
+  createdAt    DateTime    @default(now())
 }
 
 enum LeaveStatus {
@@ -351,24 +383,119 @@ model AttendanceAudit {
   @@index([attendanceId, changedAt])
 }
 
+// ── CURRENCY ──────────────────────────────────
+
+// An enum, not a string. There are two of them, and a free string invites
+// "usd", "US$" and "Usd" — one currency silently split into three.
+enum Currency {
+  BDT
+  USD
+}
+
+model ExchangeRate {
+  id            String   @id @default(uuid())
+  // Always stored in one canonical direction: base USD, quote BDT. The
+  // inverse is derived as 1/rate, never stored — two rows would drift apart
+  // and a BDT→USD→BDT round trip would not return the original figure.
+  base          Currency
+  quote         Currency
+  // How many `quote` units one `base` unit buys. 1 USD = 122.500000 BDT.
+  // Decimal(18,6), not (14,2): a rate is a ratio, not money, and rounding
+  // 122.456789 to 122.46 is real money on a large USD payroll.
+  rate          Decimal  @db.Decimal(18, 6)
+  // Date-only at UTC midnight — the labelling convention leave and
+  // attendance already use for a calendar date.
+  effectiveFrom DateTime
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@unique([base, quote, effectiveFrom])
+  @@index([base, quote, effectiveFrom])
+}
+
 // ── PAYROLL ───────────────────────────────────
 model SalaryStructure {
-  id         String     @id @default(uuid())
-  name       String
-  basic      Float
-  allowances Json
-  deductions Json
+  id         String            @id @default(uuid())
+  name       String            @unique
+  // The currency `basic` and every FIXED component is denominated in.
+  // Immutable after creation — changing it silently re-denominates every
+  // figure. Move the employee to a different structure instead.
+  currency   Currency          @default(BDT)
+  basic      Decimal           @db.Decimal(14, 2)
+  // A structure in use by a payslip must not be deleted; retiring it instead
+  // keeps historical payslips explicable.
+  isActive   Boolean           @default(true)
+  components SalaryComponent[]
   employees  Employee[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+}
+
+model SalaryComponent {
+  id                String          @id @default(uuid())
+  salaryStructureId String
+  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+  // Stable machine key. Payslip breakdowns reference this, never `label`, so
+  // renaming a line cannot orphan a historical figure.
+  code              String
+  label             String
+  kind              ComponentKind
+  calc              ComponentCalc
+  // FIXED → an amount in the structure's currency.
+  // PERCENT_OF_BASIC → percentage points, dimensionless.
+  value             Decimal         @db.Decimal(10, 2)
+  // Payslip display order. Ties break by code.
+  sortOrder         Int             @default(0)
+  // §119 leave pay and the §2(10) gratuity base. False for bonus and
+  // overtime. Two consumers, so it is not speculative.
+  countsAsWages     Boolean         @default(true)
+
+  @@unique([salaryStructureId, code])
+}
+
+enum ComponentKind {
+  EARNING
+  DEDUCTION
+}
+
+enum ComponentCalc {
+  FIXED
+  PERCENT_OF_BASIC
 }
 
 model PayrollRun {
-  id          String        @id @default(uuid())
-  month       Int
-  year        Int
-  status      PayrollStatus @default(DRAFT)
-  processedBy String?
-  processedAt DateTime?
-  payslips    Payslip[]
+  id     String        @id @default(uuid())
+  month  Int
+  year   Int
+  status PayrollStatus @default(DRAFT)
+
+  // The USD→BDT rate in force at month-end, stamped at process.
+  fxRateToBdt             Decimal? @db.Decimal(18, 6)
+  // The rate when it was actually disbursed, if different. Reported, not
+  // posted — there is no ledger for an FX gain or loss to go to.
+  disbursementFxRateToBdt Decimal? @db.Decimal(18, 6)
+
+  // Four transitions, four actors. One overwritable processedBy/At slot
+  // cannot answer "who approved this?" once somebody has also disbursed it.
+  processedBy   String?
+  processedAt   DateTime?
+  submittedBy   String?
+  submittedAt   DateTime?
+  approvedBy    String?
+  approvedAt    DateTime?
+  disbursedBy   String?
+  disbursedAt   DateTime?
+  // Set on a rejection back to DRAFT; required there, so "why did this come
+  // back?" always has an answer.
+  rejectionNote String?
+
+  notes     String?
+  payslips  Payslip[]
+  createdAt DateTime  @default(now())
+
+  // The most important line in this file. Two runs for July means paying
+  // July twice — not a data-quality problem, a double payment.
+  @@unique([month, year])
 }
 
 enum PayrollStatus {
@@ -379,32 +506,158 @@ enum PayrollStatus {
 }
 
 model Payslip {
-  id              String     @id @default(uuid())
-  payrollRunId    String
-  payrollRun      PayrollRun @relation(fields: [payrollRunId], references: [id])
-  employeeId      String
-  employee        Employee   @relation(fields: [employeeId], references: [id])
-  grossPay        Float
-  totalDeductions Float
-  netPay          Float
-  breakdown       Json
-  pdfUrl          String?
-  emailedAt       DateTime?
+  id           String     @id @default(uuid())
+  // Human-facing identifier, from IdCounter with key "PAY" — the same
+  // mechanism that issues employee codes. "BS-PAY-000123". A uuid is not
+  // something an employee can quote in an email.
+  payslipNo    String     @unique
+  payrollRunId String
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee   @relation(fields: [employeeId], references: [id])
+
+  // ── attendance inputs, frozen ──
+  calendarDays Int
+  lopDays      Decimal @db.Decimal(5, 2)
+  payableDays  Decimal @db.Decimal(5, 2)
+
+  // ── money in the payment currency, all frozen ──
+  currency        Currency
+  basic           Decimal  @db.Decimal(14, 2)
+  grossFull       Decimal  @db.Decimal(14, 2)
+  grossPay        Decimal  @db.Decimal(14, 2)
+  totalDeductions Decimal  @db.Decimal(14, 2)
+  netPay          Decimal  @db.Decimal(14, 2)
+  // Deliberately outside grossPay: a reimbursement returns money already
+  // spent, so it is not wages and must not be pro-rated by attendance.
+  reimbursements  Decimal  @default(0) @db.Decimal(14, 2)
+  netPayable      Decimal  @db.Decimal(14, 2)
+
+  // ── the same four totals in the reporting currency ──
+  // Exactly 1 when currency is BDT, so no branch is needed on read. This
+  // duplication is part of the snapshot: a BDT figure recomputed later from
+  // a changed rate would contradict the payslip it belongs to.
+  fxRateToBdt        Decimal @db.Decimal(18, 6)
+  grossPayBdt        Decimal @db.Decimal(14, 2)
+  totalDeductionsBdt Decimal @db.Decimal(14, 2)
+  netPayBdt          Decimal @db.Decimal(14, 2)
+  netPayableBdt      Decimal @db.Decimal(14, 2)
+
+  // Itemised lines, shape specified in payroll.types.ts. Json because the
+  // line count varies per structure and nothing queries inside it.
+  breakdown Json
+
+  pdfUrl     String?
+  emailedAt  DateTime?
+  // Last failure, so a bulk send reports honestly rather than all-or-nothing.
+  emailError String?
+
+  claims      ExpenseClaim[]
+  adjustments PayrollAdjustment[]
+
+  // Reprocessing a run must not leave two payslips for the same person.
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId])
+}
+
+// How festival bonus is modelled, and why it is not a SalaryComponent: a
+// bonus is paid twice a year, a component every month. As a component, a
+// forgotten removal overpays everybody for eleven months.
+model PayrollAdjustment {
+  id         String        @id @default(uuid())
+  employeeId String
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  month      Int
+  year       Int
+  kind       ComponentKind
+  // FESTIVAL_BONUS, ARREARS, ADVANCE_RECOVERY, FESTIVAL_HOLIDAY_WAGES, …
+  code       String
+  label      String
+  // Need not match the employee's payment currency — HR thinks in BDT, and
+  // treating a 500 BDT bonus as 500 USD would be a 122× overpayment. It is
+  // converted at the run's frozen rate if it differs.
+  currency   Currency      @default(BDT)
+  amount     Decimal       @db.Decimal(14, 2)
+  // Required. An unexplained line on someone's pay is a dispute waiting.
+  reason     String
+  createdBy  String
+  createdAt  DateTime      @default(now())
+  // The idempotency guard: set when a run consumes it, so an adjustment
+  // cannot be paid twice, and released when a run is reprocessed.
+  payslipId  String?
+  payslip    Payslip?      @relation(fields: [payslipId], references: [id])
+
+  @@index([employeeId, year, month])
+  @@index([year, month, payslipId])
+}
+
+// Source spec §7 asks for this by name, settlement included. Polymorphic
+// entity + entityId rather than eight typed tables, because the read pattern
+// is always "what happened to this thing" or "what happened this month" and
+// neither wants a join. Written inside the same transaction as the change,
+// matching AttendanceAudit.
+model PayrollAudit {
+  // "PAYROLL_RUN" | "PAYSLIP" | "SALARY_STRUCTURE" | "ADJUSTMENT"
+  //   | "EXPENSE_CLAIM" | "SETTLEMENT" | "EXCHANGE_RATE" | "EMPLOYEE_EXIT"
+  id        String   @id @default(uuid())
+  entity    String
+  entityId  String
+  // CREATE | PROCESS | SUBMIT | APPROVE | REJECT | DISBURSE | PAY | UPDATE | DELETE
+  action    String
+  changedBy String?
+  changedAt DateTime @default(now())
+  // Only the fields that changed, not whole snapshots.
+  before    Json?
+  after     Json?
+  note      String?
+
+  @@index([entity, entityId, changedAt])
+  @@index([changedAt])
 }
 
 model ExpenseClaim {
   id          String        @id @default(uuid())
   employeeId  String
   employee    Employee      @relation(fields: [employeeId], references: [id])
-  amount      Float
+  amount      Decimal       @db.Decimal(14, 2)
   category    String
   description String?
   receiptUrl  String?
   status      ExpenseStatus @default(PENDING)
-  reviewedBy  String?
-  createdAt   DateTime      @default(now())
+
+  // When the money was spent — distinct from when it was claimed. You submit
+  // a July taxi fare in August, and it must be judged on the July date.
+  expenseDate DateTime
+  // What it was spent in. This is the main real-world USD case: someone
+  // travels and pays in dollars while drawing a BDT salary.
+  currency    Currency @default(BDT)
+  // The rate in force on `expenseDate`, frozen at approval — not the run's
+  // rate. What someone is owed for an $80 spend on 3 July is what $80 was
+  // worth on 3 July, not what it is worth whenever approval happened.
+  fxRateToBdt Decimal? @db.Decimal(18, 6)
+
+  reviewedBy String?
+  reviewedAt DateTime?
+  // Required on reject, matching leave and attendance.
+  reviewNote String?
+
+  // Which payslip actually paid it. Without this, REIMBURSED is a label
+  // somebody set, not a fact anyone can check against a bank file.
+  payslipId    String?
+  payslip      Payslip?    @relation(fields: [payslipId], references: [id])
+  // Or which settlement paid it, for a claim outstanding when someone left.
+  settlementId String?
+  settlement   Settlement? @relation(fields: [settlementId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([employeeId, status])
 }
 
+// REIMBURSED is a transition the *system* makes when a run or a settlement
+// consumes the claim, never one a human sets by hand. That is the difference
+// between a workflow and a status field.
 enum ExpenseStatus {
   PENDING
   APPROVED
@@ -412,14 +665,66 @@ enum ExpenseStatus {
   REIMBURSED
 }
 
+// ── SETTLEMENT ────────────────────────────────
+
+// The source spec's version is four money fields and a timestamp — it
+// describes a *number*, not a document somebody approves and somebody else
+// pays. The additions mirror PayrollRun deliberately: same shape of problem,
+// so it needs no second mental model.
 model Settlement {
-  id                    String   @id @default(uuid())
-  employeeId            String
-  pendingSalary         Float
-  leaveEncashment       Float    @default(0)
-  outstandingDeductions Float    @default(0)
-  finalAmount           Float
-  generatedAt           DateTime @default(now())
+  id           String           @id @default(uuid())
+  settlementNo String           @unique
+  employeeId   String
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  status       SettlementStatus @default(DRAFT)
+
+  // ── exit facts, copied in and frozen at calculation ──
+  lastWorkingDay DateTime
+  exitReason     ExitReason
+  // Completed years of continuous service, to 2dp. Drives gratuity.
+  serviceYears   Decimal    @db.Decimal(5, 2)
+
+  currency    Currency
+  fxRateToBdt Decimal  @db.Decimal(18, 6)
+
+  // ── heads, in `currency` ──
+  pendingSalary         Decimal @db.Decimal(14, 2)
+  gratuity              Decimal @default(0) @db.Decimal(14, 2)
+  noticePay             Decimal @default(0) @db.Decimal(14, 2)
+  expenseReimbursement  Decimal @default(0) @db.Decimal(14, 2)
+  // Kept and always written 0 this phase. Dropping and re-adding a money
+  // column on a paid document is worse than a zero.
+  leaveEncashment       Decimal @default(0) @db.Decimal(14, 2)
+  outstandingDeductions Decimal @default(0) @db.Decimal(14, 2)
+  finalAmount           Decimal @db.Decimal(14, 2)
+  finalAmountBdt        Decimal @db.Decimal(14, 2)
+
+  breakdown Json
+
+  // Same separation of duties as a run: Finance calculates, Super Admin
+  // approves and cannot be calculatedBy, Finance pays.
+  calculatedBy  String?
+  calculatedAt  DateTime?
+  approvedBy    String?
+  approvedAt    DateTime?
+  paidBy        String?
+  paidAt        DateTime?
+  rejectionNote String?
+
+  pdfUrl      String?
+  emailedAt   DateTime?
+  generatedAt DateTime  @default(now())
+
+  claims ExpenseClaim[]
+
+  @@index([employeeId])
+  @@index([status])
+}
+
+enum SettlementStatus {
+  DRAFT
+  APPROVED
+  PAID
 }
 
 // ── REPORTING & COMMUNICATION ─────────────────
