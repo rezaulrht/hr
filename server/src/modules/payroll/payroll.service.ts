@@ -260,6 +260,56 @@ export async function updateSalaryStructure(
   }
 }
 
+/**
+ * Deletes a salary structure outright.
+ *
+ * Safe for history, and that is not an accident: a payslip is a frozen
+ * snapshot holding its own basic, its own lines and its own totals — nothing
+ * in the schema points a payslip at a `SalaryStructure`. So a June payslip
+ * stays fully explicable after the structure it was computed from is gone.
+ * The only rows that reference one are `SalaryComponent` (cascades) and
+ * `Employee` (guarded below).
+ *
+ * The guard is the assignment count, not payslip usage. Prisma's default for
+ * an optional relation is `SetNull`, so deleting a structure with people on
+ * it would silently un-assign them and surface a month later as preflight
+ * blocker 3. Refusing is the only honest option.
+ */
+export async function deleteSalaryStructure(id: string, actorUserId: string) {
+  const existing = await prisma.salaryStructure.findUnique({
+    where: { id },
+    include: { components: true },
+  })
+  if (!existing) throw new AppError(404, "Salary structure not found")
+
+  const assigned = await prisma.employee.count({ where: { salaryStructureId: id } })
+  if (assigned > 0) {
+    throw new AppError(
+      409,
+      `${assigned} employee(s) are still on this structure. Move them to another one before deleting it.`,
+      { assigned }
+    )
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // Explicit rather than leaning on the cascade: the delete and its audit
+    // row belong in one transaction, and being able to read the components
+    // back out of `before` is the point of writing it.
+    await tx.salaryComponent.deleteMany({ where: { salaryStructureId: id } })
+    await tx.salaryStructure.delete({ where: { id } })
+    await auditPayroll(tx, {
+      entity: "SALARY_STRUCTURE",
+      entityId: id,
+      action: "DELETE",
+      changedBy: actorUserId,
+      // The whole structure, so a deleted band is still reconstructable from
+      // the log — an audit row naming only an id explains nothing.
+      before: serializeStructure(existing),
+    })
+    return { id }
+  })
+}
+
 // ── Run lifecycle ────────────────────────────────────────────────────────
 
 /**

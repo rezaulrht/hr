@@ -8,6 +8,7 @@ vi.mock("./payroll.service", () => ({
   listSalaryStructures: vi.fn(),
   createSalaryStructure: vi.fn(),
   updateSalaryStructure: vi.fn(),
+  deleteSalaryStructure: vi.fn(),
 }))
 
 import app from "../../app"
@@ -149,5 +150,28 @@ describe("POST /api/payroll/salary-structures", () => {
       expect.any(String),
       expect.objectContaining({ components: [] })
     )
+  })
+})
+
+describe("DELETE /api/payroll/salary-structures/:id", () => {
+  const url = "/api/payroll/salary-structures/struct-1"
+
+  it("401s with no Authorization header", async () => {
+    expect((await request(app).delete(url)).status).toBe(401)
+  })
+
+  it.each<TestRole>(["EMPLOYEE", "REPORTING_MANAGER", "HR_ADMIN"])(
+    "403s for %s — Finance owns structures",
+    async (role) => {
+      const res = await request(app).delete(url).set("Authorization", auth(role))
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each<TestRole>(["FINANCE_OFFICER", "SUPER_ADMIN"])("200s for %s", async (role) => {
+    vi.mocked(service.deleteSalaryStructure).mockResolvedValue({ id: "struct-1" } as never)
+    const res = await request(app).delete(url).set("Authorization", auth(role))
+    expect(res.status).toBe(200)
+    expect(service.deleteSalaryStructure).toHaveBeenCalledWith("struct-1", "actor-1")
   })
 })

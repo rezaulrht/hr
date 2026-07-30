@@ -14,6 +14,7 @@ import {
   createRunHandler,
   createStructureHandler,
   deleteAdjustmentHandler,
+  deleteStructureHandler,
   disburseRunHandler,
   getEmployeePayslipsHandler,
   getMyPayslipsHandler,
@@ -55,6 +56,15 @@ router.patch(
   requireAuth,
   requireRole(...FINANCE_ROLES),
   updateStructureHandler
+)
+// A hard delete, not a soft one. Payslips freeze their own figures and hold
+// no reference to a structure, so removing one cannot make a paid month
+// unexplainable; the 409 guards the live assignments instead.
+router.delete(
+  "/salary-structures/:id",
+  requireAuth,
+  requireRole(...FINANCE_ROLES),
+  deleteStructureHandler
 )
 
 // Finance, Super Admin and HR all read; only Finance/Super Admin write, and

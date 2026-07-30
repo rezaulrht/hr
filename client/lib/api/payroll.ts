@@ -73,6 +73,20 @@ export function updateSalaryStructure(
   })
 }
 
+/**
+ * A hard delete. Safe for history — payslips freeze their own figures and
+ * hold no reference to a structure — but 409s while anyone is still assigned.
+ */
+export function deleteSalaryStructure(
+  accessToken: string,
+  id: string
+): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/api/payroll/salary-structures/${id}`, {
+    method: "DELETE",
+    accessToken,
+  })
+}
+
 // ── runs ──────────────────────────────────────────────────────────────────
 
 export function listPayrollRuns(accessToken: string): Promise<PayrollRun[]> {

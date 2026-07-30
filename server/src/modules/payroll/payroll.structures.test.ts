@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     exchangeRate: { create: vi.fn(), update: vi.fn() },
-    salaryStructure: { create: vi.fn(), update: vi.fn() },
+    salaryStructure: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     salaryComponent: { deleteMany: vi.fn() },
     payrollAudit: { create: vi.fn() },
   }
@@ -24,6 +24,7 @@ import {
   createSalaryStructure,
   listExchangeRates,
   updateExchangeRate,
+  deleteSalaryStructure,
   updateSalaryStructure,
 } from "./payroll.service"
 import { exchangeRateBody, salaryStructureBody } from "./payroll.validators"
@@ -279,6 +280,69 @@ describe("listExchangeRates", () => {
     await listExchangeRates()
     expect(prisma.exchangeRate.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ orderBy: [{ effectiveFrom: "desc" }, { createdAt: "desc" }] })
+    )
+  })
+})
+
+describe("deleteSalaryStructure", () => {
+  const existing = {
+    id: "struct-1",
+    ...bdtStructure,
+    basic: dec(50000),
+    components: bdtStructure.components.map((c) => ({ ...c, value: dec(c.value) })),
+  }
+
+  it("404s for an unknown id", async () => {
+    vi.mocked(prisma.salaryStructure.findUnique).mockResolvedValue(null)
+    await expect(deleteSalaryStructure("nope", "user-finance")).rejects.toMatchObject({
+      statusCode: 404,
+    })
+  })
+
+  // Prisma's default for an optional relation is SetNull, so deleting out
+  // from under live assignments would quietly un-assign people and resurface
+  // as preflight blocker 3 a month later.
+  it("409s while employees are still assigned, and does not delete", async () => {
+    vi.mocked(prisma.salaryStructure.findUnique).mockResolvedValue(existing as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(3)
+
+    await expect(deleteSalaryStructure("struct-1", "user-finance")).rejects.toMatchObject({
+      statusCode: 409,
+      details: { assigned: 3 },
+    })
+    expect(tx.salaryStructure.delete).not.toHaveBeenCalled()
+  })
+
+  it("deletes the structure and its components once nobody is on it", async () => {
+    vi.mocked(prisma.salaryStructure.findUnique).mockResolvedValue(existing as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(0)
+
+    await expect(deleteSalaryStructure("struct-1", "user-finance")).resolves.toEqual({
+      id: "struct-1",
+    })
+    expect(tx.salaryComponent.deleteMany).toHaveBeenCalledWith({
+      where: { salaryStructureId: "struct-1" },
+    })
+    expect(tx.salaryStructure.delete).toHaveBeenCalledWith({ where: { id: "struct-1" } })
+  })
+
+  // An audit row naming only an id explains nothing a year later; the whole
+  // band goes into `before` so a deleted structure stays reconstructable.
+  it("audits the deletion with the full structure in `before`", async () => {
+    vi.mocked(prisma.salaryStructure.findUnique).mockResolvedValue(existing as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(0)
+
+    await deleteSalaryStructure("struct-1", "user-finance")
+
+    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entity: "SALARY_STRUCTURE",
+          action: "DELETE",
+          changedBy: "user-finance",
+          before: expect.objectContaining({ name: "Standard (BDT)" }),
+        }),
+      })
     )
   })
 })

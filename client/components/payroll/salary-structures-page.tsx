@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ApiError } from "@/lib/api/client"
 import {
   createSalaryStructure,
+  deleteSalaryStructure,
   listSalaryStructures,
   updateSalaryStructure,
 } from "@/lib/api/payroll"
@@ -125,10 +126,22 @@ function previewGross(draft: Draft): { gross: number; deductions: number } {
 
 function StructureCard({
   structure,
+  canWrite,
+  confirming,
+  deleting,
   onEdit,
+  onAskDelete,
+  onCancelDelete,
+  onConfirmDelete,
 }: {
   structure: SalaryStructure
+  canWrite: boolean
+  confirming: boolean
+  deleting: boolean
   onEdit: () => void
+  onAskDelete: () => void
+  onCancelDelete: () => void
+  onConfirmDelete: () => void
 }) {
   const earnings = structure.components.filter((c) => c.kind === "EARNING").length
   const deductions = structure.components.length - earnings
@@ -149,10 +162,43 @@ function StructureCard({
                 }, ${deductions} deduction${deductions === 1 ? "" : "s"}`}
           </div>
         </div>
-        <button className="text-[12.5px] font-semibold underline" onClick={onEdit}>
-          Edit
-        </button>
+        {canWrite ? (
+          <div className="flex shrink-0 gap-3">
+            <button className="text-[12.5px] font-semibold underline" onClick={onEdit}>
+              Edit
+            </button>
+            <button
+              className="text-[12.5px] font-semibold text-[#B03A3A] underline"
+              onClick={onAskDelete}
+            >
+              Delete
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      {/* Confirmed in place rather than in a modal: the thing being deleted
+          stays on screen, including the figure it pays. */}
+      {confirming ? (
+        <div className="mt-3 rounded-md border border-[#F0D9D9] bg-[#FDF6F6] px-4 py-3">
+          <div className="text-[12.5px] text-[#7A2B2B]">
+            Delete <strong>{structure.name}</strong>? Payslips already issued on it keep their own
+            figures and are unaffected.
+          </div>
+          <div className="mt-2.5 flex gap-2">
+            <Button
+              className="bg-[#B03A3A] text-white hover:bg-[#8F2E2E]"
+              disabled={deleting}
+              onClick={onConfirmDelete}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+            <Button variant="outline" disabled={deleting} onClick={onCancelDelete}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div
         className={
@@ -183,6 +229,7 @@ export function SalaryStructuresPage() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   const isAuthed = status === "authenticated" && !!accessToken
   const canWrite = !!user && FINANCE_ROLES.includes(user.role)
@@ -207,6 +254,19 @@ export function SalaryStructuresPage() {
     },
     onError: (err) =>
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteSalaryStructure(accessToken!, id),
+    onSuccess: () => {
+      setConfirmingId(null)
+      setError(null)
+      queryClient.invalidateQueries({ queryKey: ["salary-structures"] })
+    },
+    onError: (err) => {
+      setConfirmingId(null)
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
   })
 
   if (!isAuthed) return <Skeleton className="h-64 w-full" />
@@ -462,10 +522,20 @@ export function SalaryStructuresPage() {
               <StructureCard
                 key={s.id}
                 structure={s}
+                canWrite={canWrite}
+                confirming={confirmingId === s.id}
+                deleting={deleteMutation.isPending}
                 onEdit={() => {
                   setError(null)
+                  setConfirmingId(null)
                   setDraft(toDraft(s))
                 }}
+                onAskDelete={() => {
+                  setError(null)
+                  setConfirmingId(s.id)
+                }}
+                onCancelDelete={() => setConfirmingId(null)}
+                onConfirmDelete={() => deleteMutation.mutate(s.id)}
               />
             ))}
           </div>

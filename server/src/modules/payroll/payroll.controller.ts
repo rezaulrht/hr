@@ -9,6 +9,7 @@ import {
   createRun,
   createSalaryStructure,
   deleteAdjustment,
+  deleteSalaryStructure,
   disburseRun,
   getEmployeePayslips,
   getMyPayslips,
@@ -92,6 +93,18 @@ export async function updateStructureHandler(
   try {
     const body = salaryStructureUpdateBody.parse(req.body)
     return res.status(200).json(await updateSalaryStructure(req.params.id, req.user!.sub, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function deleteStructureHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await deleteSalaryStructure(req.params.id, req.user!.sub))
   } catch (err) {
     return next(err)
   }
