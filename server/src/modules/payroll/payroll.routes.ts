@@ -4,10 +4,19 @@ import { Role } from "../../generated/prisma/client"
 import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import {
+  approveRunHandler,
   createRateHandler,
+  createRunHandler,
   createStructureHandler,
+  disburseRunHandler,
+  getRunHandler,
+  getRunPreflightHandler,
   listRatesHandler,
+  listRunsHandler,
   listStructuresHandler,
+  processRunHandler,
+  rejectRunHandler,
+  submitRunHandler,
   updateRateHandler,
   updateStructureHandler,
 } from "./payroll.controller"
@@ -34,5 +43,18 @@ router.patch(
   requireRole(...FINANCE_ROLES),
   updateStructureHandler
 )
+
+// Finance, Super Admin and HR all read; only Finance/Super Admin write, and
+// approve is Super Admin only — the plan's separation of duties, so nobody
+// can move money alone.
+router.get("/runs", requireAuth, requireRole(...READ_ROLES), listRunsHandler)
+router.get("/runs/:id", requireAuth, requireRole(...READ_ROLES), getRunHandler)
+router.get("/runs/:id/preflight", requireAuth, requireRole(...READ_ROLES), getRunPreflightHandler)
+router.post("/runs", requireAuth, requireRole(...FINANCE_ROLES), createRunHandler)
+router.post("/runs/:id/process", requireAuth, requireRole(...FINANCE_ROLES), processRunHandler)
+router.post("/runs/:id/submit", requireAuth, requireRole(...FINANCE_ROLES), submitRunHandler)
+router.post("/runs/:id/approve", requireAuth, requireRole(Role.SUPER_ADMIN), approveRunHandler)
+router.post("/runs/:id/reject", requireAuth, requireRole(Role.SUPER_ADMIN), rejectRunHandler)
+router.post("/runs/:id/disburse", requireAuth, requireRole(...FINANCE_ROLES), disburseRunHandler)
 
 export default router

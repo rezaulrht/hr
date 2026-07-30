@@ -66,3 +66,16 @@ export type ExchangeRateBody = z.infer<typeof exchangeRateBody>
 export const exchangeRateUpdateBody = exchangeRateBody
 
 export type ExchangeRateUpdateBody = z.infer<typeof exchangeRateUpdateBody>
+
+export const createRunBody = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  notes: z.string().max(2000).optional(),
+})
+export type CreateRunBody = z.infer<typeof createRunBody>
+
+/** Reused for a run rejection. A note is required — "why did this come back?" must always have an answer. */
+export const rejectRunBody = z.object({
+  note: z.string().min(1, "A note is required").max(1000),
+})
+export type RejectRunBody = z.infer<typeof rejectRunBody>

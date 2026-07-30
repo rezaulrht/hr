@@ -1,16 +1,29 @@
 /**
  * Salary structures and exchange rates — the configuration Finance owns
- * before any run can be processed.
+ * before any run can be processed — plus the run lifecycle itself.
  */
 
+import { getMonthlySummary } from "../attendance/attendance.summary"
+import { monthRange } from "../attendance/attendance.service"
+import { officeToday } from "../attendance/attendance.time"
 import prisma from "../../config/prisma"
-import type { Prisma } from "../../generated/prisma/client"
+import type { Currency, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { auditPayroll } from "./payroll.audit"
-import { dec, toMoneyString } from "./payroll.money"
+import { computePayslip } from "./payroll.calc"
+import { resolveRateOrThrow } from "./payroll.fx"
+import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "./payroll.money"
+import {
+  assertProcessable,
+  loadPayrollRoster,
+  preflight,
+  toComponentInputs,
+} from "./payroll.preflight"
 import type {
+  CreateRunBody,
   ExchangeRateBody,
   ExchangeRateUpdateBody,
+  RejectRunBody,
   SalaryStructureBody,
 } from "./payroll.validators"
 
@@ -241,4 +254,392 @@ export async function updateSalaryStructure(
     if (isUniqueViolation(err)) throw structureConflict(body.name)
     throw err
   }
+}
+
+// ── Run lifecycle ────────────────────────────────────────────────────────
+
+/**
+ * Not a real user — see `payroll.preflight.ts`'s `SYSTEM_ACTOR` for why a
+ * synthetic Finance-role actor stands in for one when a background
+ * operation needs the whole-company attendance roster.
+ */
+const SYSTEM_ACTOR = {
+  sub: "system",
+  role: "FINANCE_OFFICER" as const,
+  email: "system@payroll.internal",
+  mustChangePassword: false,
+}
+
+const monthLabel = (month: number, year: number) => `${year}-${String(month).padStart(2, "0")}`
+
+function runConflict(month: number, year: number): AppError {
+  return new AppError(409, `A payroll run for ${monthLabel(month, year)} already exists`)
+}
+
+export async function listRuns() {
+  const runs = await prisma.payrollRun.findMany({ orderBy: [{ year: "desc" }, { month: "desc" }] })
+  const totals = await prisma.payslip.groupBy({
+    by: ["payrollRunId"],
+    _sum: { grossPayBdt: true, totalDeductionsBdt: true, netPayBdt: true, netPayableBdt: true },
+    _count: { _all: true },
+  })
+  const totalsByRun = new Map(totals.map((t) => [t.payrollRunId, t]))
+
+  return runs.map((run) => {
+    const t = totalsByRun.get(run.id)
+    return {
+      ...run,
+      payslipCount: t?._count._all ?? 0,
+      grossPayBdt: t?._sum.grossPayBdt ?? dec(0),
+      totalDeductionsBdt: t?._sum.totalDeductionsBdt ?? dec(0),
+      netPayBdt: t?._sum.netPayBdt ?? dec(0),
+      netPayableBdt: t?._sum.netPayableBdt ?? dec(0),
+    }
+  })
+}
+
+export async function getRun(id: string) {
+  const run = await prisma.payrollRun.findUnique({
+    where: { id },
+    include: {
+      payslips: {
+        include: { employee: { select: { id: true, fullName: true, employeeCode: true } } },
+        orderBy: { employee: { fullName: "asc" } },
+      },
+    },
+  })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  return { ...run, preflight: await preflight(run.month, run.year) }
+}
+
+export async function getRunPreflight(id: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { id }, select: { month: true, year: true } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  return preflight(run.month, run.year)
+}
+
+export async function createRun(actorUserId: string, body: CreateRunBody) {
+  // A month that has not started yet has no attendance to process — this is
+  // distinct from the current, still-in-progress month, which a run may be
+  // drafted for early even though preflight will block processing it until
+  // it ends.
+  const requestedStart = new Date(Date.UTC(body.year, body.month - 1, 1))
+  if (requestedStart.getTime() > officeToday().getTime()) {
+    throw new AppError(400, `${monthLabel(body.month, body.year)} has not started yet`)
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const run = await tx.payrollRun.create({
+        data: { month: body.month, year: body.year, notes: body.notes },
+      })
+      await auditPayroll(tx, {
+        entity: "PAYROLL_RUN",
+        entityId: run.id,
+        action: "CREATE",
+        changedBy: actorUserId,
+        after: { month: run.month, year: run.year, notes: run.notes },
+      })
+      return run
+    })
+  } catch (err) {
+    // The most important guard in this module: two runs for one month is a
+    // double payment, not a data-quality problem.
+    if (isUniqueViolation(err)) throw runConflict(body.month, body.year)
+    throw err
+  }
+}
+
+function requireStatus(run: { status: string }, status: string, action: string): void {
+  if (run.status !== status) {
+    throw new AppError(
+      409,
+      `Cannot ${action} a run that is ${run.status.toLowerCase()} — this action is only legal from ${status}`
+    )
+  }
+}
+
+/**
+ * BDT per one unit of `currency`, converting an adjustment between two
+ * currencies. Both are BDT or USD — the only pair this system has.
+ */
+function convertBetween(amount: Money, from: Currency, to: Currency, usdToBdt: Money | null): Money {
+  if (from === to) return amount
+  if (!usdToBdt) {
+    throw new Error(
+      `Cannot convert ${from} to ${to} without a resolved USD rate — preflight should have blocked this`
+    )
+  }
+  return from === REPORTING_CURRENCY ? amount.dividedBy(usdToBdt) : amount.times(usdToBdt)
+}
+
+/**
+ * Idempotent: deletes the run's payslips, releases every adjustment and
+ * claim that pointed at them, and recomputes from scratch. Reprocessing is a
+ * normal act — HR adds a missing bonus, a manager finally approves a stuck
+ * record, someone fixes a rate. A clean rebuild is what stops a
+ * half-processed run existing; restricting it to DRAFT is what stops an
+ * approved run being rewritten under the approver.
+ */
+export async function processRun(id: string, actorUserId: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { id } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  requireStatus(run, "DRAFT", "process")
+
+  return prisma.$transaction(async (tx) => {
+    // First, so a run that cannot legally be paid is never partially
+    // rewritten. Read via the plain client rather than `tx` — the same
+    // read-then-write pattern `assertMonthNotLocked` already uses elsewhere
+    // in this codebase — because these are sanity reads with nothing to roll
+    // back if they pass; only the writes below need the transaction.
+    await assertProcessable(run.month, run.year)
+
+    const roster = (await loadPayrollRoster(run.month, run.year)).filter(
+      (e): e is typeof e & { salaryStructure: NonNullable<(typeof e)["salaryStructure"]> } =>
+        e.salaryStructure !== null
+    )
+    const rosterIds = roster.map((e) => e.id)
+    const { to: monthEnd } = monthRange(run.year, run.month)
+
+    // Resolve the run's rate once. USD is the only non-BDT currency this
+    // system has, so "the rate per currency" collapses to "the USD rate" —
+    // null when nobody in the roster is paid in it, since there is then no
+    // "the rate" to speak of.
+    const needsUsd = roster.some((e) => e.salaryStructure.currency !== REPORTING_CURRENCY)
+    const usdRate = needsUsd ? await resolveRateOrThrow("USD", monthEnd) : null
+
+    // Deleting the payslip rows is enough to release every PayrollAdjustment
+    // and ExpenseClaim that pointed at them — both foreign keys are
+    // ON DELETE SET NULL precisely so a reprocess does not have to remember
+    // to clear them by hand.
+    await tx.payslip.deleteMany({ where: { payrollRunId: id } })
+
+    const summaries = await getMonthlySummary(SYSTEM_ACTOR, run.month, run.year)
+    const summaryByEmployee = new Map(summaries.map((s) => [s.employee.id, s]))
+
+    const unclaimedAdjustments =
+      rosterIds.length === 0
+        ? []
+        : await tx.payrollAdjustment.findMany({
+            where: { employeeId: { in: rosterIds }, month: run.month, year: run.year, payslipId: null },
+          })
+    const adjustmentsByEmployee = new Map<string, typeof unclaimedAdjustments>()
+    for (const adjustment of unclaimedAdjustments) {
+      const list = adjustmentsByEmployee.get(adjustment.employeeId) ?? []
+      list.push(adjustment)
+      adjustmentsByEmployee.set(adjustment.employeeId, list)
+    }
+
+    const calendarDays = new Date(Date.UTC(run.year, run.month, 0)).getUTCDate()
+
+    for (const employee of roster) {
+      const structure = employee.salaryStructure
+      const summary = summaryByEmployee.get(employee.id)
+      // Invariant, not user input: loadPayrollRoster's population is always
+      // a subset of getMonthlySummary's (same ACTIVE/ON_LEAVE filter, plus a
+      // joining-date restriction), so every roster member has a summary.
+      if (!summary) {
+        throw new Error(`No attendance summary for roster employee ${employee.id} — this is a bug`)
+      }
+
+      const rate = structure.currency === REPORTING_CURRENCY ? dec(1) : usdRate!
+      const adjustments = (adjustmentsByEmployee.get(employee.id) ?? []).map((a) => ({
+        code: a.code,
+        label: a.label,
+        kind: a.kind,
+        amount: convertBetween(dec(a.amount), a.currency, structure.currency, usdRate),
+      }))
+
+      const result = computePayslip({
+        basic: dec(structure.basic),
+        components: toComponentInputs(structure.components),
+        adjustments,
+        // Expense-claim reimbursements are swept in by Task 11, once the
+        // expense module exists to approve and freeze them.
+        reimbursements: [],
+        calendarDays,
+        workingDays: summary.workingDays,
+        present: summary.present,
+        absent: summary.absent,
+        onPaidLeave: summary.onPaidLeave,
+        onUnpaidLeave: summary.onUnpaidLeave,
+      })
+
+      const counter = await tx.idCounter.upsert({
+        where: { id: "PAY" },
+        update: { value: { increment: 1 } },
+        create: { id: "PAY", value: 1 },
+      })
+      const payslipNo = `BS-PAY-${String(counter.value).padStart(6, "0")}`
+
+      const payslip = await tx.payslip.create({
+        data: {
+          payslipNo,
+          payrollRunId: id,
+          employeeId: employee.id,
+          calendarDays: result.calendarDays,
+          lopDays: result.lopDays,
+          payableDays: result.payableDays,
+          currency: structure.currency,
+          basic: result.basic,
+          grossFull: result.grossFull,
+          grossPay: result.grossPay,
+          totalDeductions: result.totalDeductions,
+          netPay: result.netPay,
+          reimbursements: result.reimbursements,
+          netPayable: result.netPayable,
+          fxRateToBdt: rate,
+          grossPayBdt: bdtTotal(result.grossPay, rate),
+          totalDeductionsBdt: bdtTotal(result.totalDeductions, rate),
+          netPayBdt: bdtTotal(result.netPay, rate),
+          netPayableBdt: bdtTotal(result.netPayable, rate),
+          breakdown: {
+            currency: structure.currency,
+            fxRateToBdt: rate.toFixed(6),
+            ...result.breakdown,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      })
+
+      const consumedIds = (adjustmentsByEmployee.get(employee.id) ?? []).map((a) => a.id)
+      if (consumedIds.length > 0) {
+        await tx.payrollAdjustment.updateMany({
+          where: { id: { in: consumedIds } },
+          data: { payslipId: payslip.id },
+        })
+      }
+    }
+
+    const updated = await tx.payrollRun.update({
+      where: { id },
+      data: { fxRateToBdt: usdRate, processedBy: actorUserId, processedAt: new Date() },
+    })
+
+    await auditPayroll(tx, {
+      entity: "PAYROLL_RUN",
+      entityId: id,
+      action: "PROCESS",
+      changedBy: actorUserId,
+      after: { payslipCount: roster.length, fxRateToBdt: usdRate?.toFixed(6) ?? null },
+    })
+
+    return updated
+  })
+}
+
+export async function submitRun(id: string, actorUserId: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { id } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  requireStatus(run, "DRAFT", "submit")
+  if (!run.processedAt) {
+    throw new AppError(409, "This run has not been processed yet — process it before submitting")
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.payrollRun.update({
+      where: { id },
+      data: { status: "SUBMITTED", submittedBy: actorUserId, submittedAt: new Date() },
+    })
+    await auditPayroll(tx, {
+      entity: "PAYROLL_RUN",
+      entityId: id,
+      action: "SUBMIT",
+      changedBy: actorUserId,
+    })
+    return updated
+  })
+}
+
+/**
+ * The approver's user id must differ from `submittedBy` — the same rule as
+ * settlement's calculator/approver split. A one-person deployment holding
+ * both roles cannot approve its own run; that is the control working, not a
+ * bug.
+ */
+export async function approveRun(id: string, actorUserId: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { id } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  requireStatus(run, "SUBMITTED", "approve")
+  if (run.submittedBy === actorUserId) {
+    throw new AppError(403, "You submitted this run and cannot also approve it")
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.payrollRun.update({
+      where: { id },
+      data: { status: "APPROVED", approvedBy: actorUserId, approvedAt: new Date() },
+    })
+    await auditPayroll(tx, {
+      entity: "PAYROLL_RUN",
+      entityId: id,
+      action: "APPROVE",
+      changedBy: actorUserId,
+    })
+    return updated
+  })
+}
+
+/**
+ * Returns to DRAFT, not a terminal REJECTED — the month still has to be
+ * paid, and process is an idempotent rebuild precisely so the cause can be
+ * fixed and the run resubmitted.
+ */
+export async function rejectRun(id: string, actorUserId: string, body: RejectRunBody) {
+  const run = await prisma.payrollRun.findUnique({ where: { id } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  requireStatus(run, "SUBMITTED", "reject")
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.payrollRun.update({
+      where: { id },
+      data: { status: "DRAFT", rejectionNote: body.note },
+    })
+    await auditPayroll(tx, {
+      entity: "PAYROLL_RUN",
+      entityId: id,
+      action: "REJECT",
+      changedBy: actorUserId,
+      note: body.note,
+    })
+    return updated
+  })
+}
+
+/** Terminal — there is no un-disburse. */
+export async function disburseRun(id: string, actorUserId: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { id } })
+  if (!run) throw new AppError(404, "Payroll run not found")
+  requireStatus(run, "APPROVED", "disburse")
+
+  // Reported, not posted — there is no ledger for an FX gain or loss to go
+  // to. Only meaningful when the run actually used a foreign rate.
+  const disbursementFxRateToBdt = run.fxRateToBdt
+    ? await resolveRateOrThrow("USD", officeToday())
+    : null
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.payrollRun.update({
+      where: { id },
+      data: {
+        status: "DISBURSED",
+        disbursedBy: actorUserId,
+        disbursedAt: new Date(),
+        disbursementFxRateToBdt,
+      },
+    })
+    // A no-op until Task 11 introduces approved, unswept claims — the update
+    // targets exactly the claims this run's own payslips consumed.
+    await tx.expenseClaim.updateMany({
+      where: { payslip: { payrollRunId: id }, status: "APPROVED" },
+      data: { status: "REIMBURSED" },
+    })
+    await auditPayroll(tx, {
+      entity: "PAYROLL_RUN",
+      entityId: id,
+      action: "DISBURSE",
+      changedBy: actorUserId,
+      after: { disbursementFxRateToBdt: disbursementFxRateToBdt?.toFixed(6) ?? null },
+    })
+    return updated
+  })
 }

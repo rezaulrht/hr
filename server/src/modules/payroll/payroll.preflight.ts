@@ -16,8 +16,8 @@ import type { Currency, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { computePayslip } from "./payroll.calc"
 import { pickRate } from "./payroll.fx"
-import { dec } from "./payroll.money"
-import { REPORTING_CURRENCY } from "./payroll.money"
+import { dec, REPORTING_CURRENCY } from "./payroll.money"
+import type { ComponentInput } from "./payroll.types"
 
 /**
  * Not a real user — `getMonthlySummary` scopes its roster by actor role, and
@@ -101,6 +101,25 @@ export async function loadPayrollRoster(
     },
     orderBy: { fullName: "asc" },
   })
+}
+
+/**
+ * Adapts a structure's raw component rows into `computePayslip`'s input
+ * shape. Shared between this file's own blocker-5 dry run and `processRun`'s
+ * real computation (`payroll.service.ts`) so the two can never quietly
+ * diverge on how a component resolves.
+ */
+export function toComponentInputs(
+  components: StructureWithComponents["components"]
+): ComponentInput[] {
+  return components.map((c) => ({
+    code: c.code,
+    label: c.label,
+    kind: c.kind,
+    calc: c.calc,
+    value: dec(c.value),
+    sortOrder: c.sortOrder,
+  }))
 }
 
 export async function preflight(month: number, year: number): Promise<PreflightReport> {
@@ -204,14 +223,7 @@ export async function preflight(month: number, year: number): Promise<PreflightR
 
       const result = computePayslip({
         basic: dec(structure.basic),
-        components: structure.components.map((c) => ({
-          code: c.code,
-          label: c.label,
-          kind: c.kind,
-          calc: c.calc,
-          value: dec(c.value),
-          sortOrder: c.sortOrder,
-        })),
+        components: toComponentInputs(structure.components),
         adjustments: [],
         reimbursements: [],
         calendarDays,
