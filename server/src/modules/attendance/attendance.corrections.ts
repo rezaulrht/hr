@@ -30,11 +30,7 @@ async function shiftForDate(
   date: Date
 ): Promise<Shift> {
   const shifts = await prisma.shift.findMany()
-  return resolveShift(
-    { id: employee.id, joiningDate: new Date(0), employmentStatus: "ACTIVE", shiftId: employee.shiftId },
-    date,
-    shifts
-  )
+  return resolveShift({ shiftId: employee.shiftId }, date, shifts)
 }
 
 interface AppliedTimes {

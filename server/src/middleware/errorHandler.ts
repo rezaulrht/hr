@@ -4,7 +4,14 @@ import { ZodError } from "zod"
 export class AppError extends Error {
   constructor(
     public statusCode: number,
-    message: string
+    message: string,
+    /**
+     * Extra JSON fields merged alongside `error` in the response — the
+     * payroll preflight's `{ error, blockers }` 409 is the first consumer.
+     * Optional and additive: every existing `new AppError(status, message)`
+     * call site is unaffected.
+     */
+    public details?: Record<string, unknown>
   ) {
     super(message)
     this.name = "AppError"
@@ -27,7 +34,7 @@ function validationMessage(err: ZodError): string {
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({ error: err.message })
+    return res.status(err.statusCode).json({ error: err.message, ...err.details })
   }
   // Controllers call `schema.parse(...)` and pass the throw to next(), so
   // without this branch every malformed request body or query string

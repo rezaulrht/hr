@@ -6,6 +6,9 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/finance", icon: "RiDashboardLine" },
       { label: "Payroll", href: "/finance/payroll", icon: "RiWallet3Line" },
+      // Finance authors the pay bands; HR assigns people to them. Sits above
+      // Expenses because no run can process until one exists.
+      { label: "Salary structures", href: "/finance/salary-structures", icon: "RiSettingsLine" },
       { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine", badge: 31 },
       { label: "Settlements", href: "/finance/settlements", icon: "RiReceiptLine" },
     ],

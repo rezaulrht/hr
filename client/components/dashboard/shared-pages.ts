@@ -4,50 +4,6 @@
 
 import type { SubpageData } from "@/components/dashboard/types"
 
-export const payroll: SubpageData = {
-  kicker: "Workspace",
-  title: "Payroll",
-  sub: "Payslips, earnings, and deductions",
-  cta: "Download payslip",
-  stats: [
-    { label: "Latest net pay", value: "$4,820.00", sub: "June 2026 · paid Jul 1" },
-    { label: "YTD gross", value: "$38,400", sub: "Jan – Jun 2026" },
-    { label: "Next pay date", value: "Aug 1", sub: "July run in preview" },
-  ],
-  tableTitle: "Payslip history",
-  cols: "1.1fr 1fr 1fr 1fr 0.9fr",
-  headers: ["Month", "Gross", "Deductions", "Net pay", "Status"],
-  rows: [
-    [{ text: "June 2026", weight: 600 }, { text: "$6,400.00" }, { text: "−$1,580.00" }, { text: "$4,820.00", weight: 600 }, { tag: "Paid", tone: "green" }],
-    [{ text: "May 2026", weight: 600 }, { text: "$6,400.00" }, { text: "−$1,580.00" }, { text: "$4,820.00", weight: 600 }, { tag: "Paid", tone: "green" }],
-    [{ text: "April 2026", weight: 600 }, { text: "$6,400.00" }, { text: "−$1,592.00" }, { text: "$4,808.00", weight: 600 }, { tag: "Paid", tone: "green" }],
-    [{ text: "March 2026", weight: 600 }, { text: "$6,650.00", sub: "Incl. Q1 bonus" }, { text: "−$1,640.00" }, { text: "$5,010.00", weight: 600 }, { tag: "Paid", tone: "green" }],
-    [{ text: "February 2026", weight: 600 }, { text: "$6,400.00" }, { text: "−$1,580.00" }, { text: "$4,820.00", weight: 600 }, { tag: "Paid", tone: "green" }],
-  ],
-}
-
-export const expenses: SubpageData = {
-  kicker: "Workspace",
-  title: "Expenses",
-  sub: "Claims, reimbursements, and receipts",
-  cta: "New claim",
-  stats: [
-    { label: "Pending", value: "$312.40", sub: "2 claims awaiting approval" },
-    { label: "Reimbursed YTD", value: "$1,842", sub: "11 approved claims" },
-    { label: "Rejected", value: "1", sub: "Duplicate mileage claim" },
-  ],
-  tableTitle: "My claims",
-  cols: "1.5fr 0.9fr 0.8fr 0.9fr",
-  headers: ["Claim", "Date", "Amount", "Status"],
-  rows: [
-    [{ text: "Client dinner", sub: "Receipt attached", weight: 600 }, { text: "Jul 24" }, { text: "$148.90", weight: 600 }, { tag: "Pending", tone: "yellow" }],
-    [{ text: "Taxi — airport transfer", sub: "Receipt attached", weight: 600 }, { text: "Jul 19" }, { text: "$163.50", weight: 600 }, { tag: "Pending", tone: "yellow" }],
-    [{ text: "Conference ticket", sub: "Pre-approved", weight: 600 }, { text: "Jun 30" }, { text: "$420.00", weight: 600 }, { tag: "Approved", tone: "green" }],
-    [{ text: "Team lunch", weight: 600 }, { text: "Jun 12" }, { text: "$96.20", weight: 600 }, { tag: "Approved", tone: "green" }],
-    [{ text: "Mileage — client visit", sub: "Flagged by audit", weight: 600 }, { text: "May 28" }, { text: "$62.40", weight: 600 }, { tag: "Rejected", tone: "red" }],
-  ],
-}
-
 export const employees: SubpageData = {
   kicker: "Management",
   title: "Employees",
@@ -67,27 +23,6 @@ export const employees: SubpageData = {
     [{ text: "Grace Osei", sub: "grace.o@peoplecore.io", weight: 600 }, { text: "Sales" }, { text: "Jan 2024" }, { tag: "Active", tone: "green" }],
     [{ text: "Yuki Tanaka", sub: "yuki.t@peoplecore.io", weight: 600 }, { text: "Engineering" }, { text: "Jul 2026" }, { tag: "Onboarding", tone: "yellow" }],
     [{ text: "Mei Chen", sub: "mei.c@peoplecore.io", weight: 600 }, { text: "CX" }, { text: "Nov 2022" }, { tag: "On leave", tone: "yellow" }],
-  ],
-}
-
-export const settlements: SubpageData = {
-  kicker: "Payroll & finance",
-  title: "Settlements",
-  sub: "Full & final settlements on resignation",
-  cta: "New settlement",
-  stats: [
-    { label: "In progress", value: "3", sub: "1 awaiting approval" },
-    { label: "Paid out YTD", value: "$84,200", sub: "9 completed settlements" },
-    { label: "Avg processing", value: "6 days", sub: "From resignation to payout" },
-  ],
-  tableTitle: "Settlement statements",
-  cols: "1.4fr 1.3fr 1fr 0.9fr",
-  headers: ["Employee", "Components", "Final amount", "Status"],
-  rows: [
-    [{ text: "Robert Ellis", sub: "Ops · resigned Jun 30", weight: 600 }, { text: "Pending salary + leave encashment", sub: "−$120 outstanding deductions" }, { text: "$6,840.00", weight: 600 }, { tag: "Approved", tone: "green" }],
-    [{ text: "Hana Yusuf", sub: "Sales · resigned Jul 15", weight: 600 }, { text: "Pending salary", sub: "No encashment" }, { text: "$3,120.00", weight: 600 }, { tag: "Pending", tone: "yellow" }],
-    [{ text: "Victor Osei", sub: "Engineering · contract end", weight: 600 }, { text: "Pending salary + leave encashment" }, { text: "$5,410.00", weight: 600 }, { tag: "Draft", tone: "yellow" }],
-    [{ text: "Lena Fischer", sub: "CX · resigned May 31", weight: 600 }, { text: "Pending salary" }, { text: "$2,980.00", weight: 600 }, { tag: "Paid", tone: "green" }],
   ],
 }
 

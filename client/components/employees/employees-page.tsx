@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { createStaffAccount, listEmployees } from "@/lib/api/employees"
+import { createStaffAccount, listEmployees, setSalaryStructure } from "@/lib/api/employees"
 import { listDepartments } from "@/lib/api/departments"
+import { listSalaryStructures } from "@/lib/api/payroll"
+import { SalaryStructureDialog } from "@/components/employees/salary-structure-dialog"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import { parseDateString, toDateString } from "@/lib/utils"
@@ -39,12 +41,24 @@ function formatJoiningDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
-function toRows(employees: Employee[]): TableCell[][] {
+function toRows(employees: Employee[], onAssign: (employee: Employee) => void): TableCell[][] {
   return employees.map((e) => [
     { text: e.fullName, sub: e.email, weight: 600 },
     { text: e.department.name },
     { text: formatJoiningDate(e.joiningDate) },
+    // Shown in the directory because a missing structure is not a cosmetic
+    // gap — it is the run that will refuse to process, found here instead.
+    e.salaryStructure
+      ? { text: e.salaryStructure.name, sub: e.salaryStructure.currency }
+      : { tag: "Not set", tone: "red" as const },
     { tag: STATUS_LABEL[e.employmentStatus], tone: STATUS_TONE[e.employmentStatus] },
+    {
+      node: (
+        <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
+          {e.salaryStructure ? "Change" : "Assign"}
+        </button>
+      ),
+    },
   ])
 }
 
@@ -55,11 +69,18 @@ function computeStats(employees: Employee[]) {
     return joined.getFullYear() === now.getFullYear() && joined.getMonth() === now.getMonth()
   }).length
   const departmentCount = new Set(employees.map((e) => e.department.id)).size
+  const unassigned = employees.filter((e) => !e.salaryStructure).length
 
   return [
     { label: "Headcount", value: String(employees.length), sub: `${employees.length} total employees` },
     { label: "New this month", value: String(newThisMonth), sub: "Joined this calendar month" },
-    { label: "Departments", value: String(departmentCount), sub: "Represented in the list below" },
+    // Promoted over the department count: this is the number that decides
+    // whether next month's payroll can run at all.
+    {
+      label: "No salary structure",
+      value: String(unassigned),
+      sub: unassigned === 0 ? `${departmentCount} departments` : "Blocks payroll until assigned",
+    },
   ]
 }
 
@@ -86,6 +107,8 @@ export function EmployeesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [result, setResult] = useState<CreateStaffAccountResult | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [assigning, setAssigning] = useState<Employee | null>(null)
+  const [assignError, setAssignError] = useState<string | null>(null)
 
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
@@ -105,6 +128,25 @@ export function EmployeesPage() {
     queryKey: ["departments"],
     queryFn: () => listDepartments(accessToken!),
     enabled: sessionStatus === "authenticated" && !!accessToken,
+  })
+
+  const structuresQuery = useQuery({
+    queryKey: ["salary-structures"],
+    queryFn: () => listSalaryStructures(accessToken!),
+    enabled: sessionStatus === "authenticated" && !!accessToken,
+  })
+
+  const assignMutation = useMutation({
+    mutationFn: (salaryStructureId: string | null) =>
+      setSalaryStructure(accessToken!, assigning!.id, salaryStructureId),
+    onSuccess: () => {
+      setAssigning(null)
+      setAssignError(null)
+      queryClient.invalidateQueries({ queryKey: ["employees"] })
+    },
+    onError: (err) => {
+      setAssignError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
   })
 
   const createMutation = useMutation({
@@ -146,7 +188,14 @@ export function EmployeesPage() {
   }
 
   const stats = useMemo(() => computeStats(employeesQuery.data ?? []), [employeesQuery.data])
-  const rows = useMemo(() => toRows(employeesQuery.data ?? []), [employeesQuery.data])
+  const rows = useMemo(
+    () =>
+      toRows(employeesQuery.data ?? [], (employee) => {
+        setAssignError(null)
+        setAssigning(employee)
+      }),
+    [employeesQuery.data]
+  )
   const departments: Department[] = departmentsQuery.data ?? []
 
   return (
@@ -183,8 +232,23 @@ export function EmployeesPage() {
           </button>
         </div>
       ) : (
-        <DataTable title="Directory" cols="1.5fr 1fr 0.9fr 0.9fr" headers={["Employee", "Department", "Joined", "Status"]} rows={rows} />
+        <DataTable
+          title="Directory"
+          cols="1.5fr 0.9fr 0.7fr 1fr 0.8fr 0.6fr"
+          headers={["Employee", "Department", "Joined", "Salary structure", "Status", ""]}
+          rows={rows}
+          action={`${employeesQuery.data?.length ?? 0} employees`}
+        />
       )}
+
+      <SalaryStructureDialog
+        employee={assigning}
+        structures={structuresQuery.data ?? []}
+        pending={assignMutation.isPending}
+        error={assignError}
+        onOpenChange={(open) => !open && setAssigning(null)}
+        onSubmit={(salaryStructureId) => assignMutation.mutate(salaryStructureId)}
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

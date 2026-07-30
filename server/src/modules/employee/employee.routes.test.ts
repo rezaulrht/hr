@@ -4,13 +4,14 @@ import request from "supertest"
 vi.mock("./employee.service", () => ({
   createStaffAccount: vi.fn(),
   listEmployees: vi.fn(),
+  setSalaryStructure: vi.fn(),
 }))
 
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import * as employeeService from "./employee.service"
 
-function tokenFor(role: "HR_ADMIN" | "EMPLOYEE") {
+function tokenFor(role: "HR_ADMIN" | "EMPLOYEE" | "FINANCE_OFFICER" | "SUPER_ADMIN") {
   return signAccessToken({ sub: "actor-1", role: role as any, email: "actor@b.com", mustChangePassword: false })
 }
 
@@ -86,11 +87,73 @@ describe("GET /api/employees", () => {
         employmentType: "FULL_TIME",
         employmentStatus: "ACTIVE",
         joiningDate: "2026-07-27T00:00:00.000Z",
+        salaryStructure: null,
       },
     ])
     const res = await request(app).get("/api/employees").set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(1)
     expect(res.body[0].employeeCode).toBe("BS-EMP-00001")
+  })
+})
+
+describe("PATCH /api/employees/:id/salary-structure", () => {
+  const url = "/api/employees/e1/salary-structure"
+
+  it("returns 401 with no Authorization header", async () => {
+    const res = await request(app).patch(url).send({ salaryStructureId: "s1" })
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 403 for an employee", async () => {
+    const res = await request(app)
+      .patch(url)
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+      .send({ salaryStructureId: "s1" })
+    expect(res.status).toBe(403)
+  })
+
+  // Finance authors the structures but does not choose who is on them —
+  // the half of the separation that is easy to lose in a later refactor.
+  it("returns 403 for Finance", async () => {
+    const res = await request(app)
+      .patch(url)
+      .set("Authorization", `Bearer ${tokenFor("FINANCE_OFFICER")}`)
+      .send({ salaryStructureId: "s1" })
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 200 for an HR Admin", async () => {
+    vi.mocked(employeeService.setSalaryStructure).mockResolvedValue({ id: "e1" } as never)
+    const res = await request(app)
+      .patch(url)
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ salaryStructureId: "s1" })
+    expect(res.status).toBe(200)
+    expect(employeeService.setSalaryStructure).toHaveBeenCalledWith("e1", "actor-1", {
+      salaryStructureId: "s1",
+    })
+  })
+
+  it("accepts an explicit null to un-assign", async () => {
+    vi.mocked(employeeService.setSalaryStructure).mockResolvedValue({ id: "e1" } as never)
+    const res = await request(app)
+      .patch(url)
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ salaryStructureId: null })
+    expect(res.status).toBe(200)
+    expect(employeeService.setSalaryStructure).toHaveBeenCalledWith("e1", "actor-1", {
+      salaryStructureId: null,
+    })
+  })
+
+  // An omitted key is not the same as an explicit null, and silently
+  // treating it as one would un-assign a salary by accident.
+  it("returns 400 when salaryStructureId is missing entirely", async () => {
+    const res = await request(app)
+      .patch(url)
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({})
+    expect(res.status).toBe(400)
   })
 })

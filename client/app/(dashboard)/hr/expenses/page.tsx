@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { expenses } from "@/components/dashboard/shared-pages"
+import { ExpensePage } from "@/components/expense/expense-page"
 
-export default function ExpensesPage() {
-  return <SubpagePage data={expenses} />
+export default function Page() {
+  return <ExpensePage />
 }

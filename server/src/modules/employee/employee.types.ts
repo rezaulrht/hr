@@ -26,4 +26,9 @@ export interface EmployeeListItem {
   employmentType: CreateStaffAccountInput["employmentType"]
   employmentStatus: "ACTIVE" | "ON_LEAVE" | "RESIGNED" | "TERMINATED"
   joiningDate: string
+  /**
+   * `null` reads as preflight blocker 3 waiting to happen, so the directory
+   * shows it rather than making HR discover it when a run refuses to process.
+   */
+  salaryStructure: { id: string; name: string; currency: "BDT" | "USD" } | null
 }

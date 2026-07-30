@@ -1,6 +1,13 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { PrismaClient, Role, type HolidayType } from "../src/generated/prisma/client"
+import {
+  PrismaClient,
+  Role,
+  type ComponentCalc,
+  type ComponentKind,
+  type Currency,
+  type HolidayType,
+} from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
 import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
 
@@ -11,7 +18,7 @@ const SEED_PASSWORD = "Demo@12345"
 
 async function seedAdminUser(email: string, role: Role) {
   const passwordHash = await hashPassword(SEED_PASSWORD)
-  await prisma.user.upsert({
+  return prisma.user.upsert({
     where: { email },
     update: {},
     create: { email, passwordHash, role, mustChangePassword: false },
@@ -36,6 +43,7 @@ async function seedStaffAccount(input: {
   designation: string
   departmentName: string
   reportingManagerId?: string
+  salaryStructureId: string
 }) {
   const passwordHash = await hashPassword(SEED_PASSWORD)
   const user = await prisma.user.upsert({
@@ -56,10 +64,16 @@ async function seedStaffAccount(input: {
     update: {
       employeeCode: input.employeeCode,
       reportingManagerId: input.reportingManagerId ?? null,
+      // Kept current on re-seed too. An unassigned structure is payroll
+      // preflight blocker 3, so a demo account without one makes the very
+      // first run unprocessable and reads as a bug rather than as the gate
+      // working.
+      salaryStructureId: input.salaryStructureId,
     },
     create: {
       userId: user.id,
       employeeCode: input.employeeCode,
+      salaryStructureId: input.salaryStructureId,
       fullName: input.fullName,
       designation: input.designation,
       departmentId: department.id,
@@ -119,8 +133,86 @@ const HOLIDAYS_2026 = [
   ["2026-12-25", "Christmas Day", "GENERAL"],
 ] as const satisfies ReadonlyArray<readonly [string, string, HolidayType]>
 
+/**
+ * Two structures, so the multi-currency payroll path is exercisable without
+ * hand data entry. Percent-of-basic house rent is the Bangladeshi norm and is
+ * exactly the case the old `allowances Json` blob could not express.
+ *
+ * `countsAsWages` is false for the deduction lines: §119 leave pay and the
+ * §2(10) gratuity base are built from earnings, and a deduction has no
+ * business in either.
+ */
+const SALARY_STRUCTURES = [
+  {
+    name: "Standard (BDT)",
+    currency: "BDT",
+    basic: 50000,
+    components: [
+      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
+      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 3000, sortOrder: 2, countsAsWages: true },
+      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 2000, sortOrder: 3, countsAsWages: true },
+      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
+      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 2500, sortOrder: 2, countsAsWages: false },
+    ],
+  },
+  {
+    name: "Standard (USD)",
+    currency: "USD",
+    basic: 2000,
+    // FIXED values are in the structure's own currency, so these are dollars.
+    // Entering the BDT figures here would overpay by roughly 122×, which is
+    // the whole reason currency lives on the structure.
+    components: [
+      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
+      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 120, sortOrder: 2, countsAsWages: true },
+      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 80, sortOrder: 3, countsAsWages: true },
+      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
+      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 100, sortOrder: 2, countsAsWages: false },
+    ],
+  },
+] as const satisfies ReadonlyArray<{
+  name: string
+  currency: Currency
+  basic: number
+  components: ReadonlyArray<{
+    code: string
+    label: string
+    kind: ComponentKind
+    calc: ComponentCalc
+    value: number
+    sortOrder: number
+    countsAsWages: boolean
+  }>
+}>
+
+async function seedSalaryStructures() {
+  for (const structure of SALARY_STRUCTURES) {
+    const { components, ...head } = structure
+
+    const saved = await prisma.salaryStructure.upsert({
+      where: { name: head.name },
+      // Filled in, not `{}` — an empty update makes re-seeding silently skip
+      // rows that already exist, so a corrected basic would never take
+      // effect. `currency` is deliberately absent: it is immutable after
+      // creation, because changing it re-denominates every figure at once.
+      update: { basic: head.basic },
+      create: head,
+    })
+
+    for (const component of components) {
+      await prisma.salaryComponent.upsert({
+        // By (structure, code), never by label — renaming a payslip line must
+        // not create a second component alongside the original.
+        where: { salaryStructureId_code: { salaryStructureId: saved.id, code: component.code } },
+        update: component,
+        create: { ...component, salaryStructureId: saved.id },
+      })
+    }
+  }
+}
+
 async function main() {
-  await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
+  const superAdmin = await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
   await seedAdminUser("finance@demo.com", Role.FINANCE_OFFICER)
 
@@ -197,6 +289,39 @@ async function main() {
     })
   }
 
+  await seedSalaryStructures()
+
+  // One demo rate, so the USD path is walkable without data entry. Stored in
+  // the single canonical direction (base USD, quote BDT); the inverse is
+  // derived as 1/rate and never stored, so a round trip cannot lose money.
+  const rate = {
+    base: "USD",
+    quote: "BDT",
+    rate: 122.5,
+    // UTC midnight, and early enough in the year that any 2026 payroll month
+    // resolves it. A missing rate is a hard failure, never a default of 1.0.
+    effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+  } as const
+
+  await prisma.exchangeRate.upsert({
+    where: {
+      base_quote_effectiveFrom: {
+        base: rate.base,
+        quote: rate.quote,
+        effectiveFrom: rate.effectiveFrom,
+      },
+    },
+    // Filled in, so re-seeding a corrected rate actually lands. Editing a
+    // rate row cannot corrupt history: every document freezes the rate value
+    // it used, not a reference to this row.
+    update: { rate: rate.rate },
+    create: { ...rate, createdBy: superAdmin.id },
+  })
+
+  const bdtStructure = await prisma.salaryStructure.findUniqueOrThrow({
+    where: { name: "Standard (BDT)" },
+  })
+
   // The manager must exist first — the employee's reporting line points at it.
   const manager = await seedStaffAccount({
     email: "manager@demo.com",
@@ -205,6 +330,7 @@ async function main() {
     fullName: "Daniel Kim",
     designation: "Engineering Manager",
     departmentName: "Engineering",
+    salaryStructureId: bdtStructure.id,
   })
 
   await seedStaffAccount({
@@ -215,6 +341,7 @@ async function main() {
     designation: "Software Engineer",
     departmentName: "Engineering",
     reportingManagerId: manager.id,
+    salaryStructureId: bdtStructure.id,
   })
 
   console.log("Seed complete. All demo logins use the password: Demo@12345\n")
@@ -225,7 +352,10 @@ async function main() {
   console.log("Staff roles sign in with an EMPLOYEE ID (email is not accepted):")
   console.log("  Reporting Manager:  BS-MNG-DEMO   Daniel Kim")
   console.log("  Employee:           BS-EMP-DEMO   Ayesha Rahman, reports to Daniel Kim\n")
-  console.log("Additional staff accounts are created via POST /api/employees/staff.")
+  console.log("Additional staff accounts are created via POST /api/employees/staff.\n")
+  console.log("Payroll: both staff accounts are on 'Standard (BDT)' (basic 50,000).")
+  console.log("  'Standard (USD)' (basic 2,000) exists to exercise the currency path.")
+  console.log("  Exchange rate: 1 USD = 122.500000 BDT, effective 2026-01-01.")
 }
 
 main()

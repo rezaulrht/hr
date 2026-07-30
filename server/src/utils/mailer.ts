@@ -10,14 +10,21 @@ import { env } from "../config/env"
  * password-reset links and the attendance digests be exercised locally
  * without an SMTP account.
  */
+export interface MailAttachment {
+  filename: string
+  content: Buffer
+}
+
 export async function sendMail(
   to: string,
   subject: string,
   text: string,
-  html: string
+  html: string,
+  attachments?: MailAttachment[]
 ): Promise<void> {
   if (!env.SMTP_HOST) {
-    console.log(`[dev email fallback] To: ${to} | Subject: ${subject}\n${text}`)
+    const note = attachments?.length ? ` (+${attachments.length} attachment)` : ""
+    console.log(`[dev email fallback] To: ${to} | Subject: ${subject}${note}\n${text}`)
     return
   }
 
@@ -33,5 +40,6 @@ export async function sendMail(
     subject,
     text,
     html,
+    attachments,
   })
 }

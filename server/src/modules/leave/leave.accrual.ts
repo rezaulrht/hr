@@ -21,7 +21,7 @@ import { EARNED_LEAVE_DAYS_PER_DAY } from "./leave.policy"
 /** The employee fields the accrual needs — a superset of the day grid's. */
 export type AccrualEmployee = Pick<
   Employee,
-  "id" | "joiningDate" | "employmentStatus" | "shiftId"
+  "id" | "joiningDate" | "employmentStatus" | "shiftId" | "lastWorkingDay"
 >
 
 export interface EarnedAccrual {

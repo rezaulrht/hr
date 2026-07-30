@@ -11,6 +11,11 @@ import prisma from "../../config/prisma"
 import type { Holiday, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { formatDateOnly, parseDateOnly } from "../../utils/dates"
+// A holiday write moves the working-day count, and therefore the payroll
+// denominator, for every employee in that month. Once the month is paid, the
+// guard below is the only thing standing between a calendar edit and a set of
+// payslips that no longer add up.
+import { assertMonthNotLocked } from "../../utils/month-lock"
 import { officeToday } from "./attendance.time"
 import type { HolidayItem } from "./attendance.types"
 import type { HolidayBody, HolidayUpdateBody } from "./attendance.validators"
@@ -33,24 +38,6 @@ const toItem = (holiday: Holiday): HolidayItem => ({
   date: formatDateOnly(holiday.date),
   type: holiday.type,
 })
-
-/**
- * Once `PayrollRun` is real, any write landing in a month with a run at
- * APPROVED or DISBURSED must 409 — the figures have already been paid.
- *
- * Payroll does not exist yet, so this always passes. It is a named function
- * rather than a TODO comment so the payroll phase has an obvious slot to
- * fill instead of a rule to rediscover.
- *
- * The payroll phase must also call this from leave's `approveLeaveRequest`:
- * the leave module permits Sick leave to be backdated 30 days, and approving
- * a backdated sick day retroactively flips it from ABSENT to ON_LEAVE. If
- * that month was already paid, the money is already wrong and nothing
- * currently notices.
- */
-export function assertMonthNotLocked(_date: Date): void {
-  // Intentionally empty until PayrollRun exists.
-}
 
 export async function listHolidays(year?: number): Promise<HolidayItem[]> {
   const target = year ?? officeToday().getUTCFullYear()
@@ -103,7 +90,7 @@ function isUniqueViolation(err: unknown): boolean {
 
 export async function createHoliday(body: HolidayBody): Promise<HolidayWriteResult> {
   const date = parseDateOnly(body.date)
-  assertMonthNotLocked(date)
+  await assertMonthNotLocked(date)
 
   try {
     const holiday = await prisma.holiday.create({
@@ -124,8 +111,10 @@ export async function updateHoliday(
   if (!existing) throw new AppError(404, "Holiday not found")
 
   const nextDate = body.date ? parseDateOnly(body.date) : existing.date
-  assertMonthNotLocked(existing.date)
-  assertMonthNotLocked(nextDate)
+  // Both months: moving a holiday out of a paid month is as damaging as
+  // moving one into it.
+  await assertMonthNotLocked(existing.date)
+  await assertMonthNotLocked(nextDate)
 
   try {
     const holiday = await prisma.holiday.update({
@@ -151,7 +140,7 @@ export async function deleteHoliday(id: string): Promise<{ impact?: ImpactBlock 
   const existing = await prisma.holiday.findUnique({ where: { id } })
   if (!existing) throw new AppError(404, "Holiday not found")
 
-  assertMonthNotLocked(existing.date)
+  await assertMonthNotLocked(existing.date)
   await prisma.holiday.delete({ where: { id } })
 
   // Deleting a WORKING_DAY row is the one delete whose effect is the

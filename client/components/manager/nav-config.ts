@@ -18,7 +18,14 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    // A Reporting Manager is a paid employee who may travel, so they hold a
+    // payslip and expenses of their own. The matrix's ❌ for Manager on
+    // Payroll means "cannot administer payroll", not "has no payslip".
     label: "Account",
-    items: [{ label: "My Profile", href: "/manager/profile", icon: "RiUser3Line" }],
+    items: [
+      { label: "My Profile", href: "/manager/profile", icon: "RiUser3Line" },
+      { label: "Payroll", href: "/manager/payroll", icon: "RiWallet3Line" },
+      { label: "Expenses", href: "/manager/expenses", icon: "RiReceiptLine" },
+    ],
   },
 ]

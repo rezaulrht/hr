@@ -50,6 +50,7 @@ const ROSTER_ROW = {
   joiningDate: parseDateOnly("2024-01-06"),
   employmentStatus: "ACTIVE",
   shiftId: null,
+  lastWorkingDay: null,
 }
 
 const gridEmployee: GridEmployee = {
@@ -57,6 +58,7 @@ const gridEmployee: GridEmployee = {
   joiningDate: parseDateOnly("2024-01-06"),
   employmentStatus: "ACTIVE",
   shiftId: null,
+  lastWorkingDay: null,
 }
 
 function attendanceRow(date: string, overrides: Partial<Attendance> = {}): Attendance {
@@ -143,7 +145,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
-          leaveType: { name: "Annual" },
+          leaveType: { name: "Annual", isPaid: true },
         },
       ],
     })
@@ -152,6 +154,66 @@ describe("the monthly working-day identity", () => {
     // The Friday that was worked sits outside the identity entirely.
     expect(s.workedOnOffDays).toBe(1)
     expect(s.present).toBe(1)
+  })
+
+  // The split payroll's deduction rule needs: lopDays = absent +
+  // onUnpaidLeave. Charging paid leave would be a straightforward
+  // underpayment, and the two are indistinguishable in `onLeave` alone.
+  it("splits onLeave into paid and unpaid, and they sum to the total", () => {
+    const s = august({
+      leaves: [
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-10"),
+          endDate: parseDateOnly("2026-08-11"),
+          leaveType: { name: "Sick", isPaid: true },
+        },
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-12"),
+          endDate: parseDateOnly("2026-08-13"),
+          leaveType: { name: "Leave without pay", isPaid: false },
+        },
+      ],
+    })
+    expect(s.onPaidLeave).toBe(2)
+    expect(s.onUnpaidLeave).toBe(2)
+    expect(s.onPaidLeave + s.onUnpaidLeave).toBe(s.onLeave)
+  })
+
+  it("keeps the four-term identity intact across the split", () => {
+    // The identity payroll's denominator depends on. The split must not
+    // disturb it, which is why onLeave stays the total.
+    const s = august({
+      leaves: [
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-10"),
+          endDate: parseDateOnly("2026-08-11"),
+          leaveType: { name: "Leave without pay", isPaid: false },
+        },
+      ],
+    })
+    expect(s.present + s.absent + s.onLeave + s.notCheckedIn).toBe(s.workingDays)
+  })
+
+  it("counts unpaid leave in neither present nor absent", () => {
+    // Were unpaid leave to fall through to ABSENT, payroll would deduct for
+    // it twice: once as absence and once as unpaid leave.
+    const withUnpaid = august({
+      leaves: [
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-10"),
+          endDate: parseDateOnly("2026-08-11"),
+          leaveType: { name: "Leave without pay", isPaid: false },
+        },
+      ],
+    })
+    const plain = august()
+    expect(withUnpaid.present).toBe(plain.present)
+    expect(withUnpaid.absent).toBe(plain.absent - 2)
+    expect(withUnpaid.onUnpaidLeave).toBe(2)
   })
 
   it("holds with a WORKING_DAY override, which adds a working day", () => {
@@ -367,7 +429,7 @@ describe("daily summary", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-14"),
           endDate: parseDateOnly("2026-08-16"),
-          leaveType: { name: "Annual" },
+          leaveType: { name: "Annual", isPaid: true },
         },
       ] as never)
       .mockResolvedValueOnce([{ employeeId: "emp-1" }] as never)
