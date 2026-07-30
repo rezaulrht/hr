@@ -70,12 +70,7 @@ export async function runApprovalsDigest(): Promise<number> {
       : hrUsers.map((u) => u.email)
 
     const shift = resolveShift(
-      {
-        id: record.employee.id,
-        joiningDate: new Date(0),
-        employmentStatus: "ACTIVE",
-        shiftId: record.employee.shiftId,
-      },
+      { shiftId: record.employee.shiftId },
       record.date,
       shifts
     )

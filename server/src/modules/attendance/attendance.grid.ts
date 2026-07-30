@@ -67,7 +67,14 @@ function windowSpan(shift: Shift): number {
  * upgrade path if departments ever diverge; it would be dead weight for one
  * shortened month a year.
  */
-export function resolveShift(employee: GridEmployee, date: Date, shifts: Shift[]): Shift {
+export function resolveShift(
+  // Only `shiftId` is read. Narrow on purpose: three call sites resolve a
+  // shift for a bare Attendance row and would otherwise have to invent a
+  // joiningDate and an employmentStatus that no rule here consults.
+  employee: Pick<GridEmployee, "shiftId">,
+  date: Date,
+  shifts: Shift[]
+): Shift {
   let narrowest: Shift | undefined
   for (const shift of shifts) {
     if (!shift.effectiveFrom || !shift.effectiveTo) continue
@@ -105,7 +112,10 @@ interface GridSources {
     employeeId: string
     startDate: Date
     endDate: Date
-    leaveType: { name: string }
+    // `isPaid` rides along because payroll deducts for unpaid leave and must
+    // not deduct for paid leave, and the grid is the only place that knows
+    // which leave covered which day.
+    leaveType: { name: string; isPaid: boolean }
   }>
   holidays: Holiday[]
   shifts: Shift[]
@@ -142,7 +152,7 @@ export async function loadGridSources(
         employeeId: true,
         startDate: true,
         endDate: true,
-        leaveType: { select: { name: true } },
+        leaveType: { select: { name: true, isPaid: true } },
       },
     }),
     prisma.holiday.findMany({ where: { date: { gte: from, lte: to } } }),
@@ -176,13 +186,25 @@ function indexHolidays(holidays: Holiday[]): Map<string, DateHolidays> {
   return byDate
 }
 
-function indexLeaves(leaves: GridSources["leaves"], from: Date, to: Date): Map<string, string> {
-  const byKey = new Map<string, string>()
+interface LeaveOnDay {
+  name: string
+  isPaid: boolean
+}
+
+function indexLeaves(
+  leaves: GridSources["leaves"],
+  from: Date,
+  to: Date
+): Map<string, LeaveOnDay> {
+  const byKey = new Map<string, LeaveOnDay>()
   for (const leave of leaves) {
     const start = leave.startDate < from ? from : leave.startDate
     const end = leave.endDate > to ? to : leave.endDate
     for (const date of eachDate(start, end)) {
-      byKey.set(key(leave.employeeId, date), leave.leaveType.name)
+      byKey.set(key(leave.employeeId, date), {
+        name: leave.leaveType.name,
+        isPaid: leave.leaveType.isPaid,
+      })
     }
   }
   return byKey
@@ -213,17 +235,22 @@ export function resolveGrid(
 
   for (const employee of employees) {
     const joined = formatDateOnly(employee.joiningDate)
-    // Employee has no exit date in the schema, only employmentStatus — so
-    // the best available guard is to stop tracking someone who has left
-    // from today forward, rather than accruing absences for them forever.
     const hasLeft =
       employee.employmentStatus === "RESIGNED" || employee.employmentStatus === "TERMINATED"
+    // lastWorkingDay is authoritative when set. Falling back to `today` is
+    // the old behaviour, kept for a leaver whose exit date was never recorded
+    // — it must not start reporting absences retroactively for them.
+    //
+    // Not cosmetic: settlement's pendingSalary reads this same grid, so
+    // without the clip a leaver's final month would be computed over days
+    // marked NOT_TRACKED that they actually worked.
+    const exitBoundary = formatDateOnly(employee.lastWorkingDay ?? officeToday())
 
     const days: AttendanceDay[] = dates.map((date) => {
       const shift = resolveShift(employee, parseDateOnly(date), sources.shifts)
       const info = shiftInfo(shift)
       const row = attendanceByKey.get(key(employee.id, date))
-      const leaveName = leaveByKey.get(key(employee.id, date))
+      const leave = leaveByKey.get(key(employee.id, date))
       const holidayEntry = holidaysByDate.get(date)
 
       const isHoliday = (holidayEntry?.offNames.length ?? 0) > 0
@@ -233,10 +260,12 @@ export function resolveGrid(
       const isOffDay = isHoliday || isWeeklyOff
 
       const beforeTracking = date < floor || date < joined
-      // `>=`, not `>`: somebody already flagged as left should not appear on
-      // today's board as "not checked in yet" either. Past days still derive
-      // normally, since they were employed then.
-      const afterLeaving = hasLeft && date >= today
+      // With an exit date: tracked up to and *including* it, since the last
+      // working day is worked. Without one: `>= today`, the old rule, where
+      // somebody already flagged as left does not appear on today's board as
+      // "not checked in yet" either.
+      const afterLeaving =
+        hasLeft && (employee.lastWorkingDay ? date > exitBoundary : date >= exitBoundary)
 
       // Precedence, first match wins. Each position is load-bearing:
       // a check-in beats a holiday because physical facts beat records,
@@ -250,9 +279,9 @@ export function resolveGrid(
       } else if (row && row.approval !== "REJECTED") {
         status = "PRESENT"
         detail = isHoliday ? (holidayEntry?.offNames.join(" · ") ?? null) : null
-      } else if (leaveName) {
+      } else if (leave) {
         status = "ON_LEAVE"
-        detail = leaveName
+        detail = leave.name
       } else if (isHoliday) {
         status = "HOLIDAY"
         detail = holidayEntry?.offNames.join(" · ") ?? null
@@ -285,6 +314,10 @@ export function resolveGrid(
         approval: row?.approval ?? null,
         source: row?.source ?? null,
         detail,
+        // Only meaningful on an ON_LEAVE day. A day someone checked in on
+        // while leave was approved is PRESENT, not leave, so it must not
+        // report a paid-leave flag payroll would then act on.
+        leaveIsPaid: status === "ON_LEAVE" ? (leave?.isPaid ?? null) : null,
         regularised: row?.regularisedAt != null,
         corrected: row?.correctedAt != null,
         attendanceId: row?.id ?? null,

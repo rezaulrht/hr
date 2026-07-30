@@ -31,6 +31,8 @@ const ROSTER_SELECT = {
   joiningDate: true,
   employmentStatus: true,
   shiftId: true,
+  // The grid clips a leaver here rather than at today.
+  lastWorkingDay: true,
 } as const
 
 type RosterEmployee = Pick<Employee, keyof typeof ROSTER_SELECT>
@@ -47,6 +49,7 @@ const toGridEmployee = (e: RosterEmployee): GridEmployee => ({
   joiningDate: e.joiningDate,
   employmentStatus: e.employmentStatus,
   shiftId: e.shiftId,
+  lastWorkingDay: e.lastWorkingDay,
 })
 
 /**
@@ -199,6 +202,8 @@ export function summariseDays(
     present: 0,
     absent: 0,
     onLeave: 0,
+    onPaidLeave: 0,
+    onUnpaidLeave: 0,
     notCheckedIn: 0,
     late: 0,
     earlyOut: 0,
@@ -230,7 +235,16 @@ export function summariseDays(
           summary.absent++
           break
         case "ON_LEAVE":
+          // `onLeave` stays the total, so the four-term identity
+          // present + absent + onLeave + notCheckedIn === workingDays
+          // — the identity payroll's denominator depends on — is untouched
+          // by the split.
           summary.onLeave++
+          // An unknown flag counts as paid: a null here means the grid could
+          // not say, and deducting on an unknown would take money off
+          // somebody on the strength of missing data.
+          if (day.leaveIsPaid === false) summary.onUnpaidLeave++
+          else summary.onPaidLeave++
           break
         case "NOT_CHECKED_IN":
           summary.notCheckedIn++

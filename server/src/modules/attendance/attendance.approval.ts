@@ -128,11 +128,7 @@ async function toApprovalItem(
   leaveIds: Set<string>,
   holidayDates: Map<string, { isHoliday: boolean; override: boolean }>
 ): Promise<ApprovalItem> {
-  const shift = resolveShift(
-    { id: record.employee.id, joiningDate: new Date(0), employmentStatus: "ACTIVE", shiftId: record.employee.shiftId },
-    record.date,
-    shifts
-  )
+  const shift = resolveShift({ shiftId: record.employee.shiftId }, record.date, shifts)
   const dateKey = formatDateOnly(record.date)
   const holiday = holidayDates.get(dateKey)
   const isWeeklyOff = shift.weeklyOffDays.includes(record.date.getUTCDay()) && !holiday?.override

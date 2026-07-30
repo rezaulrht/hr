@@ -53,6 +53,7 @@ function employee(overrides: Partial<GridEmployee> = {}): GridEmployee {
     joiningDate: parseDateOnly("2024-01-06"),
     employmentStatus: "ACTIVE",
     shiftId: null,
+    lastWorkingDay: null,
     ...overrides,
   }
 }
@@ -180,7 +181,7 @@ describe("status precedence", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-03"),
           endDate: parseDateOnly("2026-08-04"),
-          leaveType: { name: "Sick" },
+          leaveType: { name: "Sick", isPaid: true },
         },
       ],
     }).get("emp-1")!
@@ -226,7 +227,7 @@ describe("precedence inversions", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-06"),
           endDate: parseDateOnly("2026-08-08"),
-          leaveType: { name: "Annual" },
+          leaveType: { name: "Annual", isPaid: true },
         },
       ],
     }).get("emp-1")!
@@ -292,13 +293,91 @@ describe("tracking window", () => {
     expect(dayOn(days, "2026-08-10").status).toBe("ABSENT")
   })
 
-  it("stops tracking someone who has left, from today forward", () => {
-    // Employee carries no exit date in the schema, only employmentStatus,
-    // so this is the best available guard against accruing absences
-    // forever for somebody who has gone.
+  it("stops tracking a leaver with no exit date from today forward", () => {
+    // The regression guard for the fallback path. A leaver whose exit date
+    // was never recorded must behave exactly as before — in particular it
+    // must not start reporting absences retroactively for them.
     const days = grid({}, employee({ employmentStatus: "RESIGNED" })).get("emp-1")!
     expect(dayOn(days, "2026-08-03").status).toBe("ABSENT")
     expect(dayOn(days, "2026-08-15").status).toBe("NOT_TRACKED")
+  })
+
+  it("clips a leaver at lastWorkingDay, inclusive", () => {
+    // Not cosmetic: settlement's pendingSalary reads this same grid, so
+    // without the clip a leaver's final month would be computed over days
+    // marked NOT_TRACKED that they actually worked.
+    const days = grid(
+      {},
+      employee({
+        employmentStatus: "RESIGNED",
+        lastWorkingDay: parseDateOnly("2026-08-10"),
+      })
+    ).get("emp-1")!
+    // The last working day is worked, so it stays tracked.
+    expect(dayOn(days, "2026-08-10").status).toBe("ABSENT")
+    expect(dayOn(days, "2026-08-11").status).toBe("NOT_TRACKED")
+    expect(dayOn(days, "2026-08-13").status).toBe("NOT_TRACKED")
+  })
+
+  it("tracks a leaver's days before the exit date that today would have hidden", () => {
+    // With the old `>= today` rule an exit date in the future was invisible;
+    // now days between the exit date and today derive normally either way.
+    const days = grid(
+      {},
+      employee({
+        employmentStatus: "TERMINATED",
+        lastWorkingDay: parseDateOnly("2026-08-12"),
+      })
+    ).get("emp-1")!
+    expect(dayOn(days, "2026-08-12").status).toBe("ABSENT")
+    expect(dayOn(days, "2026-08-13").status).toBe("NOT_TRACKED")
+  })
+
+  it("ignores a stray lastWorkingDay on an ACTIVE employee, because hasLeft gates it", () => {
+    const days = grid({}, employee({ lastWorkingDay: parseDateOnly("2026-08-05") })).get("emp-1")!
+    expect(dayOn(days, "2026-08-06").status).toBe("ABSENT")
+    expect(dayOn(days, "2026-08-10").status).toBe("ABSENT")
+  })
+})
+
+describe("leaveIsPaid on the day grid", () => {
+  it("carries the leave type's isPaid onto an ON_LEAVE day", () => {
+    const days = grid({
+      leaves: [
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-03"),
+          endDate: parseDateOnly("2026-08-03"),
+          leaveType: { name: "Leave without pay", isPaid: false },
+        },
+      ],
+    }).get("emp-1")!
+    expect(dayOn(days, "2026-08-03")).toMatchObject({
+      status: "ON_LEAVE",
+      leaveIsPaid: false,
+    })
+  })
+
+  it("is null on a day that is not leave", () => {
+    const days = grid({}).get("emp-1")!
+    expect(dayOn(days, "2026-08-03").leaveIsPaid).toBeNull()
+  })
+
+  it("is null when a check-in beat the leave, because that day is PRESENT not leave", () => {
+    // Otherwise payroll would see a paid-leave flag on a day it is already
+    // counting as present.
+    const days = grid({
+      attendances: [attendanceRow("2026-08-03")],
+      leaves: [
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-03"),
+          endDate: parseDateOnly("2026-08-03"),
+          leaveType: { name: "Sick", isPaid: true },
+        },
+      ],
+    }).get("emp-1")!
+    expect(dayOn(days, "2026-08-03")).toMatchObject({ status: "PRESENT", leaveIsPaid: null })
   })
 })
 

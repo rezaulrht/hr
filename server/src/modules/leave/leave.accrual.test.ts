@@ -22,6 +22,7 @@ const employee = {
   joiningDate: parseDateOnly("2020-01-01"),
   employmentStatus: "ACTIVE" as const,
   shiftId: null,
+  lastWorkingDay: null,
 }
 
 /** Minimal day-grid entries — only `status` and `date` are read here. */

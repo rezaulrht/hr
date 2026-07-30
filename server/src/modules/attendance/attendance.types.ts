@@ -72,6 +72,12 @@ export interface AttendanceDay {
   source: AttendanceSource | null
   /** Leave type or holiday name, so a status can explain itself. */
   detail: string | null
+  /**
+   * Whether the leave covering this day is paid. Null when the day is not
+   * ON_LEAVE. Carried on the day rather than re-looked-up in the summary,
+   * because the grid is the only place that knows which leave applied.
+   */
+  leaveIsPaid: boolean | null
   regularised: boolean
   corrected: boolean
   attendanceId: string | null
@@ -83,6 +89,13 @@ export interface GridEmployee {
   joiningDate: Date
   employmentStatus: EmploymentStatus
   shiftId: string | null
+  /**
+   * Authoritative exit date when set. The grid clips a leaver here rather
+   * than at today — settlement's pendingSalary reads this same grid, so a
+   * leaver's final month would otherwise be computed over days marked
+   * NOT_TRACKED that they actually worked.
+   */
+  lastWorkingDay: Date | null
 }
 
 export interface EmployeeRef {
@@ -227,7 +240,16 @@ export interface MonthlyAttendanceSummary {
   workingDays: number
   present: number
   absent: number
+  /** The total, so the four-term working-day identity still holds. */
   onLeave: number
+  /**
+   * `onLeave` split by whether the leave type is paid. Payroll's deduction
+   * rule needs exactly this distinction — `lopDays = absent + onUnpaidLeave`
+   * — and charging paid leave would be a straightforward underpayment.
+   */
+  onPaidLeave: number
+  /** The only leave that costs the employee money. */
+  onUnpaidLeave: number
   /** Working days that have not happened yet (today or later). */
   notCheckedIn: number
   late: number

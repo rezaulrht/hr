@@ -236,6 +236,7 @@ describe("what a holiday write actually does to the grid", () => {
     joiningDate: parseDateOnly("2024-01-06"),
     employmentStatus: "ACTIVE" as const,
     shiftId: null,
+    lastWorkingDay: null,
   }
   const from = parseDateOnly("2026-08-03")
   const to = parseDateOnly("2026-08-07")

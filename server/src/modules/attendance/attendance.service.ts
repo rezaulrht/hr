@@ -13,6 +13,7 @@ export const GRID_EMPLOYEE_SELECT = {
   joiningDate: true,
   employmentStatus: true,
   shiftId: true,
+  lastWorkingDay: true,
 } as const
 
 export async function requireEmployeeForUser(userId: string): Promise<Employee> {
@@ -29,6 +30,7 @@ function toGridEmployee(employee: Pick<Employee, keyof typeof GRID_EMPLOYEE_SELE
     joiningDate: employee.joiningDate,
     employmentStatus: employee.employmentStatus,
     shiftId: employee.shiftId,
+    lastWorkingDay: employee.lastWorkingDay,
   }
 }
 
