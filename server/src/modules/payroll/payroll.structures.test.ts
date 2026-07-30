@@ -65,10 +65,24 @@ describe("salaryStructureBody validation", () => {
     ).toThrow()
   })
 
-  it("400s a structure with only deductions", () => {
+  // The ordinary private-sector case: one negotiated monthly figure, no
+  // allowance split. Previously rejected for having no EARNING component,
+  // which forbade the simplest valid structure there is.
+  it("accepts a structure with no components at all", () => {
+    const parsed = salaryStructureBody.parse({ ...bdtStructure, components: [] })
+    expect(parsed.components).toEqual([])
+    expect(parsed.basic).toBe(50000)
+  })
+
+  it("defaults components to an empty array when the key is absent", () => {
+    const { components: _omitted, ...withoutComponents } = bdtStructure
+    expect(salaryStructureBody.parse(withoutComponents).components).toEqual([])
+  })
+
+  it("accepts a structure with only deductions — salary less tax is a real band", () => {
     expect(() =>
       salaryStructureBody.parse({ ...bdtStructure, components: [bdtStructure.components[1]] })
-    ).toThrow(/EARNING/)
+    ).not.toThrow()
   })
 
   it("accepts a well-formed structure", () => {

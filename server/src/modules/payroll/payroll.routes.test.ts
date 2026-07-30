@@ -123,7 +123,8 @@ describe("POST /api/payroll/salary-structures", () => {
     expect(res.status).toBe(201)
   })
 
-  it("400s a structure with only deductions", async () => {
+  it("201s a structure with only deductions", async () => {
+    vi.mocked(service.createSalaryStructure).mockResolvedValue({ id: "struct-1" } as never)
     const res = await request(app)
       .post("/api/payroll/salary-structures")
       .set("Authorization", auth("FINANCE_OFFICER"))
@@ -131,6 +132,22 @@ describe("POST /api/payroll/salary-structures", () => {
         ...validStructure,
         components: [{ code: "TAX", label: "Tax", kind: "DEDUCTION", calc: "FIXED", value: 100 }],
       })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(201)
+  })
+
+  // A flat negotiated monthly salary, which is how private-sector pay in
+  // Bangladesh is normally agreed. This is the common case, not an edge one.
+  it("201s a structure with no components, and passes an empty array through", async () => {
+    vi.mocked(service.createSalaryStructure).mockResolvedValue({ id: "struct-1" } as never)
+    const { components: _omitted, ...flat } = validStructure
+    const res = await request(app)
+      .post("/api/payroll/salary-structures")
+      .set("Authorization", auth("FINANCE_OFFICER"))
+      .send(flat)
+    expect(res.status).toBe(201)
+    expect(service.createSalaryStructure).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ components: [] })
+    )
   })
 })

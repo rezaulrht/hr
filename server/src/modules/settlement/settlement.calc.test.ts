@@ -65,6 +65,13 @@ describe("wagesBase", () => {
     const base = wagesBase(dec(50000), components)
     expect(base.toFixed(2)).not.toBe("73000.00")
   })
+
+  // A flat structure has nothing to sum, so the negotiated monthly figure is
+  // itself the base. Pinned because a settlement is the one place a
+  // component-less structure could silently have produced zero.
+  it("is the salary itself when the structure has no components", () => {
+    expect(wagesBase(dec(50000), []).toFixed(2)).toBe("50000.00")
+  })
 })
 
 describe("computeGratuity — the 30/45-day boundary", () => {

@@ -287,3 +287,40 @@ describe("the breakdown document", () => {
     })
   })
 })
+
+// The private-sector Bangladeshi norm: one negotiated monthly figure with no
+// allowance split at all. The engine never needed a change for this — gross
+// is basic plus zero earnings — but nothing pinned it, and a structure with
+// no components was rejected by the validator until it was allowed.
+describe("a flat monthly salary, with no components", () => {
+  const flat = () => computePayslip(input({ components: [] }))
+
+  it("pays exactly the negotiated figure", () => {
+    const result = flat()
+    expect(result.grossFull.toFixed(2)).toBe("50000.00")
+    expect(result.grossPay.toFixed(2)).toBe("50000.00")
+    expect(result.totalDeductions.toFixed(2)).toBe("0.00")
+    expect(result.netPay.toFixed(2)).toBe("50000.00")
+  })
+
+  it("shows a single Basic line and no deduction lines", () => {
+    const result = flat()
+    expect(result.breakdown.earnings.map((l) => l.code)).toEqual(["BASIC"])
+    expect(result.breakdown.deductions).toEqual([])
+  })
+
+  it("still pro-rates for unpaid absence", () => {
+    // 3 of 31 days unpaid → 50,000 × 28/31.
+    const result = computePayslip(input({ components: [], absent: 3 }))
+    expect(result.grossPay.toFixed(2)).toBe("45161.29")
+    expect(result.netPay.toFixed(2)).toBe("45161.29")
+    // And the loss is stated as its own line, so the document reconciles.
+    expect(result.breakdown.earnings.map((l) => l.code)).toEqual(["BASIC", "LOP_ADJUSTMENT"])
+  })
+
+  it("still carries reimbursements outside gross", () => {
+    const result = computePayslip(input({ components: [], reimbursements: [claim("2500")] }))
+    expect(result.grossPay.toFixed(2)).toBe("50000.00")
+    expect(result.netPayable.toFixed(2)).toBe("52500.00")
+  })
+})

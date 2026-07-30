@@ -52,13 +52,21 @@ const BLANK_COMPONENT: DraftComponent = {
   value: "",
 }
 
+/**
+ * A new structure starts flat: a name and a monthly salary, nothing else.
+ *
+ * That is how private-sector pay in Bangladesh is normally agreed — one
+ * negotiated figure. Allowances and deductions exist for the workplaces that
+ * split pay, but they are opt-in and start closed, so the common case is two
+ * fields rather than a table.
+ */
 const BLANK_DRAFT: Draft = {
   id: null,
   name: "",
   currency: "BDT",
   basic: "",
   isActive: true,
-  components: [{ ...BLANK_COMPONENT }],
+  components: [],
 }
 
 function toDraft(structure: SalaryStructure): Draft {
@@ -134,8 +142,11 @@ function StructureCard({
             {structure.isActive ? null : <Tag label="Inactive" tone="neutral" />}
           </div>
           <div className="mt-1 text-[12.5px] text-[#7A8698]">
-            Basic {formatMoney(structure.basic, structure.currency)} · {earnings} earning
-            {earnings === 1 ? "" : "s"}, {deductions} deduction{deductions === 1 ? "" : "s"}
+            {structure.components.length === 0
+              ? `${formatMoney(structure.basic, structure.currency)} per month`
+              : `Basic ${formatMoney(structure.basic, structure.currency)} · ${earnings} earning${
+                  earnings === 1 ? "" : "s"
+                }, ${deductions} deduction${deductions === 1 ? "" : "s"}`}
           </div>
         </div>
         <button className="text-[12.5px] font-semibold underline" onClick={onEdit}>
@@ -143,7 +154,13 @@ function StructureCard({
         </button>
       </div>
 
-      <div className="mt-3 space-y-0.5 border-t border-[#EEF1F5] pt-3">
+      <div
+        className={
+          structure.components.length === 0
+            ? "hidden"
+            : "mt-3 space-y-0.5 border-t border-[#EEF1F5] pt-3"
+        }
+      >
         {structure.components.map((c) => (
           <div key={c.id} className="flex justify-between text-[12.5px]">
             <span className={c.kind === "DEDUCTION" ? "text-[#B03A3A]" : ""}>
@@ -276,7 +293,9 @@ export function SalaryStructuresPage() {
               </div>
               <div>
                 <Label htmlFor="s-basic" className="mb-1.5 text-xs font-bold">
-                  Basic
+                  {/* "Basic" only means something once pay is split. With no
+                      components it is simply the salary. */}
+                  {draft.components.length > 0 ? "Basic" : "Monthly salary"}
                 </Label>
                 <Input
                   id="s-basic"
@@ -299,15 +318,25 @@ export function SalaryStructuresPage() {
             </label>
 
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-[13px] font-semibold">Components</div>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[13px] font-semibold">
+                    Allowances and deductions{" "}
+                    <span className="font-normal text-[#A5AFBE]">· optional</span>
+                  </div>
+                  {draft.components.length === 0 ? (
+                    <div className="mt-0.5 text-[11.5px] text-[#7A8698]">
+                      Leave this empty for a flat monthly salary — the usual case.
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   className="text-[12.5px] font-semibold underline"
                   onClick={() =>
                     patch({ components: [...draft.components, { ...BLANK_COMPONENT }] })
                   }
                 >
-                  Add component
+                  {draft.components.length === 0 ? "Split this salary" : "Add another"}
                 </button>
               </div>
 
@@ -348,9 +377,10 @@ export function SalaryStructuresPage() {
                       onChange={(e) => patchComponent(i, { value: e.target.value })}
                       placeholder={c.calc === "PERCENT_OF_BASIC" ? "%" : "Amount"}
                     />
+                    {/* Removing the last one is allowed — that is how a split
+                        salary goes back to being a flat one. */}
                     <button
-                      className="text-[12.5px] font-semibold text-[#B03A3A] disabled:text-[#C9D0DA]"
-                      disabled={draft.components.length === 1}
+                      className="text-[12.5px] font-semibold text-[#B03A3A]"
                       onClick={() =>
                         patch({ components: draft.components.filter((_, j) => j !== i) })
                       }
@@ -365,7 +395,14 @@ export function SalaryStructuresPage() {
             {/* Catches a percentage typed as 50 instead of 5 before it
                 reaches a payslip, where preflight would only call it a
                 negative net pay. */}
-            {preview ? (
+            {preview && draft.components.length === 0 ? (
+              <div className="rounded-md bg-[#F5F7FA] px-4 py-3 text-[12.5px]">
+                <span className="text-[#7A8698]">Take-home at a full month: </span>
+                <span className="font-semibold">
+                  {formatMoney(preview.gross.toFixed(2), draft.currency)}
+                </span>
+              </div>
+            ) : preview ? (
               <div className="flex flex-wrap gap-6 rounded-md bg-[#F5F7FA] px-4 py-3 text-[12.5px]">
                 <div>
                   <span className="text-[#7A8698]">Gross at a full month: </span>

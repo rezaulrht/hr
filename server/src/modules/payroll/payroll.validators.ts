@@ -27,11 +27,20 @@ export const salaryStructureBody = z
     currency: z.enum(["BDT", "USD"]),
     basic: z.coerce.number().positive("basic must be greater than 0"),
     isActive: z.coerce.boolean().default(true),
-    components: z.array(componentBody).min(1, "A structure needs at least one component"),
-  })
-  .refine((s) => s.components.some((c) => c.kind === "EARNING"), {
-    message: "A structure needs at least one EARNING component",
-    path: ["components"],
+    /**
+     * Optional, and empty is the ordinary case.
+     *
+     * A private-sector salary in Bangladesh is normally one negotiated
+     * monthly figure: Finance defines the bands, HR puts people on them, and
+     * nothing is split into allowances. A structure with no components pays
+     * `basic` and is a complete, valid structure — `computePayslip` already
+     * treats gross as basic plus zero earnings, so this needed no change to
+     * the engine, only the removal of a rule that forbade the simple case.
+     *
+     * Components remain for the workplaces that do split pay; they are an
+     * opt-in, not a tax every structure has to pay.
+     */
+    components: z.array(componentBody).default([]),
   })
   .refine((s) => new Set(s.components.map((c) => c.code)).size === s.components.length, {
     message: "Component codes must be unique within a structure",

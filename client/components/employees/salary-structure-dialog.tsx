@@ -81,7 +81,7 @@ export function SalaryStructureDialog({
           {chosen ? (
             <div className="rounded-md border border-[#E4E9EF] bg-[#F8FAFC] px-4 py-3">
               <div className="text-[11.5px] font-bold tracking-wide text-[#7A8698] uppercase">
-                Basic
+                {chosen.components.length === 0 ? "Monthly salary" : "Basic"}
               </div>
               <div className="font-heading text-[17px] font-bold">
                 {formatMoney(chosen.basic, chosen.currency)}
