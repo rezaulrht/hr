@@ -5,6 +5,8 @@ import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
 import {
   approveRunHandler,
+  bankFileHandler,
+  bankFileSummaryHandler,
   createRateHandler,
   createAdjustmentHandler,
   createRunHandler,
@@ -65,7 +67,17 @@ router.post("/runs/:id/approve", requireAuth, requireRole(Role.SUPER_ADMIN), app
 router.post("/runs/:id/reject", requireAuth, requireRole(Role.SUPER_ADMIN), rejectRunHandler)
 router.post("/runs/:id/disburse", requireAuth, requireRole(...FINANCE_ROLES), disburseRunHandler)
 
-// `/payslips/me` is a separate path rather than a "me" sentinel in a slot
+// GET, not POST: a pure read producing a file, with no side effects. POST
+// would misrepresent it and break re-downloading.
+router.get("/runs/:id/bank-file", requireAuth, requireRole(...FINANCE_ROLES), bankFileHandler)
+router.get(
+  "/runs/:id/bank-file/summary",
+  requireAuth,
+  requireRole(...FINANCE_ROLES),
+  bankFileSummaryHandler
+)
+
+//  is a separate path rather than a "me" sentinel in a slot
 // that otherwise holds a UUID — the same choice as /api/leave/balances/me
 // and /api/attendance/me. It must be registered before /payslips/:id, or
 // Express would match "me" as an id.
