@@ -76,3 +76,24 @@ export const toBdt = (amount: Money, rateBdtPerUnit: Money): Money => amount.tim
 
 export const fromBdt = (amount: Money, rateBdtPerUnit: Money): Money =>
   amount.dividedBy(rateBdtPerUnit)
+
+/**
+ * One reporting-currency total, ready to store in a `*Bdt` column.
+ *
+ * **Every `*Bdt` total is converted from its own native figure — never derived
+ * by arithmetic on the other BDT columns.** The design spec states the rule
+ * ("the BDT column is a conversion of the total, not a sum of converted
+ * lines") and pins it as an invariant: `netPayBdt === round2(netPay × rate)`,
+ * and likewise for the other three.
+ *
+ * The consequence to know before "fixing" it: because each total rounds
+ * independently, `grossPayBdt − totalDeductionsBdt` can differ from
+ * `netPayBdt` by 0.01. That is reachable at the ordinary 122.5 rate, not just
+ * at exotic ones — roughly one two-decimal gross/deduction pair in five.
+ *
+ * Deriving `netPayBdt` by subtraction would make that one column add up and
+ * break the invariant for every other figure on the payslip, including the one
+ * the bank file pays from. Convert each total; do not reconcile them.
+ */
+export const bdtTotal = (native: Money, rateBdtPerUnit: Money): Money =>
+  round2(toBdt(native, rateBdtPerUnit))

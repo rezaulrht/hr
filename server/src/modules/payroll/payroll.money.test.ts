@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  bdtTotal,
   dec,
   fromBdt,
   ONE,
@@ -128,6 +129,41 @@ describe("currency conversion", () => {
     // Rounding here would break the round trip above for a stored-inverse
     // rate, which is the concrete failure the single-direction rule prevents.
     expect(toBdt(dec("0.01"), dec("122.456789")).toFixed(6)).toBe("1.224568")
+  })
+})
+
+describe("bdtTotal", () => {
+  it("reproduces the spec's USD worked example, all four totals", () => {
+    // If these drift, the spec and the code disagree and one of them is wrong.
+    const rate = dec("122.5")
+    expect(bdtTotal(dec("3060.00"), rate).toFixed(2)).toBe("374850.00")
+    expect(bdtTotal(dec("150.00"), rate).toFixed(2)).toBe("18375.00")
+    expect(bdtTotal(dec("2910.00"), rate).toFixed(2)).toBe("356475.00")
+    expect(bdtTotal(dec("2935.10"), rate).toFixed(2)).toBe("359549.75")
+  })
+
+  it("is the identity at rate 1, so a BDT payslip needs no branch", () => {
+    expect(bdtTotal(dec("64758.06"), ONE).toFixed(2)).toBe("64758.06")
+  })
+
+  it("converts each total independently rather than reconciling them", () => {
+    // The documented consequence, asserted so nobody "fixes" it by deriving
+    // netPayBdt as grossPayBdt − totalDeductionsBdt. Doing that would satisfy
+    // this one column and break netPayBdt === round2(netPay × rate) — the
+    // invariant the bank file pays from.
+    const rate = dec("122.5")
+    const gross = dec("0.02")
+    const deductions = dec("0.01")
+    const net = gross.minus(deductions)
+
+    const derived = bdtTotal(gross, rate).minus(bdtTotal(deductions, rate))
+    const converted = bdtTotal(net, rate)
+
+    expect(derived.toFixed(2)).toBe("1.22")
+    expect(converted.toFixed(2)).toBe("1.23")
+    // Independent rounding, so they differ by a paisa — and `converted` is the
+    // one that goes in the column.
+    expect(converted.minus(derived).toFixed(2)).toBe("0.01")
   })
 })
 
