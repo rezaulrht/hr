@@ -73,7 +73,6 @@ export function PayrollPage() {
           kicker="Workspace"
           title="Payroll"
           sub="Your payslips, earnings and deductions"
-          cta=""
         />
         <MyPayslips />
       </>
@@ -83,7 +82,7 @@ export function PayrollPage() {
   if (!isAdmin) {
     return (
       <>
-        <PageHeader kicker="Workspace" title="Payroll" sub="Payslips and runs" cta="" />
+        <PageHeader kicker="Workspace" title="Payroll" sub="Payslips and runs" />
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
           You do not have access to payroll.
         </div>
@@ -94,7 +93,7 @@ export function PayrollPage() {
   if (selectedRunId) {
     return (
       <>
-        <PageHeader kicker="Workspace" title="Payroll" sub="Run detail" cta="" />
+        <PageHeader kicker="Workspace" title="Payroll" sub="Run detail" />
         <RunDetail runId={selectedRunId} onBack={() => setSelectedRunId(null)} />
       </>
     )
@@ -124,7 +123,6 @@ export function PayrollPage() {
         kicker="Workspace"
         title="Payroll"
         sub="Monthly runs, payslips and adjustments"
-        cta=""
       />
 
       {error ? (

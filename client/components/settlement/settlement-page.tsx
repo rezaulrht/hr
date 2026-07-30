@@ -111,7 +111,7 @@ export function SettlementPage() {
   if (!isAdmin) {
     return (
       <>
-        <PageHeader kicker="Workspace" title="Settlements" sub="Full and final" cta="" />
+        <PageHeader kicker="Workspace" title="Settlements" sub="Full and final" />
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
           You do not have access to settlements.
         </div>
@@ -145,7 +145,6 @@ export function SettlementPage() {
         kicker="Workspace"
         title="Settlements"
         sub="Full and final settlements for leavers"
-        cta=""
       />
 
       {error ? (

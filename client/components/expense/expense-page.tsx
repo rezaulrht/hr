@@ -152,7 +152,6 @@ export function ExpensePage() {
         kicker="Workspace"
         title="Expenses"
         sub="Claims, approvals and reimbursements"
-        cta=""
       />
 
       {error ? (
