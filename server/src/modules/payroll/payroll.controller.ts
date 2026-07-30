@@ -6,6 +6,9 @@ import {
   createRun,
   createSalaryStructure,
   disburseRun,
+  getEmployeePayslips,
+  getMyPayslips,
+  getPayslip,
   getRun,
   getRunPreflight,
   listExchangeRates,
@@ -153,6 +156,34 @@ export async function rejectRunHandler(req: RequestWithId, res: Response, next: 
 export async function disburseRunHandler(req: RequestWithId, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await disburseRun(req.params.id, req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getMyPayslipsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getMyPayslips(req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getEmployeePayslipsHandler(
+  req: Request<{ employeeId: string }>,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await getEmployeePayslips(req.user!, req.params.employeeId))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getPayslipHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getPayslip(req.user!, req.params.id))
   } catch (err) {
     return next(err)
   }

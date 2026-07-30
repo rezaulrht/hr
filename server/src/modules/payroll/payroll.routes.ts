@@ -9,6 +9,9 @@ import {
   createRunHandler,
   createStructureHandler,
   disburseRunHandler,
+  getEmployeePayslipsHandler,
+  getMyPayslipsHandler,
+  getPayslipHandler,
   getRunHandler,
   getRunPreflightHandler,
   listRatesHandler,
@@ -25,6 +28,8 @@ const router = Router()
 
 const FINANCE_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN] as const
 const READ_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN, Role.HR_ADMIN] as const
+/** Roles that hold an Employee profile and therefore a payslip of their own. */
+const STAFF_ROLES = [Role.EMPLOYEE, Role.REPORTING_MANAGER] as const
 
 // Open to any authenticated role, not just READ_ROLES: an employee's own
 // payslip quotes the rate, and a figure they cannot check is a figure they
@@ -56,5 +61,15 @@ router.post("/runs/:id/submit", requireAuth, requireRole(...FINANCE_ROLES), subm
 router.post("/runs/:id/approve", requireAuth, requireRole(Role.SUPER_ADMIN), approveRunHandler)
 router.post("/runs/:id/reject", requireAuth, requireRole(Role.SUPER_ADMIN), rejectRunHandler)
 router.post("/runs/:id/disburse", requireAuth, requireRole(...FINANCE_ROLES), disburseRunHandler)
+
+// `/payslips/me` is a separate path rather than a "me" sentinel in a slot
+// that otherwise holds a UUID — the same choice as /api/leave/balances/me
+// and /api/attendance/me. It must be registered before /payslips/:id, or
+// Express would match "me" as an id.
+router.get("/payslips/me", requireAuth, requireRole(...STAFF_ROLES), getMyPayslipsHandler)
+// Scoping is enforced in the service, not here: staff may read only
+// themselves, and a manager may not read their reports' pay.
+router.get("/payslips/employee/:employeeId", requireAuth, getEmployeePayslipsHandler)
+router.get("/payslips/:id", requireAuth, getPayslipHandler)
 
 export default router

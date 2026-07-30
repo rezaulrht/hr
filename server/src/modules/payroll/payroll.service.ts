@@ -4,10 +4,11 @@
  */
 
 import { getMonthlySummary } from "../attendance/attendance.summary"
-import { monthRange } from "../attendance/attendance.service"
+import { monthRange, requireEmployeeForUser } from "../attendance/attendance.service"
 import { officeToday } from "../attendance/attendance.time"
+import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
-import type { Currency, Prisma } from "../../generated/prisma/client"
+import type { Currency, PayrollStatus, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { auditPayroll } from "./payroll.audit"
 import { computePayslip } from "./payroll.calc"
@@ -642,4 +643,73 @@ export async function disburseRun(id: string, actorUserId: string) {
     })
     return updated
   })
+}
+
+// ── Payslip reads ────────────────────────────────────────────────────────
+
+const PAYSLIP_INCLUDE = {
+  employee: { select: { id: true, fullName: true, employeeCode: true } },
+  payrollRun: { select: { id: true, month: true, year: true, status: true } },
+} as const
+
+/** Roles that administer payroll and may therefore see draft figures. */
+const PAYROLL_ADMIN_ROLES = ["HR_ADMIN", "FINANCE_OFFICER", "SUPER_ADMIN"]
+
+/**
+ * Staff see a payslip only once its run is APPROVED or DISBURSED. Showing
+ * someone a draft figure that then changes is a conversation nobody wants;
+ * HR/Finance/Super Admin see drafts because working the draft is their job.
+ */
+const visibleRunFilter = (actor: AccessTokenPayload) =>
+  PAYROLL_ADMIN_ROLES.includes(actor.role)
+    ? {}
+    : { payrollRun: { status: { in: ["APPROVED", "DISBURSED"] satisfies PayrollStatus[] } } }
+
+export async function getMyPayslips(actor: AccessTokenPayload) {
+  const self = await requireEmployeeForUser(actor.sub)
+  return prisma.payslip.findMany({
+    where: { employeeId: self.id, ...visibleRunFilter(actor) },
+    include: PAYSLIP_INCLUDE,
+    orderBy: [{ payrollRun: { year: "desc" } }, { payrollRun: { month: "desc" } }],
+  })
+}
+
+/**
+ * Scoping: EMPLOYEE and REPORTING_MANAGER may read only themselves.
+ *
+ * A manager cannot see their reports' payslips, diverging from the rule leave
+ * and attendance share. The source spec's permission matrix gives managers no
+ * payroll access, and pay is the one place where line-manager visibility is a
+ * policy choice rather than an operational need.
+ */
+export async function getEmployeePayslips(actor: AccessTokenPayload, employeeId: string) {
+  if (!PAYROLL_ADMIN_ROLES.includes(actor.role)) {
+    const self = await requireEmployeeForUser(actor.sub)
+    if (self.id !== employeeId) {
+      throw new AppError(403, "You may only view your own payslips")
+    }
+  }
+  return prisma.payslip.findMany({
+    where: { employeeId, ...visibleRunFilter(actor) },
+    include: PAYSLIP_INCLUDE,
+    orderBy: [{ payrollRun: { year: "desc" } }, { payrollRun: { month: "desc" } }],
+  })
+}
+
+export async function getPayslip(actor: AccessTokenPayload, id: string) {
+  const payslip = await prisma.payslip.findUnique({ where: { id }, include: PAYSLIP_INCLUDE })
+  if (!payslip) throw new AppError(404, "Payslip not found")
+
+  if (!PAYROLL_ADMIN_ROLES.includes(actor.role)) {
+    const self = await requireEmployeeForUser(actor.sub)
+    if (payslip.employeeId !== self.id) {
+      throw new AppError(403, "You may only view your own payslips")
+    }
+    // 404 rather than 403 for a draft: the employee is entitled to this
+    // payslip, it simply does not exist as far as they are concerned yet.
+    if (payslip.payrollRun.status !== "APPROVED" && payslip.payrollRun.status !== "DISBURSED") {
+      throw new AppError(404, "Payslip not found")
+    }
+  }
+  return payslip
 }
