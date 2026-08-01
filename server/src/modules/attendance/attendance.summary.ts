@@ -10,9 +10,10 @@
 
 import prisma from "../../config/prisma"
 import type { Employee } from "../../generated/prisma/client"
-import { formatDateOnly } from "../../utils/dates"
+import { AppError } from "../../middleware/errorHandler"
+import { MS_PER_DAY, formatDateOnly, parseDateOnly } from "../../utils/dates"
 import type { AccessTokenPayload } from "../auth/auth.types"
-import { buildDayGrid } from "./attendance.grid"
+import { buildDayGrid, eachDate } from "./attendance.grid"
 import { officeToday } from "./attendance.time"
 import { monthRange, requireEmployeeForUser } from "./attendance.service"
 import type {
@@ -21,6 +22,8 @@ import type {
   EmployeeRef,
   GridEmployee,
   MonthlyAttendanceSummary,
+  WeeklySummary,
+  WeeklySummaryDay,
 } from "./attendance.types"
 
 const ROSTER_SELECT = {
@@ -185,6 +188,101 @@ async function leaveConflictIds(employeeIds: string[], date: Date): Promise<Set<
     select: { employeeId: true },
   })
   return new Set(leaves.map((l) => l.employeeId))
+}
+
+/**
+ * The longest range this will roll up. A weekly chart asks for seven days and
+ * a monthly one for thirty-one; anything past that is either a mistake or a
+ * full-history scan wearing a date range, and the grid is derived per
+ * employee per day, so the cost is headcount × days.
+ */
+const MAX_RANGE_DAYS = 31
+
+/**
+ * A present-count per calendar day across the caller's roster.
+ *
+ * Exists so the manager's weekly chart is one grid build rather than five.
+ * `getDailySummary` is left untouched: it is a payroll-adjacent contract with
+ * its own tests, and widening it into a range function would change a
+ * signature four call sites depend on.
+ */
+export async function getWeeklySummary(
+  actor: AccessTokenPayload,
+  from: string,
+  to: string
+): Promise<WeeklySummary> {
+  const start = parseDateOnly(from)
+  const end = parseDateOnly(to)
+  if (end.getTime() < start.getTime()) {
+    throw new AppError(400, "`to` must not be earlier than `from`")
+  }
+  const span = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY) + 1
+  if (span > MAX_RANGE_DAYS) {
+    throw new AppError(400, `Range must not exceed ${MAX_RANGE_DAYS} days`)
+  }
+
+  const roster = await rosterFor(actor)
+  const grid = await buildDayGrid(roster.map(toGridEmployee), start, end)
+
+  // Seeded from the dates rather than the grid, so a day nobody has any
+  // entry for — an empty roster, or a range entirely before go-live — is
+  // still a bar on the chart instead of a silent gap.
+  const days = new Map<string, WeeklySummaryDay>()
+  for (const date of eachDate(start, end)) {
+    days.set(date, {
+      date,
+      kind: "WORKING",
+      present: 0,
+      late: 0,
+      absent: 0,
+      onLeave: 0,
+      notCheckedIn: 0,
+    })
+  }
+
+  // Tracks whether any employee was scheduled to work each day, so `kind`
+  // can report the roster-wide answer rather than the last employee's.
+  const worked = new Set<string>()
+  const holidays = new Set<string>()
+
+  for (const employee of roster) {
+    for (const entry of grid.get(employee.id) ?? []) {
+      const day = days.get(entry.date)
+      if (!day || entry.status === "NOT_TRACKED") continue
+
+      if (entry.isWorkingDay) worked.add(entry.date)
+      else if (entry.isHoliday) holidays.add(entry.date)
+
+      switch (entry.status) {
+        case "PRESENT":
+          day.present++
+          if (entry.isLate) day.late++
+          break
+        case "ABSENT":
+          day.absent++
+          break
+        case "ON_LEAVE":
+          day.onLeave++
+          break
+        case "NOT_CHECKED_IN":
+          day.notCheckedIn++
+          break
+      }
+    }
+  }
+
+  for (const day of days.values()) {
+    if (worked.has(day.date)) day.kind = "WORKING"
+    else if (holidays.has(day.date)) day.kind = "HOLIDAY"
+    else if (grid.size > 0) day.kind = "WEEKLY_OFF"
+  }
+
+  return {
+    from: formatDateOnly(start),
+    to: formatDateOnly(end),
+    headcount: roster.length,
+    days: [...days.values()],
+  }
 }
 
 /** Rolls a single employee's day grid into the payroll contract shape. */
