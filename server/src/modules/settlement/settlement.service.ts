@@ -12,6 +12,8 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import type { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { emitEvent } from "../event/event.emit"
+import { sweepClaimsReimbursed } from "../expense/expense.sweep"
 import { auditPayroll } from "../payroll/payroll.audit"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "../payroll/payroll.money"
@@ -25,6 +27,7 @@ import {
   serviceYears,
   wagesBase,
 } from "./settlement.calc"
+import { settlementEvent } from "./settlement.events"
 import { EXIT_POLICIES } from "./settlement.policy"
 import type { OverrideSettlementBody, SettlementRejectBody } from "./settlement.validators"
 
@@ -288,6 +291,17 @@ export async function calculateSettlement(employeeId: string, actorUserId: strin
       changedBy: actorUserId,
       after: { employeeId, finalAmount: toMoneyString(total), currency },
     })
+    await emitEvent(
+      tx,
+      settlementEvent({
+        stage: "calculated",
+        settlementId: settlement.id,
+        settlementNo: settlement.settlementNo,
+        employeeId,
+        employeeName: settlement.employee.fullName,
+        actorUserId,
+      })
+    )
 
     return settlement
   })
@@ -333,6 +347,17 @@ export async function approveSettlement(id: string, actorUserId: string) {
       action: "APPROVE",
       changedBy: actorUserId,
     })
+    await emitEvent(
+      tx,
+      settlementEvent({
+        stage: "approved",
+        settlementId: id,
+        settlementNo: updated.settlementNo,
+        employeeId: updated.employeeId,
+        employeeName: updated.employee.fullName,
+        actorUserId,
+      })
+    )
     return updated
   })
 }
@@ -378,16 +403,24 @@ export async function paySettlement(id: string, actorUserId: string) {
       data: { status: "PAID", paidBy: actorUserId, paidAt: new Date() },
       include: SETTLEMENT_INCLUDE,
     })
-    await tx.expenseClaim.updateMany({
-      where: { settlementId: id, status: "APPROVED" },
-      data: { status: "REIMBURSED" },
-    })
+    await sweepClaimsReimbursed(tx, { settlementId: id, status: "APPROVED" }, actorUserId)
     await auditPayroll(tx, {
       entity: "SETTLEMENT",
       entityId: id,
       action: "PAY",
       changedBy: actorUserId,
     })
+    await emitEvent(
+      tx,
+      settlementEvent({
+        stage: "paid",
+        settlementId: id,
+        settlementNo: updated.settlementNo,
+        employeeId: updated.employeeId,
+        employeeName: updated.employee.fullName,
+        actorUserId,
+      })
+    )
     return updated
   })
 }

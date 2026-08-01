@@ -21,8 +21,14 @@ export async function emitEvent(tx: EventTx, input: EventInput): Promise<Event> 
   // equality instead of a subquery, and the person notified stays whoever
   // was their manager when it happened — not whoever inherited the team
   // afterwards.
+  //
+  // An explicit `null` means "this event has no manager audience" and
+  // suppresses the lookup — `undefined` means "work it out". The distinction
+  // is load-bearing: payroll's own rule is that a manager may not see their
+  // reports' payslips, so a payslip event that silently resolved a reporting
+  // line would route pay information to someone the payslip endpoint refuses.
   let managerEmployeeId = input.managerEmployeeId ?? null
-  if (managerEmployeeId === null && subjectEmployeeId !== null) {
+  if (input.managerEmployeeId === undefined && subjectEmployeeId !== null) {
     const subject = await tx.employee.findUnique({
       where: { id: subjectEmployeeId },
       select: { reportingManagerId: true },

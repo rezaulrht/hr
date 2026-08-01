@@ -117,6 +117,25 @@ describe("emitEvent", () => {
     })
   })
 
+  it("treats an explicit null manager as 'no manager audience', not as 'work it out'", async () => {
+    // Payroll's own rule is that a manager may not see their reports'
+    // payslips. A payslip event that silently resolved a reporting line
+    // would route pay information to someone the payslip endpoint refuses.
+    await emitEvent(tx, {
+      type: "payslip.published",
+      entity: "PAYSLIP",
+      entityId: "slip-1",
+      subjectEmployeeId: "emp-1",
+      managerEmployeeId: null,
+      title: "Your June payslip is ready",
+    })
+
+    expect(tx.employee.findUnique).not.toHaveBeenCalled()
+    expect(tx.event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ managerEmployeeId: null }),
+    })
+  })
+
   it("does not look the manager up when one was passed explicitly", async () => {
     await emitEvent(tx, {
       type: "attendance.decided",

@@ -3,11 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     payrollRun: { create: vi.fn(), update: vi.fn() },
-    payslip: { deleteMany: vi.fn(), create: vi.fn() },
+    // `findMany` because approving a run emits one payslip.published per
+    // employee, read from inside the same transaction.
+    payslip: { deleteMany: vi.fn(), create: vi.fn(), findMany: vi.fn(async () => []) },
     payrollAdjustment: { findMany: vi.fn(), updateMany: vi.fn() },
     expenseClaim: { findMany: vi.fn(), updateMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
     payrollAudit: { create: vi.fn() },
+    // The event log, written in the same transaction. Distinct from
+    // payrollAudit: one row per user action rather than per record.
+    event: { create: vi.fn() },
+    employee: { findUnique: vi.fn() },
   }
   return {
     default: {
@@ -471,6 +477,121 @@ describe("approveRun", () => {
     } as never)
     tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "APPROVED" })
     await expect(approveRun("run-1", "admin-1")).resolves.toMatchObject({ status: "APPROVED" })
+  })
+})
+
+describe("run lifecycle events", () => {
+  const emitted = () => tx.event.create.mock.calls.map((c: any) => c[0].data)
+
+  const submitted = (over: Record<string, unknown> = {}) => ({
+    id: "run-1",
+    month: 7,
+    year: 2026,
+    status: "SUBMITTED",
+    submittedBy: "finance-1",
+    processedAt: new Date(),
+    fxRateToBdt: null,
+    ...over,
+  })
+
+  it("emits payroll.run.submitted as WARNING — somebody now has to act", async () => {
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(
+      submitted({ status: "DRAFT" }) as never
+    )
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+
+    await submitRun("run-1", "finance-1")
+    expect(emitted()[0]).toMatchObject({
+      type: "payroll.run.submitted",
+      severity: "WARNING",
+      entity: "PAYROLL_RUN",
+      entityId: "run-1",
+      targetRoles: ["FINANCE_OFFICER", "SUPER_ADMIN"],
+      title: "July 2026 payroll submitted for approval",
+    })
+  })
+
+  it("carries no amount on any run event", async () => {
+    // The company's monthly wage bill is not a number that belongs on a card
+    // Finance shares in a standup.
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(submitted() as never)
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+
+    await approveRun("run-1", "admin-1")
+    for (const event of emitted()) {
+      expect(JSON.stringify(event)).not.toMatch(/grossPay|netPayable|totalCost/)
+    }
+  })
+
+  it("emits one payslip.published per employee when the run is approved", async () => {
+    // Approval is the moment `visibleRunFilter` starts admitting the payslip
+    // to the person it belongs to, so it is the moment to say so.
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(submitted() as never)
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+    tx.payslip.findMany.mockResolvedValue([
+      { id: "slip-1", employeeId: "emp-1" },
+      { id: "slip-2", employeeId: "emp-2" },
+    ])
+
+    await approveRun("run-1", "admin-1")
+    const events = emitted()
+    // One run event plus one per employee. N events for N recipients is not
+    // a bulk-rule violation: each employee is told exactly once about their
+    // own payslip.
+    expect(events).toHaveLength(3)
+    expect(events[0].type).toBe("payroll.run.approved")
+    expect(events.slice(1).map((e: any) => e.type)).toEqual([
+      "payslip.published",
+      "payslip.published",
+    ])
+  })
+
+  it("names no figure on a payslip event and resolves no manager", async () => {
+    // A manager may not see their reports' payslips — letting emitEvent
+    // resolve a reporting line here would route pay past that rule.
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(submitted() as never)
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+    tx.payslip.findMany.mockResolvedValue([{ id: "slip-1", employeeId: "emp-1" }])
+
+    await approveRun("run-1", "admin-1")
+    const slip = emitted()[1]
+    expect(slip.title).toBe("Your July 2026 payslip is ready")
+    expect(slip.subjectEmployeeId).toBe("emp-1")
+    expect(slip.managerEmployeeId).toBeNull()
+    expect(slip.targetRoles).toEqual([])
+    expect(tx.employee.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("emits one expense.reimbursed per swept claim when a run is disbursed", async () => {
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(
+      submitted({ status: "APPROVED" }) as never
+    )
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+    tx.expenseClaim.findMany.mockResolvedValue([
+      { id: "claim-1", employeeId: "emp-1", category: "Travel", amount: dec(1200), currency: "BDT" },
+      { id: "claim-2", employeeId: "emp-2", category: "Meals", amount: dec(400), currency: "BDT" },
+    ])
+
+    await disburseRun("run-1", "finance-1")
+    const types = emitted().map((e: any) => e.type)
+    expect(types).toEqual([
+      "expense.reimbursed",
+      "expense.reimbursed",
+      "payroll.run.disbursed",
+    ])
+  })
+
+  it("reads the claims before the sweep, since afterwards nothing marks them", async () => {
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(
+      submitted({ status: "APPROVED" }) as never
+    )
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1" })
+    tx.expenseClaim.findMany.mockResolvedValue([])
+
+    await disburseRun("run-1", "finance-1")
+    expect(tx.expenseClaim.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.expenseClaim.updateMany.mock.invocationCallOrder[0]
+    )
   })
 })
 
