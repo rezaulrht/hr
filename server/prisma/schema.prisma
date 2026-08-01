@@ -155,9 +155,10 @@ enum EmploymentStatus {
 }
 
 model Department {
-  id        String     @id @default(uuid())
-  name      String     @unique
-  employees Employee[]
+  id            String         @id @default(uuid())
+  name          String         @unique
+  employees     Employee[]
+  announcements Announcement[]
 }
 
 model Document {
@@ -739,10 +740,96 @@ model Report {
 }
 
 model Announcement {
-  id          String   @id @default(uuid())
+  id          String @id @default(uuid())
   title       String
   body        String
+  // User id of the publisher.
   publishedBy String
-  audience    String
-  createdAt   DateTime @default(now())
+
+  // An enum plus two nullable targets, not a String. A free string invites
+  // "All employees", "all", "ALL" and "Product team" — and the last cannot be
+  // resolved to a department without string-matching a name HR may rename.
+  audience     AnnouncementAudience @default(ALL)
+  departmentId String?
+  department   Department?          @relation(fields: [departmentId], references: [id])
+  targetRole   Role?
+
+  // Null = draft. Future = scheduled. Past = live. Every read filters
+  // `publishedAt <= now()`, so scheduling falls out of the read rather than
+  // needing a cron job that silently fails to announce something on payday if
+  // it misses a tick.
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([publishedAt])
+}
+
+enum AnnouncementAudience {
+  ALL
+  DEPARTMENT
+  ROLE
+}
+
+// ── EVENT LOG ─────────────────────────────────
+
+// One row per user action, feeding every activity feed and — later — the
+// notification system. Deliberately *not* the audit log: `PayrollAudit` and
+// `AttendanceAudit` write one row per record, so bulk-approving a fortnight
+// for sixteen people is 160 audit rows and exactly one event. Both are
+// correct; they answer different questions.
+//
+// **No foreign keys** to Employee or User, on purpose. An event is a
+// historical record and must outlive the rows it refers to — a cascade
+// delete that silently erases the log of what someone did is the opposite of
+// what a log is for. `title`/`meta` are frozen at emit precisely so reads
+// never need to join back to those ids.
+model Event {
+  id String @id @default(uuid())
+
+  // Machine key: "leave.approved". A String with a TS union in front of it,
+  // not an enum — matching PayrollAudit.entity, which took the same decision
+  // for the same reason. A new event type is a deploy, not a migration.
+  type     String
+  severity EventSeverity @default(INFO)
+
+  // Who did it. Null means the system did.
+  actorUserId String?
+
+  // What it is about, polymorphic exactly as PayrollAudit is.
+  entity   String
+  entityId String
+
+  // ── audience, resolved at emit ──
+  subjectEmployeeId String?
+  // The subject's manager, frozen at emit rather than joined at read: the
+  // read becomes an indexed equality instead of a subquery, and the person
+  // notified stays whoever was their manager when it happened.
+  managerEmployeeId String?
+  targetRoles       Role[]
+  companyWide       Boolean @default(false)
+
+  // ── presentation, frozen at emit ──
+  title String
+  meta  String?
+  href  String?
+  // The facts behind the rendered strings, kept alongside rather than
+  // instead: an email template needs more than a feed line, and a
+  // notification must not have to parse `title` back apart.
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([subjectEmployeeId, createdAt])
+  @@index([managerEmployeeId, createdAt])
+  @@index([entity, entityId, createdAt])
+}
+
+enum EventSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
 }
