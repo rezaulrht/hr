@@ -13,7 +13,12 @@ import type { Attendance, Prisma, Shift } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { formatDateOnly, parseDateOnly } from "../../utils/dates"
 import type { AccessTokenPayload } from "../auth/auth.types"
+import { emitEvent } from "../event/event.emit"
 import { auditAttendance } from "./attendance.audit"
+import {
+  attendanceCorrectedEvent,
+  attendanceRegularisedEvent,
+} from "./attendance.events"
 import { resolveShift } from "./attendance.grid"
 import { computeIsEarlyOut, computeIsLate } from "./attendance.punch"
 import { requireEmployeeForUser } from "./attendance.service"
@@ -137,6 +142,16 @@ export async function regulariseAttendance(
       after: timeSnapshot(applied),
       note: body.note,
     })
+    await emitEvent(
+      tx,
+      attendanceRegularisedEvent({
+        attendanceId: id,
+        actorUserId: userId,
+        employee,
+        date: record.date,
+        note: body.note,
+      })
+    )
   })
 
   return { id, approval: "PENDING" }
@@ -149,7 +164,7 @@ export async function correctAttendance(
 ): Promise<{ id: string; approval: "APPROVED" }> {
   const record = await prisma.attendance.findUnique({
     where: { id },
-    include: { employee: { select: { id: true, shiftId: true } } },
+    include: { employee: { select: { id: true, fullName: true, shiftId: true } } },
   })
   if (!record) throw new AppError(404, "Attendance record not found")
 
@@ -180,6 +195,16 @@ export async function correctAttendance(
       after: timeSnapshot(applied),
       note: body.note,
     })
+    await emitEvent(
+      tx,
+      attendanceCorrectedEvent({
+        attendanceId: id,
+        actorUserId: actor.sub,
+        employee: record.employee,
+        date: record.date,
+        note: body.note,
+      })
+    )
   })
 
   return { id, approval: "APPROVED" }
@@ -195,7 +220,7 @@ export async function createManualAttendance(
 ): Promise<{ id: string }> {
   const employee = await prisma.employee.findUnique({
     where: { id: body.employeeId },
-    select: { id: true, shiftId: true },
+    select: { id: true, fullName: true, shiftId: true },
   })
   if (!employee) throw new AppError(404, "Employee not found")
 
@@ -228,6 +253,19 @@ export async function createManualAttendance(
         after: timeSnapshot(applied),
         note: body.note,
       })
+      // Beyond the two corrections the plan named, and deliberately: an
+      // employee who is never told HR manufactured an attendance record for
+      // them is exactly the employee who should be able to query it.
+      await emitEvent(
+        tx,
+        attendanceCorrectedEvent({
+          attendanceId: row.id,
+          actorUserId: actor.sub,
+          employee,
+          date,
+          note: body.note,
+        })
+      )
       return row
     })
     return { id: created.id }

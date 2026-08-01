@@ -34,3 +34,30 @@ export function formatDateOnly(date: Date): string {
 export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * MS_PER_DAY)
 }
+
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+]
+
+/**
+ * "Aug 12", for strings frozen into an event at emit.
+ *
+ * Read in UTC like every other date-only value here, so the day never shifts
+ * by one against the date the user actually picked. Not locale-aware: these
+ * strings are stored, not rendered, and a stored string that depends on the
+ * server's locale would be a different sentence after a redeploy.
+ */
+export function formatShortDate(date: Date): string {
+  return `${SHORT_MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`
+}

@@ -10,28 +10,15 @@
  * a notice that something happened to somebody.
  */
 
+import { formatShortDate } from "../../utils/dates"
 import type { EventInput, EventType } from "../event/event.types"
 import { formatDateOnly } from "./leave.dates"
 
-const MONTHS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-]
-
 /** "Aug 10 – Aug 14", or just "Aug 10" for a single day. */
 export function formatLeaveRange(start: Date, end: Date): string {
-  const day = (d: Date) => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
-  return start.getTime() === end.getTime() ? day(start) : `${day(start)} – ${day(end)}`
+  return start.getTime() === end.getTime()
+    ? formatShortDate(start)
+    : `${formatShortDate(start)} – ${formatShortDate(end)}`
 }
 
 /**
