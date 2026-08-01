@@ -15,7 +15,7 @@ export async function createStaffAccountHandler(req: Request, res: Response, nex
     return res.status(400).json({ error: "Invalid request body" })
   }
   try {
-    const result = await createStaffAccount(parsed.data)
+    const result = await createStaffAccount(parsed.data, req.user!.sub)
     return res.status(201).json(result)
   } catch (err) {
     return next(err)

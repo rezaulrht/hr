@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const txMock = {
   idCounter: { upsert: vi.fn() },
   user: { create: vi.fn() },
-  employee: { create: vi.fn(), update: vi.fn() },
+  employee: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
   payrollAudit: { create: vi.fn() },
+  // The event log, written in the same transaction. Distinct from
+  // payrollAudit: one row per user action rather than per record.
+  event: { create: vi.fn() },
 }
 
 vi.mock("../../config/prisma", () => ({
@@ -249,5 +252,63 @@ describe("setSalaryStructure", () => {
     await expect(
       setSalaryStructure("e1", "hr-user", { salaryStructureId: "s1" })
     ).resolves.toBeDefined()
+  })
+})
+
+describe("lifecycle events", () => {
+  const emitted = () => txMock.event.create.mock.calls[0][0].data as any
+
+  const input = {
+    email: "new@demo.com",
+    role: "EMPLOYEE" as const,
+    fullName: "Nusrat Jahan",
+    designation: "Product Designer",
+    departmentId: "dept-eng",
+    employmentType: "FULL_TIME" as const,
+    joiningDate: "2026-08-01",
+  }
+
+  it("emits employee.joined at HR and the Super Admin", async () => {
+    txMock.idCounter.upsert.mockResolvedValue({ id: "EMP", value: 7 })
+    txMock.user.create.mockResolvedValue({ id: "u1" })
+    txMock.employee.create.mockResolvedValue({
+      id: "emp-7",
+      fullName: "Nusrat Jahan",
+      designation: "Product Designer",
+    })
+    txMock.employee.findUnique.mockResolvedValue({ reportingManagerId: "emp-mgr" })
+
+    await createStaffAccount(input, "hr-user")
+
+    expect(emitted()).toMatchObject({
+      type: "employee.joined",
+      entity: "EMPLOYEE",
+      entityId: "emp-7",
+      subjectEmployeeId: "emp-7",
+      targetRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+      actorUserId: "hr-user",
+      title: "Nusrat Jahan joined",
+    })
+    // The joiner's manager, resolved from the subject — which for a joiner
+    // is exactly the person who should hear about it.
+    expect(emitted().managerEmployeeId).toBe("emp-mgr")
+  })
+
+  it("records a null actor when nobody was passed, meaning the system did it", async () => {
+    txMock.idCounter.upsert.mockResolvedValue({ id: "EMP", value: 8 })
+    txMock.user.create.mockResolvedValue({ id: "u1" })
+    txMock.employee.create.mockResolvedValue({ id: "emp-8", fullName: "X", designation: "Y" })
+    txMock.employee.findUnique.mockResolvedValue(null)
+
+    await createStaffAccount(input)
+    expect(emitted().actorUserId).toBeNull()
+  })
+
+  it("writes no event when account creation rolls back", async () => {
+    txMock.idCounter.upsert.mockResolvedValue({ id: "EMP", value: 9 })
+    txMock.user.create.mockRejectedValueOnce(new Error("duplicate email"))
+
+    await expect(createStaffAccount(input, "hr-user")).rejects.toThrow("duplicate email")
+    expect(txMock.event.create).not.toHaveBeenCalled()
   })
 })

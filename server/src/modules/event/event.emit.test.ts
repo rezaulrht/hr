@@ -48,6 +48,7 @@ describe("emitEvent", () => {
         managerEmployeeId: "emp-9",
         targetRoles: ["HR_ADMIN"],
         companyWide: false,
+        audienceDepartmentId: null,
         title: "Your annual leave was approved",
         meta: "12–14 August",
         href: "/employee/leave",

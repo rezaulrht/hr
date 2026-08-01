@@ -98,10 +98,19 @@ interface EventBase {
  * notification never sent, and nothing anywhere that says so. That failure
  * is silent, so it has to be impossible to write rather than caught late.
  */
+type AudienceExtras = {
+  subjectEmployeeId?: string | null
+  targetRoles?: Role[]
+  companyWide?: boolean
+  /** A whole department — one row, not one per member. */
+  audienceDepartmentId?: string | null
+}
+
 type EventAudience =
-  | { subjectEmployeeId: string; targetRoles?: Role[]; companyWide?: boolean }
-  | { subjectEmployeeId?: string | null; targetRoles: [Role, ...Role[]]; companyWide?: boolean }
-  | { subjectEmployeeId?: string | null; targetRoles?: Role[]; companyWide: true }
+  | (AudienceExtras & { subjectEmployeeId: string })
+  | (AudienceExtras & { targetRoles: [Role, ...Role[]] })
+  | (AudienceExtras & { companyWide: true })
+  | (AudienceExtras & { audienceDepartmentId: string })
 
 export type EventInput = EventBase & EventAudience
 
@@ -129,6 +138,8 @@ export interface ListEventsOptions {
   cursor?: string
   entity?: string
   entityId?: string
+  /** Injectable clock, so the scheduled-announcement boundary is testable. */
+  now?: Date
 }
 
 export interface EventPage {

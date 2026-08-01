@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("../../config/prisma", () => ({
-  default: {
+vi.mock("../../config/prisma", () => {
+  const client = {
     employee: { findUnique: vi.fn() },
     announcement: {
       findMany: vi.fn(),
@@ -11,8 +11,13 @@ vi.mock("../../config/prisma", () => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
-  },
-}))
+    // Publishing writes an event in the same transaction as the row.
+    event: { create: vi.fn() },
+    $transaction: vi.fn(),
+  }
+  client.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(client))
+  return { default: client }
+})
 
 import prisma from "../../config/prisma"
 import type { AccessTokenPayload } from "../auth/auth.types"
@@ -391,5 +396,133 @@ describe("reading", () => {
     )
     const item = await getAnnouncement(actor("EMPLOYEE"), "ann-1")
     expect(item.departmentName).toBe("Engineering")
+  })
+})
+
+/**
+ * Two audience models with one meaning. This mapping is the single place they
+ * meet, so it gets a test per audience kind.
+ */
+describe("the announcement → event audience mapping", () => {
+  const emitted = () => vi.mocked(prisma.event.create).mock.calls[0][0].data as any
+
+  const publish = (over: Record<string, unknown> = {}) => {
+    vi.mocked(prisma.announcement.create).mockResolvedValue(
+      row({ publishedAt: NOW, ...over }) as never
+    )
+  }
+
+  it("maps ALL to companyWide", async () => {
+    publish()
+    await createAnnouncement(actor("HR_ADMIN"), { title: "T", body: "B", audience: "ALL" } as never)
+
+    expect(emitted()).toMatchObject({
+      type: "announcement.published",
+      entity: "ANNOUNCEMENT",
+      companyWide: true,
+      audienceDepartmentId: null,
+      targetRoles: [],
+    })
+  })
+
+  it("maps DEPARTMENT to audienceDepartmentId — one row, not one per member", async () => {
+    publish({ audience: "DEPARTMENT", departmentId: "dept-eng" })
+    await createAnnouncement(actor("HR_ADMIN"), {
+      title: "T",
+      body: "B",
+      audience: "DEPARTMENT",
+      departmentId: "dept-eng",
+    } as never)
+
+    expect(emitted()).toMatchObject({
+      companyWide: false,
+      audienceDepartmentId: "dept-eng",
+      targetRoles: [],
+    })
+    expect(prisma.event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("maps ROLE to targetRoles", async () => {
+    publish({ audience: "ROLE", targetRole: "FINANCE_OFFICER" })
+    await createAnnouncement(actor("HR_ADMIN"), {
+      title: "T",
+      body: "B",
+      audience: "ROLE",
+      targetRole: "FINANCE_OFFICER",
+    } as never)
+
+    expect(emitted()).toMatchObject({
+      companyWide: false,
+      audienceDepartmentId: null,
+      targetRoles: ["FINANCE_OFFICER"],
+    })
+  })
+
+  it("emits nothing for a draft", async () => {
+    // There is nothing to announce yet, and it may never be published at all.
+    publish({ publishedAt: null })
+    await createAnnouncement(actor("HR_ADMIN"), {
+      title: "T",
+      body: "B",
+      audience: "ALL",
+      publishedAt: null,
+    } as never)
+
+    expect(prisma.event.create).not.toHaveBeenCalled()
+  })
+
+  it("emits when the schedule is set, carrying the future publish time", async () => {
+    // A scheduled announcement has no later moment at which anything is
+    // written, so there is nothing for an in-transaction emit to hook onto.
+    // The feed holds the event back on `payload.publishAt` instead.
+    const future = new Date("2026-08-05T04:00:00.000Z")
+    publish({ publishedAt: future })
+    await createAnnouncement(actor("HR_ADMIN"), {
+      title: "T",
+      body: "B",
+      audience: "ALL",
+      publishedAt: future.toISOString(),
+    } as never)
+
+    expect(emitted().payload).toEqual({ publishAt: future.toISOString() })
+  })
+
+  it("emits when a draft is published by a later edit", async () => {
+    vi.mocked(prisma.announcement.findUnique).mockResolvedValue({
+      id: "ann-1",
+      title: "T",
+      publishedBy: "user-1",
+      audience: "ALL",
+      departmentId: null,
+      targetRole: null,
+      publishedAt: null,
+    } as never)
+    vi.mocked(prisma.announcement.update).mockResolvedValue(row({ publishedAt: NOW }) as never)
+
+    await updateAnnouncement(actor("HR_ADMIN"), "ann-1", { publishedAt: NOW.toISOString() })
+    expect(prisma.event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not re-announce an edit to something already published", async () => {
+    // A feed that re-fires on every save is a feed people mute.
+    vi.mocked(prisma.announcement.findUnique).mockResolvedValue({
+      id: "ann-1",
+      title: "T",
+      publishedBy: "user-1",
+      audience: "ALL",
+      departmentId: null,
+      targetRole: null,
+      publishedAt: NOW,
+    } as never)
+    vi.mocked(prisma.announcement.update).mockResolvedValue(row({ publishedAt: NOW }) as never)
+
+    await updateAnnouncement(actor("HR_ADMIN"), "ann-1", { title: "Fixed a typo" })
+    expect(prisma.event.create).not.toHaveBeenCalled()
+  })
+
+  it("writes the row and the event in one transaction", async () => {
+    publish()
+    await createAnnouncement(actor("HR_ADMIN"), { title: "T", body: "B", audience: "ALL" } as never)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
   })
 })

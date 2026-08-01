@@ -16,6 +16,8 @@ import prisma from "../../config/prisma"
 import type { Prisma, Role } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import type { AccessTokenPayload } from "../auth/auth.types"
+import { emitEvent } from "../event/event.emit"
+import { announcementPublishedEvent } from "./announcement.events"
 import type { AnnouncementItem } from "./announcement.types"
 import type { CreateAnnouncementBody, UpdateAnnouncementBody } from "./announcement.validators"
 
@@ -189,17 +191,25 @@ export async function createAnnouncement(
   const publishedAt =
     body.publishedAt === undefined ? new Date() : body.publishedAt ? new Date(body.publishedAt) : null
 
-  const row = await prisma.announcement.create({
-    data: {
-      title: body.title,
-      body: body.body,
-      publishedBy: actor.sub,
-      audience: target.audience,
-      departmentId: target.departmentId,
-      targetRole: target.targetRole,
-      publishedAt,
-    },
-    select: SELECT,
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.announcement.create({
+      data: {
+        title: body.title,
+        body: body.body,
+        publishedBy: actor.sub,
+        audience: target.audience,
+        departmentId: target.departmentId,
+        targetRole: target.targetRole,
+        publishedAt,
+      },
+      select: SELECT,
+    })
+    // A draft emits nothing — there is nothing to announce yet, and it may
+    // never be published at all.
+    if (publishedAt) {
+      await emitEvent(tx, announcementPublishedEvent({ ...created, publishAt: publishedAt }))
+    }
+    return created
   })
   return toItem(row)
 }
@@ -208,7 +218,15 @@ export async function createAnnouncement(
 async function requireEditable(actor: AccessTokenPayload, id: string) {
   const existing = await prisma.announcement.findUnique({
     where: { id },
-    select: { id: true, publishedBy: true, audience: true, departmentId: true, targetRole: true },
+    select: {
+      id: true,
+      title: true,
+      publishedBy: true,
+      audience: true,
+      departmentId: true,
+      targetRole: true,
+      publishedAt: true,
+    },
   })
   if (!existing) throw new AppError(404, "Announcement not found")
   if (existing.publishedBy !== actor.sub && !isModerator(actor)) {
@@ -257,7 +275,20 @@ export async function updateAnnouncement(
       : { disconnect: true }
   }
 
-  const row = await prisma.announcement.update({ where: { id }, data, select: SELECT })
+  const row = await prisma.$transaction(async (tx) => {
+    const updated = await tx.announcement.update({ where: { id }, data, select: SELECT })
+
+    // Only on the transition out of draft. Editing a typo in something
+    // already announced must not announce it a second time — a feed that
+    // re-fires on every save is a feed people mute.
+    if (existing.publishedAt === null && updated.publishedAt !== null) {
+      await emitEvent(
+        tx,
+        announcementPublishedEvent({ ...updated, publishAt: updated.publishedAt })
+      )
+    }
+    return updated
+  })
   return toItem(row)
 }
 

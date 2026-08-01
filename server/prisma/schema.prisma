@@ -809,6 +809,11 @@ model Event {
   managerEmployeeId String?
   targetRoles       Role[]
   companyWide       Boolean @default(false)
+  // A whole department, which a department-scoped announcement needs. A
+  // plain id rather than a relation, for the same reason nothing else here
+  // is one: the event must outlive the row. Storing the audience as a rule
+  // keeps a 200-person department one insert instead of 200.
+  audienceDepartmentId String?
 
   // ── presentation, frozen at emit ──
   title String
@@ -824,6 +829,7 @@ model Event {
   @@index([createdAt])
   @@index([subjectEmployeeId, createdAt])
   @@index([managerEmployeeId, createdAt])
+  @@index([audienceDepartmentId, createdAt])
   @@index([entity, entityId, createdAt])
 }
 

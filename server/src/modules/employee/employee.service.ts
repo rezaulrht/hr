@@ -3,7 +3,9 @@ import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
+import { emitEvent } from "../event/event.emit"
 import { auditPayroll } from "../payroll/payroll.audit"
+import { employeeExitedEvent, employeeJoinedEvent } from "./employee.events"
 import type { ExitDetailsBody } from "../settlement/settlement.validators"
 import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
 import type { SetSalaryStructureBody } from "./employee.validators"
@@ -13,7 +15,15 @@ const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
   REPORTING_MANAGER: "MNG",
 }
 
-export async function createStaffAccount(input: CreateStaffAccountInput): Promise<CreateStaffAccountResult> {
+/**
+ * @param actorUserId The HR user creating the account. Optional so the seed
+ *   and existing callers are unaffected; a null actor on the event reads as
+ *   "the system did it", which for a seeded account is true.
+ */
+export async function createStaffAccount(
+  input: CreateStaffAccountInput,
+  actorUserId?: string
+): Promise<CreateStaffAccountResult> {
   const temporaryPassword = generateTemporaryPassword()
   const passwordHash = await hashPassword(temporaryPassword)
   const prefix = CODE_PREFIX[input.role]
@@ -35,7 +45,7 @@ export async function createStaffAccount(input: CreateStaffAccountInput): Promis
       },
     })
 
-    await tx.employee.create({
+    const employee = await tx.employee.create({
       data: {
         userId: user.id,
         employeeCode: code,
@@ -47,6 +57,17 @@ export async function createStaffAccount(input: CreateStaffAccountInput): Promis
         reportingManagerId: input.reportingManagerId,
       },
     })
+
+    await emitEvent(
+      tx,
+      employeeJoinedEvent({
+        employeeId: employee.id,
+        fullName: employee.fullName,
+        designation: employee.designation,
+        employeeCode: code,
+        actorUserId: actorUserId ?? null,
+      })
+    )
 
     return code
   })
@@ -206,6 +227,16 @@ export async function setExitDetails(
       },
       note: body.exitNote,
     })
+    await emitEvent(
+      tx,
+      employeeExitedEvent({
+        employeeId,
+        fullName: employee.fullName,
+        exitReason: body.exitReason,
+        lastWorkingDay: body.lastWorkingDay,
+        actorUserId,
+      })
+    )
     return updated
   })
 }

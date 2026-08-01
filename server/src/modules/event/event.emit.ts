@@ -49,6 +49,7 @@ export async function emitEvent(tx: EventTx, input: EventInput): Promise<Event> 
       managerEmployeeId,
       targetRoles: input.targetRoles ?? [],
       companyWide: input.companyWide ?? false,
+      audienceDepartmentId: input.audienceDepartmentId ?? null,
       title: input.title,
       meta: input.meta ?? null,
       href: input.href ?? null,

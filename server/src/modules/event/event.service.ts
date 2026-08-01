@@ -23,6 +23,29 @@ const MAX_LIMIT = 50
 const DEFAULT_LIMIT = 20
 
 /**
+ * Hides a scheduled announcement's event until its publish time arrives.
+ *
+ * A scheduled announcement has no moment at which anything is written — its
+ * visibility falls out of a time comparison — so the event is emitted when
+ * the *schedule is set*, carrying `payload.publishAt`, and held back here.
+ * The alternative is a cron job that emits on a tick, which is exactly the
+ * job the announcements design avoided and which fails silently on the one
+ * morning it matters.
+ *
+ * The first clause is load-bearing: only announcement events carry
+ * `publishAt`, so without it every other event type would vanish from the
+ * feed the moment this filter was applied.
+ */
+function notYetPublished(now: Date): Prisma.EventWhereInput {
+  return {
+    OR: [
+      { type: { not: "announcement.published" } },
+      { payload: { path: ["publishAt"], lte: now.toISOString() } },
+    ],
+  }
+}
+
+/**
  * Who may see an event, as a `where` clause.
  *
  * `employeeId` is the *actor's* employee id, or null for an account with no
@@ -37,25 +60,33 @@ const DEFAULT_LIMIT = 20
  */
 export function visibleToFilter(
   actor: AccessTokenPayload,
-  employeeId: string | null
+  who: ActorScope
 ): Prisma.EventWhereInput {
   const clauses: Prisma.EventWhereInput[] = [
     { companyWide: true },
     { targetRoles: { has: actor.role } },
   ]
-  if (employeeId) {
-    clauses.push({ subjectEmployeeId: employeeId }, { managerEmployeeId: employeeId })
+  if (who.employeeId) {
+    clauses.push({ subjectEmployeeId: who.employeeId }, { managerEmployeeId: who.employeeId })
+  }
+  if (who.departmentId) {
+    clauses.push({ audienceDepartmentId: who.departmentId })
   }
   return { OR: clauses }
 }
 
-/** The actor's employee id, or null. Never throws — see `visibleToFilter`. */
-export async function employeeIdForActor(actor: AccessTokenPayload): Promise<string | null> {
+/** Where the actor sits, or nulls. Never throws — see `visibleToFilter`. */
+export interface ActorScope {
+  employeeId: string | null
+  departmentId: string | null
+}
+
+export async function scopeForActor(actor: AccessTokenPayload): Promise<ActorScope> {
   const employee = await prisma.employee.findUnique({
     where: { userId: actor.sub },
-    select: { id: true },
+    select: { id: true, departmentId: true },
   })
-  return employee?.id ?? null
+  return { employeeId: employee?.id ?? null, departmentId: employee?.departmentId ?? null }
 }
 
 export async function listEvents(
@@ -63,11 +94,15 @@ export async function listEvents(
   opts: ListEventsOptions = {}
 ): Promise<EventPage> {
   const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT)
-  const employeeId = await employeeIdForActor(actor)
+  const scope = await scopeForActor(actor)
 
   const where: Prisma.EventWhereInput = {
     AND: [
-      visibleToFilter(actor, employeeId),
+      visibleToFilter(actor, scope),
+      // An instant comparison, not a calendar date — `officeToday()` would
+      // turn a notice scheduled for 14:00 into one that went live at
+      // midnight.
+      notYetPublished(opts.now ?? new Date()),
       ...(opts.entity ? [{ entity: opts.entity }] : []),
       ...(opts.entityId ? [{ entityId: opts.entityId }] : []),
     ],
