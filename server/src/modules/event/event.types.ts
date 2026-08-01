@@ -76,6 +76,12 @@ interface EventBase {
   /** Frozen at emit. What a feed row reads. */
   title: string
   meta?: string | null
+  /**
+   * **Role-agnostic**, and prefixed by the client with its own route group:
+   * `"/leave"` becomes `/manager/leave` or `/employee/leave` depending on who
+   * is reading. One row is seen by an employee, their manager and HR, so a
+   * frozen `/employee/leave` would be a broken link for two of the three.
+   */
   href?: string | null
   /**
    * The facts behind the rendered strings, kept alongside rather than
