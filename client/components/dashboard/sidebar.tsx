@@ -3,11 +3,12 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { RiLoader4Line, RiLogoutBoxRLine } from "@remixicon/react"
 
 import { cn } from "@/lib/utils"
 import { icons } from "@/components/dashboard/icons"
+import { getDashboard } from "@/lib/api/dashboard"
 import { useSession } from "@/lib/auth/session-context"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
@@ -29,8 +30,18 @@ export function Sidebar({
   const pathname = usePathname()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { clearSession } = useSession()
+  const { accessToken, clearSession, status } = useSession()
   const [signingOut, setSigningOut] = useState(false)
+
+  // The same `["dashboard"]` query the landing page uses, so a badge and the
+  // card it mirrors are always the same number. Two sources drift, and the
+  // one that drifts is always the one nobody is looking at.
+  const { data } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => getDashboard(accessToken!),
+    enabled: status === "authenticated" && !!accessToken,
+  })
+  const badges = data?.badges ?? {}
 
   async function handleSignOut() {
     if (signingOut) return
@@ -72,6 +83,7 @@ export function Sidebar({
               {group.items.map((item) => {
                 const active = item.href === rootHref ? pathname === item.href : pathname.startsWith(item.href)
                 const Icon = icons[item.icon]
+                const badge = badges[item.href]
                 return (
                   <Link
                     key={item.href}
@@ -83,9 +95,9 @@ export function Sidebar({
                   >
                     <Icon className={cn("size-[17px] shrink-0", active ? "opacity-100" : "opacity-75")} />
                     <span className="flex-1">{item.label}</span>
-                    {item.badge ? (
+                    {badge ? (
                       <span className="grid h-[17px] min-w-[18px] place-items-center rounded bg-[#B6BDC6] px-1 text-[10px] font-extrabold text-[#101214]">
-                        {item.badge}
+                        {badge}
                       </span>
                     ) : null}
                   </Link>

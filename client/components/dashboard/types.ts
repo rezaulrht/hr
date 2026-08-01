@@ -70,11 +70,15 @@ export type ChartBar = {
   height: number
 }
 
+/**
+ * No `badge` here. Counts come from the dashboard payload, keyed by `href` —
+ * a literal in a nav config is a number that was true once and drifts
+ * silently forever after.
+ */
 export type NavItem = {
   label: string
   href: string
   icon: IconName
-  badge?: number
 }
 
 export type NavGroup = {
