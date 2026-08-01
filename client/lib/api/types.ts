@@ -362,6 +362,142 @@ export interface BulkDecisionResult {
   error?: string
 }
 
+// ── EVENT LOG ─────────────────────────────────
+// Hand-mirrored from server/src/modules/event/event.types.ts.
+
+export type EventSeverity = "INFO" | "SUCCESS" | "WARNING" | "ERROR"
+
+export interface EventItem {
+  id: string
+  type: string
+  severity: EventSeverity
+  entity: string
+  entityId: string
+  title: string
+  meta: string | null
+  /**
+   * **Role-agnostic** — `"/leave"`, not `"/employee/leave"`. One event row is
+   * read by an employee, their manager and HR, so the client prefixes it with
+   * its own route group.
+   */
+  href: string | null
+  createdAt: string
+}
+
+export interface EventPage {
+  items: EventItem[]
+  nextCursor: string | null
+}
+
+// ── ANNOUNCEMENTS ─────────────────────────────
+
+export type AnnouncementAudience = "ALL" | "DEPARTMENT" | "ROLE"
+
+export interface AnnouncementItem {
+  id: string
+  title: string
+  body: string
+  audience: AnnouncementAudience
+  departmentId: string | null
+  departmentName: string | null
+  targetRole: Role | null
+  publishedBy: string
+  /** Null is a draft; a future instant is scheduled. */
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateAnnouncementInput {
+  title: string
+  body: string
+  audience: AnnouncementAudience
+  departmentId?: string
+  targetRole?: Role
+  /** Omit to publish now; explicit `null` keeps it a draft. */
+  publishedAt?: string | null
+}
+
+export type UpdateAnnouncementInput = Partial<CreateAnnouncementInput>
+
+// ── DASHBOARD ─────────────────────────────────
+// Hand-mirrored from server/src/modules/dashboard/dashboard.types.ts.
+
+export type Tone = "green" | "yellow" | "red" | "neutral"
+
+export interface DashboardStat {
+  label: string
+  /** Pre-formatted, money included. Never a raw number. */
+  value: string
+  sub: string
+  tag: string
+  tone: Tone
+  /** Absent when the stat has no stored history, which is most of them. */
+  trend?: number[]
+  hotBar?: number
+  href?: string
+  failed?: boolean
+}
+
+export interface ChartBar {
+  label: string
+  display: string
+  height: number
+}
+
+export interface DashboardTableCell {
+  text?: string
+  sub?: string
+  weight?: number
+  tag?: string
+  tone?: Tone
+}
+
+export interface DashboardActivityItem {
+  initial: string
+  tone: Tone
+  title: string
+  meta: string
+  status?: string
+  statusTone?: Tone
+  time: string
+}
+
+export interface TimeClockState {
+  checkedIn: boolean
+  /** The server's instant. Never re-seed a ticking clock from `new Date()`. */
+  serverNow: string
+  shift: string
+  checkIn: string | null
+  checkOut: string | null
+  hoursToday: number | null
+  canCheckIn: boolean
+  canCheckOut: boolean
+  detail: string | null
+}
+
+export interface DashboardPayload {
+  role: Role
+  greeting: {
+    kicker: string
+    heading: string
+    sub: string
+    cta: { label: string; href: string }
+  }
+  stats: DashboardStat[]
+  chart?: { title: string; sub: string; bars: ChartBar[] }
+  table?: {
+    title: string
+    headers: string[]
+    rows: DashboardTableCell[][]
+    href: string
+  }
+  feed?: DashboardActivityItem[]
+  timeClock?: TimeClockState
+  /** Nav badge counts keyed by nav href. */
+  badges: Record<string, number>
+}
+
 // Payroll, expense and settlement types live in their own file; re-exported
 // here so importers see a single module.
 export * from "./payroll-types"

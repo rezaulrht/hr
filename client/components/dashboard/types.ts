@@ -17,8 +17,19 @@ export type Stat = {
   sub: string
   tag: string
   tone: Tone
-  bars: number[]
-  hotBar: number
+  /**
+   * Absent when the stat has no real history — which is most of them. Only
+   * headcount, payroll totals and attendance rate have anything stored to
+   * draw from; everything else is current-state. Absent means "no series
+   * exists", never "not loaded", and the server sends no array of zeros: a
+   * fake sparkline is worse than none, being indistinguishable from a real
+   * one.
+   */
+  bars?: number[]
+  hotBar?: number
+  href?: string
+  /** This card's query failed. Its siblings still rendered. */
+  failed?: boolean
 }
 
 export type ActivityItem = {
