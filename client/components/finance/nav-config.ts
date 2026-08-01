@@ -11,6 +11,9 @@ export const navGroups: NavGroup[] = [
       { label: "Salary structures", href: "/finance/salary-structures", icon: "RiSettingsLine" },
       { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine" },
       { label: "Settlements", href: "/finance/settlements", icon: "RiReceiptLine" },
+      // Finance is a publisher server-side, so without this entry the
+      // permission would exist and be unreachable from the UI.
+      { label: "Announcements", href: "/finance/announcements", icon: "RiMegaphoneLine" },
     ],
   },
   {

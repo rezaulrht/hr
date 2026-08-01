@@ -91,24 +91,3 @@ export const settings: SubpageData = {
     [{ text: "Accounting sync", sub: "ERP integration", weight: 600 }, { text: "Nightly at 1:00 AM" }, { tag: "Connected", tone: "green" }],
   ],
 }
-
-export const announcements: SubpageData = {
-  kicker: "Communication",
-  title: "Announcements",
-  sub: "Top-down company and team communication",
-  cta: "New announcement",
-  stats: [
-    { label: "This month", value: "4", sub: "3 company-wide · 1 team" },
-    { label: "Read rate", value: "87%", sub: "Last 30 days" },
-    { label: "Scheduled", value: "1", sub: "Aug 1 · payday notice" },
-  ],
-  tableTitle: "Recent announcements",
-  cols: "1.7fr 1fr 1fr 0.8fr",
-  headers: ["Title", "Audience", "Published by", "Date"],
-  rows: [
-    [{ text: "Office closed Aug 3", sub: "Public holiday", weight: 600 }, { text: "All employees" }, { text: "Priya Nair", sub: "HR Admin" }, { text: "Yesterday" }],
-    [{ text: "July payroll timeline", sub: "Payslips land Aug 1", weight: 600 }, { text: "All employees" }, { text: "Marcus Webb", sub: "Finance" }, { text: "Jul 22" }],
-    [{ text: "Sprint 32 demo day", sub: "Friday 3 PM", weight: 600 }, { text: "Product team" }, { text: "Daniel Kim", sub: "Manager" }, { text: "Jul 21" }],
-    [{ text: "New expense policy thresholds", weight: 600 }, { text: "All employees" }, { text: "Noah Bennett", sub: "Super Admin" }, { text: "Jul 10" }],
-  ],
-}
