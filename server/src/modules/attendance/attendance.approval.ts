@@ -28,10 +28,18 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { auditAttendance } from "./attendance.audit"
 import { attendanceBulkDecidedEvent, attendanceDecidedEvent } from "./attendance.events"
-import { resolveShift, shiftInfo } from "./attendance.grid"
+import { effectiveShift, resolveShift, shiftInfo } from "./attendance.grid"
 import { requireEmployeeForUser } from "./attendance.service"
 import { AGING_WARN_DAYS, officeToday } from "./attendance.time"
 import type { ApprovalItem, ExceptionCode } from "./attendance.types"
+
+/** An approved leave covering one record's date, reduced to a window. */
+interface LeaveWindow {
+  /** 1 for a whole day, 0.5 when the record's date is a half boundary. */
+  fraction: number
+  /** Which half the leave covers, when `fraction` is 0.5. */
+  startSession: "FIRST_HALF" | "SECOND_HALF"
+}
 
 export interface EvaluatedDay {
   isLate: boolean
@@ -127,11 +135,18 @@ function agingDays(date: Date): number {
 async function toApprovalItem(
   record: Attendance & { employee: { id: string; fullName: string; employeeCode: string; designation: string; shiftId: string | null } },
   shifts: Shift[],
-  leaveIds: Set<string>,
+  leaveIds: Map<string, LeaveWindow>,
   holidayDates: Map<string, { isHoliday: boolean; override: boolean }>
 ): Promise<ApprovalItem> {
-  const shift = resolveShift({ shiftId: record.employee.shiftId }, record.date, shifts)
   const dateKey = formatDateOnly(record.date)
+  const leave = leaveIds.get(`${record.employeeId}|${dateKey}`)
+  // Narrowed for a half day, so `expectedHours` below is 4.5 rather than 9
+  // and a fully-worked half stops reading as a shortfall.
+  const shift = effectiveShift(
+    resolveShift({ shiftId: record.employee.shiftId }, record.date, shifts),
+    leave?.fraction ?? 0,
+    leave?.startSession ?? "FIRST_HALF"
+  )
   const holiday = holidayDates.get(dateKey)
   const isWeeklyOff = shift.weeklyOffDays.includes(record.date.getUTCDay()) && !holiday?.override
 
@@ -161,7 +176,7 @@ async function toApprovalItem(
       checkOut: record.checkOut,
       workedHours: record.workedHours,
       expectedHours: shiftInfo(shift).expectedHours,
-      onApprovedLeave: leaveIds.has(`${record.employeeId}|${dateKey}`),
+      onApprovedLeave: leave !== undefined,
       isOffDay: (holiday?.isHoliday ?? false) || isWeeklyOff,
       regularisedAt: record.regularisedAt,
       source: record.source,
@@ -207,7 +222,13 @@ export async function listApprovals(
         startDate: { lte: max(dates) },
         endDate: { gte: min(dates) },
       },
-      select: { employeeId: true, startDate: true, endDate: true },
+      select: {
+        employeeId: true,
+        startDate: true,
+        endDate: true,
+        startSession: true,
+        endSession: true,
+      },
     }),
   ])
 
@@ -220,7 +241,10 @@ export async function listApprovals(
     holidayDates.set(key, entry)
   }
 
-  const leaveIds = new Set<string>()
+  // A map rather than a set, because a half-day leave narrows the window the
+  // record is judged against — 4.5 hours worked is a complete day against a
+  // half-day window and a shortfall against a whole one.
+  const leaveIds = new Map<string, LeaveWindow>()
   for (const record of records) {
     for (const leave of leaves) {
       if (
@@ -228,7 +252,23 @@ export async function listApprovals(
         leave.startDate <= record.date &&
         leave.endDate >= record.date
       ) {
-        leaveIds.add(`${record.employeeId}|${formatDateOnly(record.date)}`)
+        const key = formatDateOnly(record.date)
+        let fraction = 1
+        if (key === formatDateOnly(leave.startDate) && leave.startSession === "SECOND_HALF") {
+          fraction -= 0.5
+        }
+        if (key === formatDateOnly(leave.endDate) && leave.endSession === "FIRST_HALF") {
+          fraction -= 0.5
+        }
+        leaveIds.set(`${record.employeeId}|${key}`, {
+          fraction,
+          startSession:
+            fraction === 0.5 &&
+            key === formatDateOnly(leave.startDate) &&
+            leave.startSession === "SECOND_HALF"
+              ? "SECOND_HALF"
+              : "FIRST_HALF",
+        })
       }
     }
   }

@@ -440,3 +440,56 @@ describe("listApprovals", () => {
     expect(await listApprovals(actor("HR_ADMIN"), "PENDING", 1)).toHaveLength(1)
   })
 })
+
+describe("approval queue under a half-day leave", () => {
+  const withLeave = (startSession: "FIRST_HALF" | "SECOND_HALF" | null) => {
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue(
+      startSession === null
+        ? ([] as never)
+        : ([
+            {
+              employeeId: "emp-1",
+              startDate: parseDateOnly("2026-08-03"),
+              endDate: parseDateOnly("2026-08-03"),
+              startSession,
+              endSession: startSession,
+            },
+          ] as never)
+    )
+    vi.mocked(prisma.attendance.findMany).mockResolvedValue([
+      {
+        ...row({
+          date: parseDateOnly("2026-08-03"),
+          // 13:30 to 18:00 Dhaka: a full second half, 4.5 hours.
+          checkIn: new Date("2026-08-03T07:30:00.000Z"),
+          checkOut: new Date("2026-08-03T12:00:00.000Z"),
+          workedHours: 4.5,
+        }),
+        employee: {
+          id: "emp-1",
+          fullName: "Ayesha Rahman",
+          employeeCode: "BS-EMP-DEMO",
+          designation: "Software Engineer",
+          reportingManagerId: "emp-mgr",
+          shiftId: null,
+          joiningDate: parseDateOnly("2024-01-06"),
+          employmentStatus: "ACTIVE",
+        },
+      },
+    ] as never)
+  }
+
+  it("does not raise SHORTFALL for a half day worked in full", async () => {
+    // 4.5 worked looks short against the 9-hour raw shift; against the
+    // 4.5-hour window a first-half leave leaves behind it is a complete day.
+    withLeave("FIRST_HALF")
+    const items = await listApprovals(actor("HR_ADMIN"))
+    expect(items[0].exceptions).not.toContain("SHORTFALL")
+  })
+
+  it("does raise SHORTFALL for the same 4.5 hours with no leave", async () => {
+    withLeave(null)
+    const items = await listApprovals(actor("HR_ADMIN"))
+    expect(items[0].exceptions).toContain("SHORTFALL")
+  })
+})
