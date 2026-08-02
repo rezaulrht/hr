@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
+import type { LeaveSession } from "@/lib/api/types"
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
@@ -89,4 +91,33 @@ export function countLeaveDays(
     cursor.setDate(cursor.getDate() + 1)
   }
   return count
+}
+
+/**
+ * Charged days including the half-day adjustment. Mirrors the server's
+ * `countChargedDays` in `server/src/modules/leave/leave.dates.ts` — keep the
+ * two in step by hand; there is no shared package between client and server
+ * by design.
+ *
+ * Each half only subtracts when its boundary date was actually charged: a
+ * half landing on a Friday or a gazetted holiday must not charge negative.
+ */
+export function countChargedDays(
+  start: Date,
+  end: Date,
+  startSession: LeaveSession,
+  endSession: LeaveSession,
+  options: { countsHolidays?: boolean; calendar?: LeaveCalendar } = {}
+): number {
+  const base = countLeaveDays(start, end, options)
+  if (base === 0) return 0
+
+  const chargeable = (date: Date) =>
+    options.countsHolidays === true ||
+    !isNonWorkingDay(date, options.calendar ?? EMPTY_LEAVE_CALENDAR)
+
+  let days = base
+  if (startSession === "SECOND_HALF" && chargeable(start)) days -= 0.5
+  if (endSession === "FIRST_HALF" && chargeable(end)) days -= 0.5
+  return days
 }

@@ -65,6 +65,22 @@ export type TeamStatus = "ACTIVE" | "ON_LEAVE" | "LEFT"
 
 export type LeaveAccrualBasis = "PRO_RATED" | "PER_EVENT" | "EARNED" | "NONE"
 
+/** Which half of a working day. Mirrors the server's LeaveSession enum. */
+export type LeaveSession = "FIRST_HALF" | "SECOND_HALF"
+
+/**
+ * The shift window a half day is measured against, for one date.
+ *
+ * Per date rather than per employee: a dated shift override (Ramadan hours)
+ * moves the midpoint, so a window cached at login would be wrong for a leave
+ * filed into that window.
+ */
+export interface HalfDayWindow {
+  startTime: string
+  midpoint: string
+  endTime: string
+}
+
 export interface LeaveType {
   id: string
   /** Stable machine key (CASUAL, SICK, EARNED, MATERNITY, LWP, …). */
@@ -87,6 +103,8 @@ export interface LeaveType {
   accrualBasis: LeaveAccrualBasis
   minServiceMonths: number
   maxAccrual: number | null
+  /** Whether a request against this type may be a half day. */
+  allowsHalfDay: boolean
 }
 
 export interface DecidedBy {
@@ -101,6 +119,8 @@ export interface LeaveRequestItem {
   leaveType: { id: string; code: string; name: string; isPaid: boolean }
   startDate: string
   endDate: string
+  startSession: LeaveSession
+  endSession: LeaveSession
   days: number
   reason: string | null
   status: LeaveStatus
@@ -148,6 +168,9 @@ export interface ApplyLeaveInput {
   leaveTypeId: string
   startDate: string
   endDate: string
+  /** Defaulted server-side, so these are only optional to callers. */
+  startSession?: LeaveSession
+  endSession?: LeaveSession
   reason?: string
 }
 
@@ -207,6 +230,16 @@ export interface AttendanceDay {
   approval: AttendanceApproval | null
   source: AttendanceSource | null
   detail: string | null
+  /**
+   * How much of this day is leave: 0, 0.5 or 1. Emitted regardless of
+   * status — a half-day is PRESENT *and* partly leave at the same time.
+   */
+  leaveFraction: number
+  /**
+   * What the unworked portion of a partial-leave day counts as, when nobody
+   * punched. Null when there is no partial leave or an attendance row exists.
+   */
+  unservedStatus: "ABSENT" | "NOT_CHECKED_IN" | null
   regularised: boolean
   corrected: boolean
   attendanceId: string | null
