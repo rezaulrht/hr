@@ -25,9 +25,15 @@ const employee = {
   lastWorkingDay: null,
 }
 
-/** Minimal day-grid entries — only `status` and `date` are read here. */
-function grid(days: Array<{ date: string; status: string }>) {
-  vi.mocked(buildDayGrid).mockResolvedValue(new Map([["emp-1", days as any]]))
+/**
+ * Minimal day-grid entries. `status`, `date` and `leaveFraction` are read —
+ * the fraction because §117 counts days *actually worked*, and a day half
+ * spent on leave is still PRESENT.
+ */
+function grid(days: Array<{ date: string; status: string; leaveFraction?: number }>) {
+  vi.mocked(buildDayGrid).mockResolvedValue(
+    new Map([["emp-1", days.map((d) => ({ leaveFraction: 0, ...d })) as any]])
+  )
 }
 
 beforeEach(() => {
@@ -147,5 +153,36 @@ describe("computeEarnedAccrual", () => {
     const result = await computeEarnedAccrual(employee, parseDateOnly("2026-07-29"), policy)
 
     expect(result).toMatchObject({ days: 2, daysWorked: 40, eligible: true })
+  })
+})
+
+describe("countDaysWorked with half-day leave", () => {
+  it("counts a half-day-leave day as half a day worked", async () => {
+    // §117 measures days *actually worked*. A day half spent on leave bought
+    // half a day of work, and floor(/18) must not round that up to a whole
+    // one — the division absorbs it most of the time, which is exactly why
+    // it would go unnoticed and stay wrong.
+    grid([
+      { date: "2026-07-01", status: "PRESENT", leaveFraction: 0.5 },
+      { date: "2026-07-02", status: "PRESENT" },
+    ])
+
+    const result = await countDaysWorked(
+      employee,
+      parseDateOnly("2026-07-01"),
+      parseDateOnly("2026-07-02")
+    )
+    expect(result.daysWorked).toBe(1.5)
+  })
+
+  it("counts a whole-day-leave day as no work at all", async () => {
+    grid([{ date: "2026-07-01", status: "ON_LEAVE", leaveFraction: 1 }])
+
+    const result = await countDaysWorked(
+      employee,
+      parseDateOnly("2026-07-01"),
+      parseDateOnly("2026-07-01")
+    )
+    expect(result.daysWorked).toBe(0)
   })
 })

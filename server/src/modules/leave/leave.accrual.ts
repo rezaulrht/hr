@@ -86,8 +86,9 @@ export function accruedDays(daysWorked: number, maxAccrual: number | null): numb
  * Days the employee was actually at work in [from, to], plus how much of
  * that window attendance has no opinion about.
  *
- * PRESENT only. Leave, holidays, weekly offs and absences are all days no
- * work was performed, which is exactly what §117 measures against.
+ * The worked *fraction* of PRESENT days. Leave, holidays, weekly offs and
+ * absences are all days no work was performed, which is exactly what §117
+ * measures against — and a day half spent on leave is half such a day.
  */
 export async function countDaysWorked(
   employee: AccrualEmployee,
@@ -103,7 +104,11 @@ export async function countDaysWorked(
   let daysWorked = 0
   let untrackedDays = 0
   for (const day of days) {
-    if (day.status === "PRESENT") daysWorked++
+    // The worked fraction, not the day. A day half spent on leave is still
+    // PRESENT (a check-in beats leave), so counting it whole would buy a full
+    // day of earned leave for half a day of work. `floor(/18)` absorbs this
+    // most of the time, which is exactly why it would go unnoticed.
+    if (day.status === "PRESENT") daysWorked += 1 - day.leaveFraction
     // Only days the person was already employed for. A window reaching back
     // before someone joined is not a gap in the records.
     else if (day.status === "NOT_TRACKED" && day.date >= joined && day.date < goLive) {
