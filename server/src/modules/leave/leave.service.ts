@@ -18,12 +18,15 @@ import {
 import {
   addDays,
   calendarSpan,
-  countLeaveDays,
+  countChargedDays,
   formatDateOnly,
+  isHalfDay,
   MAX_BACKDATE_DAYS,
   parseDateOnly,
   todayUtc,
+  WHOLE_DAY,
   type LeaveCalendar,
+  type LeaveSessions,
 } from "./leave.dates"
 import { leaveEvent } from "./leave.events"
 import { EARNED_LEAVE_DAYS_PER_DAY } from "./leave.policy"
@@ -131,7 +134,14 @@ export async function getBalancesForEmployee(
           lte: new Date(Date.UTC(year, 11, 31)),
         },
       },
-      select: { leaveTypeId: true, status: true, startDate: true, endDate: true },
+      select: {
+        leaveTypeId: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        startSession: true,
+        endSession: true,
+      },
     }),
     loadCalendarForYear(year),
   ])
@@ -156,7 +166,9 @@ export async function getBalancesForEmployee(
         .reduce(
           (total, r) =>
             total +
-            countLeaveDays(r.startDate, r.endDate, {
+            // `r` carries startSession/endSession, so it satisfies
+            // LeaveSessions structurally and is passed straight through.
+            countChargedDays(r.startDate, r.endDate, r, {
               countsHolidays: lt.countsHolidays,
               calendar,
             }),
@@ -202,6 +214,7 @@ export async function listLeaveTypes(): Promise<LeaveTypeItem[]> {
     accrualBasis: t.accrualBasis,
     minServiceMonths: t.minServiceMonths,
     maxAccrual: t.maxAccrual,
+    allowsHalfDay: t.allowsHalfDay,
   }))
 }
 
@@ -230,12 +243,14 @@ const REQUEST_INCLUDE = {
 type IncludedRequest = {
   startDate: Date
   endDate: Date
+  startSession: LeaveSessions["startSession"]
+  endSession: LeaveSessions["endSession"]
   leaveType: { id: string; code: string; name: string; isPaid: boolean; countsHolidays: boolean }
 }
 
 /** Charged days for a stored request, honouring its own type's holiday rule. */
 function chargedDays(request: IncludedRequest, calendar: LeaveCalendar): number {
-  return countLeaveDays(request.startDate, request.endDate, {
+  return countChargedDays(request.startDate, request.endDate, request, {
     countsHolidays: request.leaveType.countsHolidays,
     calendar,
   })
@@ -295,6 +310,8 @@ export async function listLeaveRequests(actor: AccessTokenPayload): Promise<Leav
     leaveType: toLeaveTypeRef(r.leaveType),
     startDate: formatDateOnly(r.startDate),
     endDate: formatDateOnly(r.endDate),
+    startSession: r.startSession,
+    endSession: r.endSession,
     days: chargedDays(r, calendar),
     reason: r.reason,
     status: r.status,
@@ -388,6 +405,16 @@ export async function applyForLeave(
     throw new AppError(400, "That leave type no longer exists")
   }
 
+  // Half days are company policy on top of the Act, gated per type: a §46
+  // maternity benefit is not taken in halves.
+  const sessions: LeaveSessions = {
+    startSession: input.startSession ?? WHOLE_DAY.startSession,
+    endSession: input.endSession ?? WHOLE_DAY.endSession,
+  }
+  if (isHalfDay(sessions) && !leaveType.allowsHalfDay) {
+    throw new AppError(400, `${leaveType.name} leave cannot be taken as a half day`)
+  }
+
   // 3. Backdating
   const today = todayUtc()
   if (start.getTime() < today.getTime()) {
@@ -414,11 +441,11 @@ export async function applyForLeave(
 
   // 5. Must charge at least one day
   const calendar = await loadLeaveCalendar(start, end)
-  const days = countLeaveDays(start, end, {
+  const days = countChargedDays(start, end, sessions, {
     countsHolidays: leaveType.countsHolidays,
     calendar,
   })
-  if (days === 0) {
+  if (days < 0.5) {
     throw new AppError(
       400,
       "That range is entirely weekly holidays and public holidays, so there is nothing to charge"
@@ -477,6 +504,8 @@ export async function applyForLeave(
         leaveTypeId: leaveType.id,
         startDate: start,
         endDate: end,
+        startSession: sessions.startSession,
+        endSession: sessions.endSession,
         reason: input.reason ?? null,
         status: "PENDING",
       },
@@ -504,6 +533,8 @@ export async function applyForLeave(
     leaveType: toLeaveTypeRef(created.leaveType),
     startDate: formatDateOnly(created.startDate),
     endDate: formatDateOnly(created.endDate),
+    startSession: created.startSession,
+    endSession: created.endSession,
     days,
     reason: created.reason,
     status: created.status,
@@ -538,6 +569,8 @@ async function finishDecision(id: string): Promise<LeaveRequestItem> {
     leaveType: toLeaveTypeRef(updated.leaveType),
     startDate: formatDateOnly(updated.startDate),
     endDate: formatDateOnly(updated.endDate),
+    startSession: updated.startSession,
+    endSession: updated.endSession,
     days: chargedDays(updated, calendar),
     reason: updated.reason,
     status: updated.status,
@@ -572,7 +605,7 @@ export async function approveLeaveRequest(
   }
 
   const calendar = await loadLeaveCalendar(found.startDate, found.endDate)
-  const days = countLeaveDays(found.startDate, found.endDate, {
+  const days = countChargedDays(found.startDate, found.endDate, found, {
     countsHolidays: found.leaveType.countsHolidays,
     calendar,
   })
