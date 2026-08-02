@@ -2,6 +2,7 @@ import prisma from "../../config/prisma"
 import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
+import { recomputePunchFlags } from "../attendance/attendance.recompute"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import {
@@ -647,6 +648,11 @@ export async function approveLeaveRequest(
         decisionNote: null,
       },
     })
+    // Punch flags are frozen at capture, so a leave approved after the punch
+    // leaves `isLate` judged against a window that no longer applies. Same
+    // transaction: a recompute that survived a rolled-back approval would
+    // relax flags against leave that was never granted.
+    await recomputePunchFlags(tx, found.employeeId, found.startDate, found.endDate)
     await emitEvent(tx, {
       ...leaveEvent({
         type: "leave.approved",
@@ -763,14 +769,21 @@ export async function revertLeaveRequest(
   if (found.startDate.getTime() <= todayUtc().getTime()) {
     throw new AppError(409, "Leave that has already started cannot be reverted")
   }
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: "CANCELLED",
-      approvedBy: actorUserId,
-      decidedAt: new Date(),
-      decisionNote: note,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        approvedBy: actorUserId,
+        decidedAt: new Date(),
+        decisionNote: note,
+      },
+    })
+    // Un-approving may leave a relaxed flag behind, marking someone on time
+    // against a half-day window they are no longer entitled to. The helper
+    // re-derives from whatever leave is approved *now* — which, after the
+    // update above, no longer includes this request — so it needs no inverse.
+    await recomputePunchFlags(tx, found.employeeId, found.startDate, found.endDate)
   })
   return finishDecision(id)
 }
