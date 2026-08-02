@@ -1,4 +1,4 @@
-import type { NavGroup } from "@/components/dashboard/types"
+﻿import type { NavGroup } from "@/components/dashboard/types"
 
 export const navGroups: NavGroup[] = [
   {
@@ -9,8 +9,11 @@ export const navGroups: NavGroup[] = [
       // Finance authors the pay bands; HR assigns people to them. Sits above
       // Expenses because no run can process until one exists.
       { label: "Salary structures", href: "/finance/salary-structures", icon: "RiSettingsLine" },
-      { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine", badge: 31 },
+      { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine" },
       { label: "Settlements", href: "/finance/settlements", icon: "RiReceiptLine" },
+      // Finance is a publisher server-side, so without this entry the
+      // permission would exist and be unreachable from the UI.
+      { label: "Announcements", href: "/finance/announcements", icon: "RiMegaphoneLine" },
     ],
   },
   {

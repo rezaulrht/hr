@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { announcements } from "@/components/dashboard/shared-pages"
+import { AnnouncementsPage } from "@/components/announcements/announcements-page"
 
-export default function AnnouncementsPage() {
-  return <SubpagePage data={announcements} />
+export default function Page() {
+  return <AnnouncementsPage />
 }

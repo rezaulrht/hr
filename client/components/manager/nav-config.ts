@@ -1,4 +1,4 @@
-import type { NavGroup } from "@/components/dashboard/types"
+﻿import type { NavGroup } from "@/components/dashboard/types"
 
 export const navGroups: NavGroup[] = [
   {
@@ -13,13 +13,13 @@ export const navGroups: NavGroup[] = [
   {
     label: "Reporting",
     items: [
-      { label: "Reports", href: "/manager/reports", icon: "RiBarChartLine", badge: 2 },
+      { label: "Reports", href: "/manager/reports", icon: "RiBarChartLine" },
       { label: "Announcements", href: "/manager/announcements", icon: "RiMegaphoneLine" },
     ],
   },
   {
     // A Reporting Manager is a paid employee who may travel, so they hold a
-    // payslip and expenses of their own. The matrix's ❌ for Manager on
+    // payslip and expenses of their own. The matrix's âŒ for Manager on
     // Payroll means "cannot administer payroll", not "has no payslip".
     label: "Account",
     items: [

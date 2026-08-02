@@ -4,6 +4,10 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     expenseClaim: { create: vi.fn(), update: vi.fn() },
     payrollAudit: { create: vi.fn() },
+    // The event log, written in the same transaction. Distinct from
+    // payrollAudit: one row per user action rather than per record.
+    event: { create: vi.fn() },
+    employee: { findUnique: vi.fn() },
   }
   return {
     default: {
@@ -134,6 +138,11 @@ describe("approveClaim", () => {
       status: "PENDING",
       currency: "USD",
       expenseDate: new Date("2026-07-03T00:00:00.000Z"),
+      // The decision now emits an event naming the claim, so the fixture
+      // carries the fields that line reads.
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(80),
     } as never)
     vi.mocked(prisma.exchangeRate.findMany).mockResolvedValue([julyRate, augustRate] as never)
 
@@ -160,6 +169,9 @@ describe("approveClaim", () => {
       status: "PENDING",
       currency: "BDT",
       expenseDate: new Date("2026-08-03T00:00:00.000Z"),
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(1200),
     } as never)
     await approveClaim("claim-1", "fin-1", {})
     expect(prisma.exchangeRate.findMany).not.toHaveBeenCalled()
@@ -182,12 +194,87 @@ describe("rejectClaim", () => {
     vi.mocked(prisma.expenseClaim.findUnique).mockResolvedValue({
       id: "claim-1",
       status: "PENDING",
+      currency: "BDT",
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(1200),
     } as never)
     await rejectClaim("claim-1", "fin-1", { note: "No receipt attached" })
+    expect(tx.event.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: "expense.rejected", severity: "WARNING" }),
+      })
+    )
     expect(tx.expenseClaim.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: "REJECTED", reviewNote: "No receipt attached" }),
       })
     )
+  })
+})
+
+describe("claim events", () => {
+  const emitted = () => tx.event.create.mock.calls[0][0].data
+
+  it("emits expense.submitted at the subject, their manager and Finance", async () => {
+    vi.mocked(requireEmployeeForUser).mockResolvedValue({ id: "emp-1" } as never)
+    tx.expenseClaim.create.mockResolvedValue({
+      id: "claim-9",
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(1200),
+      currency: "BDT",
+    })
+    tx.employee.findUnique.mockResolvedValue({ reportingManagerId: "emp-mgr" })
+
+    await createClaim({ sub: "user-1" } as never, {
+      amount: 1200,
+      category: "Travel",
+      currency: "BDT",
+      expenseDate: "2026-08-03",
+    } as never)
+
+    expect(emitted()).toMatchObject({
+      type: "expense.submitted",
+      entity: "EXPENSE_CLAIM",
+      entityId: "claim-9",
+      subjectEmployeeId: "emp-1",
+      managerEmployeeId: "emp-mgr",
+      targetRoles: ["FINANCE_OFFICER"],
+    })
+  })
+
+  it("carries the amount, unlike a payslip event", async () => {
+    // A queue of "Travel claim submitted" lines with no figures is a queue
+    // nobody can triage. Salary is a different kind of secret from a fare.
+    vi.mocked(prisma.expenseClaim.findUnique).mockResolvedValue({
+      id: "claim-1",
+      status: "PENDING",
+      currency: "BDT",
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(1200),
+      expenseDate: new Date("2026-08-03T00:00:00.000Z"),
+    } as never)
+
+    await approveClaim("claim-1", "fin-1", {})
+    expect(emitted().meta).toContain("BDT 1200.00")
+    expect(emitted().severity).toBe("SUCCESS")
+  })
+
+  it("writes no event when the transaction rolls back", async () => {
+    vi.mocked(prisma.expenseClaim.findUnique).mockResolvedValue({
+      id: "claim-1",
+      status: "PENDING",
+      currency: "BDT",
+      employeeId: "emp-1",
+      category: "Travel",
+      amount: dec(1200),
+      expenseDate: new Date("2026-08-03T00:00:00.000Z"),
+    } as never)
+    tx.expenseClaim.update.mockRejectedValueOnce(new Error("db down"))
+
+    await expect(approveClaim("claim-1", "fin-1", {})).rejects.toThrow("db down")
+    expect(tx.event.create).not.toHaveBeenCalled()
   })
 })

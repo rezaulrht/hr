@@ -25,7 +25,9 @@ import type { Attendance, AttendanceApproval, Shift } from "../../generated/pris
 import { AppError } from "../../middleware/errorHandler"
 import { formatDateOnly } from "../../utils/dates"
 import type { AccessTokenPayload } from "../auth/auth.types"
+import { emitEvent } from "../event/event.emit"
 import { auditAttendance } from "./attendance.audit"
+import { attendanceBulkDecidedEvent, attendanceDecidedEvent } from "./attendance.events"
 import { resolveShift, shiftInfo } from "./attendance.grid"
 import { requireEmployeeForUser } from "./attendance.service"
 import { AGING_WARN_DAYS, officeToday } from "./attendance.time"
@@ -243,15 +245,23 @@ export async function listApprovals(
 const min = (dates: Date[]) => new Date(Math.min(...dates.map((d) => d.getTime())))
 const max = (dates: Date[]) => new Date(Math.max(...dates.map((d) => d.getTime())))
 
+/**
+ * @param suppressEvent Set by `bulkDecide`, which emits **one** event for the
+ *   whole batch instead. The audit row is written either way — that is the
+ *   entire difference between the two logs, and it is a flag rather than a
+ *   later de-duplication pass because only the caller knows whether this was
+ *   one decision or the fourteenth part of one.
+ */
 async function decideOne(
   actor: AccessTokenPayload,
   id: string,
   decision: "APPROVE" | "REJECT",
-  note?: string
+  note?: string,
+  suppressEvent = false
 ): Promise<void> {
   const record = await prisma.attendance.findUnique({
     where: { id },
-    include: { employee: { select: { reportingManagerId: true } } },
+    include: { employee: { select: { id: true, fullName: true, reportingManagerId: true } } },
   })
   if (!record) throw new AppError(404, "Attendance record not found")
 
@@ -284,6 +294,19 @@ async function decideOne(
       after: { approval: decision === "APPROVE" ? "APPROVED" : "REJECTED" },
       note: note ?? null,
     })
+    if (!suppressEvent) {
+      await emitEvent(
+        tx,
+        attendanceDecidedEvent({
+          attendanceId: id,
+          decision,
+          actorUserId: actor.sub,
+          employee: record.employee,
+          date: record.date,
+          note,
+        })
+      )
+    }
   })
 }
 
@@ -321,7 +344,9 @@ export async function bulkDecide(
   const results: BulkResult[] = []
   for (const id of ids) {
     try {
-      await decideOne(actor, id, decision, note)
+      // Suppressed: the batch gets one event below. Each record still gets
+      // its own audit row from inside `decideOne`.
+      await decideOne(actor, id, decision, note, true)
       results.push({ id, ok: true })
     } catch (err) {
       results.push({
@@ -331,5 +356,27 @@ export async function bulkDecide(
       })
     }
   }
+
+  // Only what actually succeeded. A batch of 14 where 2 were already decided
+  // announces 12, because that is what happened.
+  const decided = results.filter((r) => r.ok).map((r) => r.id)
+  if (decided.length > 0) {
+    const self = await prisma.employee.findUnique({
+      where: { userId: actor.sub },
+      select: { id: true },
+    })
+    await prisma.$transaction((tx) =>
+      emitEvent(
+        tx,
+        attendanceBulkDecidedEvent({
+          attendanceIds: decided,
+          decision,
+          actorUserId: actor.sub,
+          actorEmployeeId: self?.id ?? null,
+        })
+      )
+    )
+  }
+
   return results
 }

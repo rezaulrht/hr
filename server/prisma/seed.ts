@@ -1,6 +1,7 @@
 import "dotenv/config"
 import { PrismaPg } from "@prisma/adapter-pg"
 import {
+  AnnouncementAudience,
   PrismaClient,
   Role,
   type ComponentCalc,
@@ -211,9 +212,66 @@ async function seedSalaryStructures() {
   }
 }
 
+/**
+ * Three announcements covering the three states the read filter produces:
+ * live and company-wide, live and department-scoped, and scheduled.
+ *
+ * The scheduled one is dated a day ahead of the seed run rather than a fixed
+ * date, so it is genuinely in the future whenever the seed happens to be run
+ * — otherwise the behaviour it exists to demonstrate would have expired.
+ *
+ * Matched by title rather than upserted: `Announcement` has no natural key,
+ * and inventing a unique constraint on `title` to make the seed convenient
+ * would forbid HR from ever reusing a subject line.
+ */
+async function seedAnnouncements(hrUserId: string, managerUserId: string) {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
+  const announcements = [
+    {
+      title: "Eid-ul-Azha holiday schedule",
+      body: "The office will be closed from 26 to 29 May. Payroll for May is unaffected and will be disbursed on the usual date.",
+      publishedBy: hrUserId,
+      audience: AnnouncementAudience.ALL,
+      publishedAt: new Date(),
+    },
+    {
+      title: "Engineering: sprint demo moved to Thursday",
+      body: "This week's demo moves to Thursday 15:00 to avoid the release window.",
+      publishedBy: managerUserId,
+      audience: AnnouncementAudience.DEPARTMENT,
+      departmentName: "Engineering",
+      publishedAt: new Date(),
+    },
+    {
+      title: "Annual appraisal window opens",
+      body: "Self-assessments open tomorrow and close at the end of the month.",
+      publishedBy: hrUserId,
+      audience: AnnouncementAudience.ALL,
+      // Invisible to everyone but its publisher until the clock passes it,
+      // with no job running and no second write.
+      publishedAt: tomorrow,
+    },
+  ]
+
+  for (const { departmentName, ...announcement } of announcements) {
+    const existing = await prisma.announcement.findFirst({
+      where: { title: announcement.title },
+      select: { id: true },
+    })
+    if (existing) continue
+
+    const departmentId = departmentName
+      ? (await prisma.department.findUniqueOrThrow({ where: { name: departmentName } })).id
+      : null
+
+    await prisma.announcement.create({ data: { ...announcement, departmentId } })
+  }
+}
+
 async function main() {
   const superAdmin = await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
-  await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
+  const hrAdmin = await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
   await seedAdminUser("finance@demo.com", Role.FINANCE_OFFICER)
 
   const departments = ["Engineering", "People Operations", "Finance", "Operations"]
@@ -343,6 +401,8 @@ async function main() {
     reportingManagerId: manager.id,
     salaryStructureId: bdtStructure.id,
   })
+
+  await seedAnnouncements(hrAdmin.id, manager.userId)
 
   console.log("Seed complete. All demo logins use the password: Demo@12345\n")
   console.log("Administrative roles sign in with an EMAIL:")

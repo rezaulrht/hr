@@ -10,11 +10,22 @@ export function StatCard({ stat }: { stat: Stat }) {
       </div>
       <div className="flex items-end justify-between gap-2.5">
         <div>
-          <div className="font-heading text-2xl font-bold tracking-tight whitespace-nowrap">{stat.value}</div>
+          <div
+            className={`font-heading text-2xl font-bold tracking-tight whitespace-nowrap ${
+              // Muted, so a card that could not load is visibly not a number
+              // sitting next to three that are.
+              stat.failed ? "text-[#A6AEBB]" : ""
+            }`}
+          >
+            {stat.value}
+          </div>
           <div className="mt-0.5 text-xs text-[#7A8698]">{stat.sub}</div>
         </div>
-        <div className="flex h-7.5 shrink-0 items-end gap-0.5">
-          {stat.bars.map((h, i) => (
+        {/* The slot keeps its width whether or not there is a series, so a
+            grid of four cards does not reflow when one has a sparkline and
+            three do not. */}
+        <div className="flex h-7.5 w-13 shrink-0 items-end justify-end gap-0.5">
+          {stat.bars?.map((h, i) => (
             <div
               key={i}
               className="w-1.5 rounded-sm"

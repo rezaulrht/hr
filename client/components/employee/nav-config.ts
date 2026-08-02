@@ -1,4 +1,4 @@
-import type { NavGroup } from "@/components/dashboard/types"
+﻿import type { NavGroup } from "@/components/dashboard/types"
 
 export const navGroups: NavGroup[] = [
   {
@@ -6,9 +6,9 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/employee", icon: "RiDashboardLine" },
       { label: "Attendance", href: "/employee/attendance", icon: "RiTimeLine" },
-      { label: "Leave", href: "/employee/leave", icon: "RiCalendarEventLine", badge: 1 },
+      { label: "Leave", href: "/employee/leave", icon: "RiCalendarEventLine" },
       { label: "Payroll", href: "/employee/payroll", icon: "RiWallet3Line" },
-      { label: "Expenses", href: "/employee/expenses", icon: "RiReceiptLine", badge: 2 },
+      { label: "Expenses", href: "/employee/expenses", icon: "RiReceiptLine" },
     ],
   },
   {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("../../config/prisma", () => ({
-  default: {
+vi.mock("../../config/prisma", () => {
+  const client = {
     leaveType: { findMany: vi.fn(), findUnique: vi.fn() },
     leaveRequest: {
       findMany: vi.fn(),
@@ -19,8 +19,17 @@ vi.mock("../../config/prisma", () => ({
     // global beforeEach — without that, every existing approval test hits an
     // unmocked table.
     payrollRun: { findUnique: vi.fn() },
-  },
-}))
+    // The event log. Every lifecycle change now writes one row inside the
+    // same transaction as the change itself.
+    event: { create: vi.fn() },
+    // Hands the callback the same mocked client, so assertions written
+    // against `prisma.leaveRequest.update` keep working now that the call
+    // goes through a `tx`.
+    $transaction: vi.fn(),
+  }
+  client.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(client))
+  return { default: client }
+})
 
 // Earned-leave accrual is derived from the attendance day grid. These tests
 // are about leave policy, not about attendance, so the grid is stubbed and
@@ -650,6 +659,7 @@ describe("applyForLeave validation", () => {
 describe("leave decisions", () => {
   const casual = {
     id: "lt-1",
+    code: "CASUAL",
     name: "Annual",
     isPaid: true,
     annualQuota: 18,
@@ -657,6 +667,7 @@ describe("leave decisions", () => {
   }
   const employee = {
     id: "emp-1",
+    fullName: "Ayesha Rahman",
     employmentType: "FULL_TIME",
     joiningDate: parseDateOnly("2020-01-01"),
   }
@@ -671,8 +682,12 @@ describe("leave decisions", () => {
       employeeId: "emp-1",
       leaveTypeId: "lt-1",
       status: "PENDING",
-      startDate: parseDateOnly(futureDate(10)),
-      endDate: parseDateOnly(futureDate(12)),
+      // Fixed, not `futureDate(...)`: a relative window silently straddles the
+      // Friday weekly-off on some run dates, charging 2 days instead of 3 and
+      // failing an assertion that is about event payloads, not day counting.
+      // Mon 2026-09-07 to Wed 2026-09-09 contains no weekly off.
+      startDate: parseDateOnly("2026-09-07"),
+      endDate: parseDateOnly("2026-09-09"),
       reason: null,
       approvedBy: null,
       decidedAt: null,
@@ -838,6 +853,142 @@ describe("leave decisions", () => {
     vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
     await expect(revertLeaveRequest("req-1", "hr-1", "nope")).rejects.toMatchObject({
       statusCode: 409,
+    })
+  })
+
+  describe("events", () => {
+    /** The single `create` argument the emit produced. */
+    const emitted = () => vi.mocked(prisma.event.create).mock.calls[0][0].data as any
+
+    beforeEach(() => {
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    })
+
+    it("emits leave.requested when a request is filed", async () => {
+      vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+        ...casual,
+        ...PRO_RATED,
+      } as any)
+      vi.mocked(prisma.leaveRequest.create).mockResolvedValue({
+        id: "req-9",
+        startDate: parseDateOnly(futureDate(10)),
+        endDate: parseDateOnly(futureDate(12)),
+        reason: null,
+        status: "PENDING",
+        createdAt: new Date(),
+        employee: { id: "emp-1", fullName: "Ayesha Rahman", employeeCode: "BS-EMP-1" },
+        leaveType: casual,
+      } as any)
+
+      await applyForLeave("user-1", {
+        leaveTypeId: "lt-1",
+        startDate: futureDate(10),
+        endDate: futureDate(12),
+      } as any)
+
+      expect(emitted()).toMatchObject({
+        type: "leave.requested",
+        severity: "INFO",
+        entity: "LEAVE_REQUEST",
+        entityId: "req-9",
+        subjectEmployeeId: "emp-1",
+        targetRoles: ["HR_ADMIN"],
+        actorUserId: "user-1",
+      })
+    })
+
+    it("emits leave.approved as SUCCESS, with the strings frozen", async () => {
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      await approveLeaveRequest("req-1", "hr-1")
+
+      const event = emitted()
+      expect(event.type).toBe("leave.approved")
+      expect(event.severity).toBe("SUCCESS")
+      // Frozen at emit, so the row still reads correctly after the type is
+      // renamed or the request is deleted.
+      expect(event.title).toBe("Annual leave approved")
+      // The name is in `meta` because the same row is read by the employee,
+      // their manager and HR.
+      expect(event.meta).toContain("Ayesha Rahman")
+      // The facts behind the strings, so a later email template does not
+      // have to parse `title` back apart.
+      expect(event.payload).toMatchObject({ leaveTypeCode: "CASUAL", status: "APPROVED", days: 3 })
+    })
+
+    it("emits leave.rejected as WARNING, not ERROR", async () => {
+      // A rejection is a decision, not a fault.
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      await rejectLeaveRequest("req-1", "hr-1", "Not enough cover")
+
+      expect(emitted()).toMatchObject({ type: "leave.rejected", severity: "WARNING" })
+    })
+
+    it("emits leave.cancelled when the requester withdraws", async () => {
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      await cancelLeaveRequest("req-1", "user-1")
+
+      expect(emitted()).toMatchObject({ type: "leave.cancelled", actorUserId: "user-1" })
+    })
+
+    it("writes the event inside the same transaction as the update", async () => {
+      // Not two calls that happen to both succeed: an event surviving a
+      // rolled-back update would tell a manager to review something that
+      // does not exist.
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      await approveLeaveRequest("req-1", "hr-1")
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(prisma.leaveRequest.update).toHaveBeenCalled()
+      expect(prisma.event.create).toHaveBeenCalled()
+    })
+
+    it("writes no event when the transaction rolls back", async () => {
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      vi.mocked(prisma.leaveRequest.update).mockRejectedValueOnce(new Error("db down"))
+
+      await expect(approveLeaveRequest("req-1", "hr-1")).rejects.toThrow("db down")
+      expect(prisma.event.create).not.toHaveBeenCalled()
+    })
+
+    it("emits with a null manager for a subject who has none", async () => {
+      // The CEO filing leave is not an error.
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue({
+        reportingManagerId: null,
+      } as any)
+
+      await approveLeaveRequest("req-1", "hr-1")
+      expect(emitted().managerEmployeeId).toBeNull()
+    })
+
+    it("freezes the manager resolved at emit onto the row", async () => {
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(pendingRequest() as any)
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue({
+        reportingManagerId: "emp-mgr",
+      } as any)
+
+      await approveLeaveRequest("req-1", "hr-1")
+      expect(emitted().managerEmployeeId).toBe("emp-mgr")
+    })
+
+    it("emits nothing when a request is reverted", async () => {
+      // A deliberate gap: "your approved leave was un-approved" needs a
+      // wording decision, not a mechanical mapping of the other four.
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+        pendingRequest({ status: "APPROVED" }) as any
+      )
+      await revertLeaveRequest("req-1", "hr-1", "Approved by mistake")
+      expect(prisma.event.create).not.toHaveBeenCalled()
+    })
+
+    it("does not put the word leave in twice for Leave Without Pay", async () => {
+      vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+        pendingRequest({
+          leaveType: { ...casual, name: "Leave Without Pay", isPaid: false },
+        }) as any
+      )
+      await approveLeaveRequest("req-1", "hr-1")
+      expect(emitted().title).toBe("Leave Without Pay approved")
     })
   })
 })

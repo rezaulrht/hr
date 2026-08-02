@@ -1,9 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../config/prisma", () => {
   const tx = {
     attendance: { update: vi.fn(), create: vi.fn() },
     attendanceAudit: { create: vi.fn() },
+    // The event log, written in the same transaction as the change. Distinct
+    // from `attendanceAudit`: one row per user action rather than per record.
+    event: { create: vi.fn() },
+    employee: { findUnique: vi.fn() },
   }
   return {
     default: {
@@ -45,7 +49,7 @@ const GENERAL: Shift = {
   effectiveTo: null,
 }
 
-const EMPLOYEE = { id: "emp-1", userId: "user-1", shiftId: null }
+const EMPLOYEE = { id: "emp-1", userId: "user-1", fullName: "Ayesha Rahman", shiftId: null }
 
 function row(over: Partial<Attendance> = {}): Attendance {
   return {
@@ -212,7 +216,7 @@ describe("correctAttendance", () => {
     // send it to somebody who has already been overruled.
     vi.mocked(prisma.attendance.findUnique).mockResolvedValue({
       ...row(),
-      employee: { id: "emp-1", shiftId: null },
+      employee: { id: "emp-1", fullName: "Ayesha Rahman", shiftId: null },
     } as never)
 
     const result = await correctAttendance(actor("HR_ADMIN"), "att-1", {
@@ -244,7 +248,7 @@ describe("correctAttendance", () => {
     // the latest edit, and the dispute is always about the value before.
     vi.mocked(prisma.attendance.findUnique).mockResolvedValue({
       ...row({ checkOut: new Date("2026-08-12T12:00:00.000Z"), workedHours: 8.92 }),
-      employee: { id: "emp-1", shiftId: null },
+      employee: { id: "emp-1", fullName: "Ayesha Rahman", shiftId: null },
     } as never)
 
     await correctAttendance(actor("HR_ADMIN"), "att-1", { checkOut: "18:30", note: "Second fix" })
@@ -307,8 +311,81 @@ describe("createManualAttendance", () => {
   })
 })
 
+describe("correction events", () => {
+  const emitted = () => tx.event.create.mock.calls[0][0].data
+
+  it("emits attendance.regularised as WARNING when the employee amends their own day", async () => {
+    // WARNING because the time came from the person it benefits — the
+    // approver has to see that before signing it off.
+    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row())
+    await regulariseAttendance("user-1", "att-1", { checkOut: "18:05", note: "Forgot to tap out" })
+
+    expect(emitted()).toMatchObject({
+      type: "attendance.regularised",
+      severity: "WARNING",
+      entity: "ATTENDANCE",
+      entityId: "att-1",
+      subjectEmployeeId: "emp-1",
+      targetRoles: ["HR_ADMIN"],
+      title: "Attendance amended, awaiting approval",
+      meta: "Ayesha Rahman · Aug 12",
+    })
+  })
+
+  it("emits attendance.corrected when HR edits somebody else's record", async () => {
+    vi.mocked(prisma.attendance.findUnique).mockResolvedValue({
+      ...row(),
+      employee: { id: "emp-1", fullName: "Ayesha Rahman", shiftId: null },
+    } as never)
+
+    await correctAttendance(actor("HR_ADMIN"), "att-1", { checkOut: "18:00", note: "Confirmed" })
+    expect(emitted()).toMatchObject({
+      type: "attendance.corrected",
+      subjectEmployeeId: "emp-1",
+      actorUserId: "user-hr",
+      title: "Attendance corrected by HR",
+    })
+  })
+
+  it("emits attendance.corrected when HR manufactures a record", async () => {
+    // An employee who is never told HR created an attendance record for them
+    // is exactly the employee who should be able to query it.
+    await createManualAttendance(actor("HR_ADMIN"), {
+      employeeId: "emp-1",
+      date: "2026-08-12",
+      checkIn: "09:00",
+      checkOut: "18:00",
+      note: "Field visit",
+    })
+
+    expect(emitted()).toMatchObject({
+      type: "attendance.corrected",
+      subjectEmployeeId: "emp-1",
+      meta: "Ayesha Rahman · Aug 12",
+    })
+  })
+
+  it("writes exactly one audit row and one event per correction", async () => {
+    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row())
+    await regulariseAttendance("user-1", "att-1", { checkOut: "18:05", note: "x" })
+
+    expect(tx.attendanceAudit.create).toHaveBeenCalledTimes(1)
+    expect(tx.event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("writes no event when the correction transaction rolls back", async () => {
+    vi.mocked(prisma.attendance.findUnique).mockResolvedValue(row())
+    tx.attendance.update.mockRejectedValueOnce(new Error("db down"))
+
+    await expect(
+      regulariseAttendance("user-1", "att-1", { checkOut: "18:05", note: "x" })
+    ).rejects.toThrow("db down")
+    expect(tx.event.create).not.toHaveBeenCalled()
+  })
+})
+
 describe("getAuditTrail", () => {
-  it("403s for anyone but HR — it names who changed what", async () => {
+  it("403s for anyone but HR â€” it names who changed what", async () => {
     vi.mocked(prisma.attendance.findUnique).mockResolvedValue({ id: "att-1" } as never)
     await expect(getAuditTrail(actor("REPORTING_MANAGER"), "att-1")).rejects.toMatchObject({
       statusCode: 403,

@@ -8,7 +8,9 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
 import { parseDateOnly } from "../../utils/dates"
+import { emitEvent } from "../event/event.emit"
 import { auditPayroll } from "../payroll/payroll.audit"
+import { expenseEvent } from "./expense.events"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { dec, toMoneyString } from "../payroll/payroll.money"
 import type {
@@ -72,6 +74,18 @@ export async function createClaim(actor: AccessTokenPayload, body: CreateClaimBo
         expenseDate: body.expenseDate,
       },
     })
+    await emitEvent(
+      tx,
+      expenseEvent({
+        stage: "submitted",
+        claimId: claim.id,
+        employeeId: claim.employeeId,
+        category: claim.category,
+        amount: toMoneyString(claim.amount),
+        currency: claim.currency,
+        actorUserId: actor.sub,
+      })
+    )
     return claim
   })
 }
@@ -132,6 +146,19 @@ export async function approveClaim(id: string, actorUserId: string, body: Approv
       after: { status: "APPROVED", fxRateToBdt: fxRateToBdt.toFixed(6) },
       note: body.note,
     })
+    await emitEvent(
+      tx,
+      expenseEvent({
+        stage: "approved",
+        claimId: id,
+        employeeId: claim.employeeId,
+        category: claim.category,
+        amount: toMoneyString(claim.amount),
+        currency: claim.currency,
+        actorUserId: actorUserId,
+        note: body.note,
+      })
+    )
     return updated
   })
 }
@@ -161,6 +188,19 @@ export async function rejectClaim(id: string, actorUserId: string, body: RejectC
       after: { status: "REJECTED" },
       note: body.note,
     })
+    await emitEvent(
+      tx,
+      expenseEvent({
+        stage: "rejected",
+        claimId: id,
+        employeeId: claim.employeeId,
+        category: claim.category,
+        amount: toMoneyString(claim.amount),
+        currency: claim.currency,
+        actorUserId,
+        note: body.note,
+      })
+    )
     return updated
   })
 }

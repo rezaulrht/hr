@@ -4,6 +4,10 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     attendance: { update: vi.fn() },
     attendanceAudit: { create: vi.fn() },
+    // The event log, written in the same transaction as the change. Distinct
+    // from `attendanceAudit`: one row per user action rather than per record.
+    event: { create: vi.fn() },
+    employee: { findUnique: vi.fn() },
   }
   return {
     default: {
@@ -271,6 +275,101 @@ describe("bulkDecide", () => {
       { id: "b", ok: false, error: "Attendance record not found" },
       { id: "c", ok: true },
     ])
+  })
+})
+
+/**
+ * The acceptance tests for the whole event/audit separation. Either count
+ * alone permits the bug, so both are asserted in the same test.
+ */
+describe("one event per action, N audit rows per record", () => {
+  const employee = { id: "emp-1", fullName: "Ayesha Rahman", reportingManagerId: "emp-mgr" }
+
+  beforeEach(() => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr" } as never)
+    vi.mocked(prisma.attendance.findUnique).mockResolvedValue({ ...row(), employee } as never)
+    tx.employee.findUnique.mockResolvedValue({ reportingManagerId: "emp-mgr" })
+  })
+
+  it("writes 14 audit rows and exactly 1 event for a batch of 14", async () => {
+    // A fortnight for a team, approved in one click. 14 notifications for one
+    // action would train everyone to ignore the feed.
+    const ids = Array.from({ length: 14 }, (_, i) => `att-${i}`)
+
+    await bulkDecide(actor("REPORTING_MANAGER"), ids, "APPROVE")
+
+    expect(tx.attendanceAudit.create).toHaveBeenCalledTimes(14)
+    expect(tx.event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("writes 1 audit row and 1 event for a single decision", async () => {
+    await approveAttendance(actor("REPORTING_MANAGER"), "att-1")
+
+    expect(tx.attendanceAudit.create).toHaveBeenCalledTimes(1)
+    expect(tx.event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps every id in the bulk event's payload, so the detail is recoverable", async () => {
+    const ids = Array.from({ length: 14 }, (_, i) => `att-${i}`)
+    await bulkDecide(actor("REPORTING_MANAGER"), ids, "APPROVE")
+
+    const data = tx.event.create.mock.calls[0][0].data
+    expect(data.type).toBe("attendance.bulk_decided")
+    expect(data.payload.attendanceIds).toEqual(ids)
+    expect(data.payload.count).toBe(14)
+    expect(data.title).toBe("Approved 14 attendance records")
+  })
+
+  it("announces only what actually succeeded", async () => {
+    // A batch of 3 where one was already decided announces 2, because that
+    // is what happened.
+    vi.mocked(prisma.attendance.findUnique)
+      .mockReset()
+      .mockResolvedValueOnce({ ...row(), employee } as never)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...row(), employee } as never)
+
+    await bulkDecide(actor("REPORTING_MANAGER"), ["a", "b", "c"], "APPROVE")
+
+    const data = tx.event.create.mock.calls[0][0].data
+    expect(data.payload.attendanceIds).toEqual(["a", "c"])
+    expect(data.title).toBe("Approved 2 attendance records")
+  })
+
+  it("emits nothing when every id in the batch failed", async () => {
+    vi.mocked(prisma.attendance.findUnique).mockReset().mockResolvedValue(null)
+
+    await bulkDecide(actor("REPORTING_MANAGER"), ["a", "b"], "APPROVE")
+    expect(tx.event.create).not.toHaveBeenCalled()
+  })
+
+  it("files the bulk event against the acting manager, which is its only audience", async () => {
+    // A batch has no single subject, so there is no reporting line for
+    // emitEvent to resolve — the manager id is passed explicitly.
+    await bulkDecide(actor("REPORTING_MANAGER"), ["a"], "APPROVE")
+
+    const data = tx.event.create.mock.calls[0][0].data
+    expect(data.managerEmployeeId).toBe("emp-mgr")
+    expect(data.subjectEmployeeId).toBeNull()
+    expect(data.targetRoles).toEqual(["HR_ADMIN"])
+  })
+
+  it("names the employee and the date on a single decision", async () => {
+    await rejectAttendance(actor("REPORTING_MANAGER"), "att-1", "Not authorised")
+
+    const data = tx.event.create.mock.calls[0][0].data
+    expect(data.type).toBe("attendance.decided")
+    expect(data.severity).toBe("WARNING")
+    expect(data.title).toBe("Attendance rejected")
+    expect(data.meta).toBe("Ayesha Rahman · Aug 3")
+    expect(data.subjectEmployeeId).toBe("emp-1")
+  })
+
+  it("writes no event when the decision transaction rolls back", async () => {
+    tx.attendance.update.mockRejectedValueOnce(new Error("db down"))
+
+    await expect(approveAttendance(actor("REPORTING_MANAGER"), "att-1")).rejects.toThrow("db down")
+    expect(tx.event.create).not.toHaveBeenCalled()
   })
 })
 

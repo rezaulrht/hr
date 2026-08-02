@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { Button } from "@/components/ui/button"
 
 export function HeroBanner({
@@ -5,11 +7,14 @@ export function HeroBanner({
   heading,
   sub,
   cta,
+  ctaHref,
 }: {
   kicker: string
   heading: string
   sub: string
   cta: string
+  /** When given, the CTA navigates. Without it the button is decorative. */
+  ctaHref?: string
 }) {
   const todayLong = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -33,9 +38,19 @@ export function HeroBanner({
             {todayLong} · {sub}
           </div>
         </div>
-        <Button className="h-auto rounded-md bg-white px-4 py-2.5 text-[13px] font-bold text-[#17191C] hover:bg-[#ECEEF1]">
-          {cta}
-        </Button>
+        {/* `Button` here has no `asChild`, so the link wraps it rather than
+            replacing it. */}
+        {ctaHref ? (
+          <Link href={ctaHref}>
+            <Button className="h-auto rounded-md bg-white px-4 py-2.5 text-[13px] font-bold text-[#17191C] hover:bg-[#ECEEF1]">
+              {cta}
+            </Button>
+          </Link>
+        ) : (
+          <Button className="h-auto rounded-md bg-white px-4 py-2.5 text-[13px] font-bold text-[#17191C] hover:bg-[#ECEEF1]">
+            {cta}
+          </Button>
+        )}
       </div>
     </div>
   )

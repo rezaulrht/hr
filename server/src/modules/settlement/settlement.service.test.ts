@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     settlement: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    expenseClaim: { updateMany: vi.fn() },
+    expenseClaim: { updateMany: vi.fn(), findMany: vi.fn(async () => []) },
     idCounter: { upsert: vi.fn() },
     payrollAudit: { create: vi.fn() },
-    employee: { update: vi.fn() },
+    // The event log, written in the same transaction. Distinct from
+    // payrollAudit: one row per user action rather than per record.
+    event: { create: vi.fn() },
+    employee: { update: vi.fn(), findUnique: vi.fn() },
   }
   return {
     default: {
@@ -87,8 +90,21 @@ beforeEach(() => {
   vi.mocked(prisma.expenseClaim.findMany).mockResolvedValue([])
   vi.mocked(getMonthlySummary).mockResolvedValue([summaryFor()])
   tx.idCounter.upsert.mockImplementation(async () => ({ id: "STL", value: ++counter }))
-  tx.settlement.create.mockImplementation(async ({ data }: any) => ({ id: "stl-1", ...data }))
-  tx.settlement.update.mockImplementation(async ({ data }: any) => ({ id: "stl-1", ...data }))
+  // `employee` and `settlementNo` ride along because every write is followed
+  // by an event that names the leaver — the include is real, so the fake
+  // has to carry it.
+  const included = { employee: { id: "emp-1", fullName: "Tanvir Hasan" }, settlementNo: "BS-STL-000001" }
+  tx.settlement.create.mockImplementation(async ({ data }: any) => ({
+    id: "stl-1",
+    ...included,
+    ...data,
+  }))
+  tx.settlement.update.mockImplementation(async ({ data }: any) => ({
+    id: "stl-1",
+    employeeId: "emp-1",
+    ...included,
+    ...data,
+  }))
 })
 
 afterEach(() => {
@@ -233,6 +249,59 @@ describe("paySettlement", () => {
   it("is terminal — 409s a settlement already paid", async () => {
     vi.mocked(prisma.settlement.findUnique).mockResolvedValue({ id: "stl-1", status: "PAID" } as never)
     await expect(paySettlement("stl-1", "fin-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+})
+
+describe("settlement events", () => {
+  const emitted = () => tx.event.create.mock.calls.map((c: any) => c[0].data)
+
+  it("emits settlement.calculated at Finance and Super Admin", async () => {
+    await calculateSettlement("emp-1", "fin-1")
+    expect(emitted()[0]).toMatchObject({
+      type: "settlement.calculated",
+      entity: "SETTLEMENT",
+      subjectEmployeeId: "emp-1",
+      targetRoles: ["FINANCE_OFFICER", "SUPER_ADMIN"],
+      title: "Final settlement calculated",
+    })
+  })
+
+  it("names no figure, and resolves no manager", async () => {
+    // A settlement figure is the most sensitive number this system holds —
+    // somebody's exit, often a contested one. The leaver's manager has no
+    // part in the workflow either.
+    await calculateSettlement("emp-1", "fin-1")
+    const event = emitted()[0]
+    // The leaver and the reference, and nothing else. `payload` carries the
+    // settlementNo too, and deliberately not finalAmount.
+    expect(event.meta).toBe("Tanvir Hasan · BS-STL-000001")
+    expect(JSON.stringify(event)).not.toContain("finalAmount")
+    expect(event.payload).toEqual({ stage: "calculated", settlementNo: "BS-STL-000001" })
+    expect(event.managerEmployeeId).toBeNull()
+    expect(tx.employee.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("emits settlement.approved as WARNING — somebody now has to pay it", async () => {
+    vi.mocked(prisma.settlement.findUnique).mockResolvedValue({
+      id: "stl-1",
+      status: "DRAFT",
+      calculatedBy: "fin-1",
+    } as never)
+    await approveSettlement("stl-1", "admin-1")
+    expect(emitted()[0]).toMatchObject({ type: "settlement.approved", severity: "WARNING" })
+  })
+
+  it("emits one expense.reimbursed per swept claim, then settlement.paid", async () => {
+    vi.mocked(prisma.settlement.findUnique).mockResolvedValue({
+      id: "stl-1",
+      status: "APPROVED",
+    } as never)
+    tx.expenseClaim.findMany.mockResolvedValue([
+      { id: "claim-1", employeeId: "emp-1", category: "Travel", amount: dec(1200), currency: "BDT" },
+    ])
+
+    await paySettlement("stl-1", "fin-1")
+    expect(emitted().map((e: any) => e.type)).toEqual(["expense.reimbursed", "settlement.paid"])
   })
 })
 

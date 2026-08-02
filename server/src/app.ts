@@ -6,10 +6,13 @@ import morgan from "morgan"
 
 import { env } from "./config/env"
 import { errorHandler } from "./middleware/errorHandler"
+import announcementRoutes from "./modules/announcement/announcement.routes"
 import attendanceRoutes from "./modules/attendance/attendance.routes"
 import authRoutes from "./modules/auth/auth.routes"
 import userRoutes from "./modules/auth/user.routes"
+import dashboardRoutes from "./modules/dashboard/dashboard.routes"
 import departmentRoutes from "./modules/department/department.routes"
+import eventRoutes from "./modules/event/event.routes"
 import expenseRoutes from "./modules/expense/expense.routes"
 import employeeRoutes from "./modules/employee/employee.routes"
 import leaveRoutes from "./modules/leave/leave.routes"
@@ -42,6 +45,9 @@ app.use("/api/attendance", attendanceRoutes)
 app.use("/api/payroll", payrollRoutes)
 app.use("/api/expenses", expenseRoutes)
 app.use("/api/settlements", settlementRoutes)
+app.use("/api/announcements", announcementRoutes)
+app.use("/api/events", eventRoutes)
+app.use("/api/dashboard", dashboardRoutes)
 
 app.use(errorHandler)
 

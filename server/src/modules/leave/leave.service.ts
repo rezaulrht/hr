@@ -3,6 +3,7 @@ import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import type { AccessTokenPayload } from "../auth/auth.types"
+import { emitEvent } from "../event/event.emit"
 import {
   computeEarnedAccrual,
   completedServiceMonths,
@@ -24,6 +25,7 @@ import {
   todayUtc,
   type LeaveCalendar,
 } from "./leave.dates"
+import { leaveEvent } from "./leave.events"
 import { EARNED_LEAVE_DAYS_PER_DAY } from "./leave.policy"
 import type {
   AccrualDetail,
@@ -465,16 +467,35 @@ export async function applyForLeave(
     }
   }
 
-  const created = await prisma.leaveRequest.create({
-    data: {
-      employeeId: employee.id,
-      leaveTypeId: leaveType.id,
-      startDate: start,
-      endDate: end,
-      reason: input.reason ?? null,
-      status: "PENDING",
-    },
-    include: REQUEST_INCLUDE,
+  // The request and its event commit together. An event that survives a
+  // rolled-back create would tell a manager to review something that does
+  // not exist.
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.leaveRequest.create({
+      data: {
+        employeeId: employee.id,
+        leaveTypeId: leaveType.id,
+        startDate: start,
+        endDate: end,
+        reason: input.reason ?? null,
+        status: "PENDING",
+      },
+      include: REQUEST_INCLUDE,
+    })
+
+    await emitEvent(tx, {
+      ...leaveEvent({
+        type: "leave.requested",
+        verb: "requested",
+        actorUserId: userId,
+        request: row,
+        leaveType,
+        employee: { id: employee.id, fullName: row.employee.fullName },
+        days,
+      }),
+    })
+
+    return row
   })
 
   return {
@@ -583,9 +604,28 @@ export async function approveLeaveRequest(
     }
   }
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: { status: "APPROVED", approvedBy: actorUserId, decidedAt: new Date(), decisionNote: null },
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "APPROVED",
+        approvedBy: actorUserId,
+        decidedAt: new Date(),
+        decisionNote: null,
+      },
+    })
+    await emitEvent(tx, {
+      ...leaveEvent({
+        type: "leave.approved",
+        verb: "approved",
+        severity: "SUCCESS",
+        actorUserId,
+        request: { ...found, status: "APPROVED" },
+        leaveType: found.leaveType,
+        employee: found.employee,
+        days,
+      }),
+    })
   })
   return finishDecision(id)
 }
@@ -599,9 +639,32 @@ export async function rejectLeaveRequest(
   if (found.status !== "PENDING") {
     throw new AppError(409, `This request is already ${found.status.toLowerCase()}`)
   }
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: { status: "REJECTED", approvedBy: actorUserId, decidedAt: new Date(), decisionNote: note },
+  const days = chargedDays(found, await loadLeaveCalendar(found.startDate, found.endDate))
+
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "REJECTED",
+        approvedBy: actorUserId,
+        decidedAt: new Date(),
+        decisionNote: note,
+      },
+    })
+    await emitEvent(tx, {
+      ...leaveEvent({
+        type: "leave.rejected",
+        verb: "rejected",
+        // WARNING, not ERROR: a rejection is a decision, not a fault. ERROR
+        // would put a red badge on a manager doing their job.
+        severity: "WARNING",
+        actorUserId,
+        request: { ...found, status: "REJECTED" },
+        leaveType: found.leaveType,
+        employee: found.employee,
+        days,
+      }),
+    })
   })
   return finishDecision(id)
 }
@@ -627,13 +690,34 @@ export async function cancelLeaveRequest(
     )
   }
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: { status: "CANCELLED", decidedAt: new Date() },
+  const days = chargedDays(found, await loadLeaveCalendar(found.startDate, found.endDate))
+
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.update({
+      where: { id },
+      data: { status: "CANCELLED", decidedAt: new Date() },
+    })
+    await emitEvent(tx, {
+      ...leaveEvent({
+        type: "leave.cancelled",
+        verb: "cancelled",
+        actorUserId,
+        request: { ...found, status: "CANCELLED" },
+        leaveType: found.leaveType,
+        employee: found.employee,
+        days,
+      }),
+    })
   })
   return finishDecision(id)
 }
 
+/**
+ * **Emits nothing, deliberately.** Reverting is an administrative correction
+ * of an approval that should not have happened, and "your approved leave was
+ * un-approved" needs a wording decision rather than a mechanical mapping of
+ * the other four. Named here so the gap reads as a choice, not an omission.
+ */
 export async function revertLeaveRequest(
   id: string,
   actorUserId: string,

@@ -225,6 +225,37 @@ export interface DailySummary {
   }>
 }
 
+export interface WeeklySummaryDay {
+  date: string
+  /**
+   * Why the day is what it is. A zero `present` on a HOLIDAY is not the same
+   * fact as a zero on a WORKING day, and a chart that cannot tell them apart
+   * invites the wrong question at the wrong standup.
+   *
+   * Resolved across the roster, not per employee: a day is WORKING if it was
+   * a scheduled working day for anyone on it, since shifts can differ. Only
+   * when it was nobody's working day does it report why — HOLIDAY ahead of
+   * WEEKLY_OFF, matching the grid's own precedence.
+   */
+  kind: "WORKING" | "WEEKLY_OFF" | "HOLIDAY"
+  present: number
+  late: number
+  absent: number
+  onLeave: number
+  notCheckedIn: number
+}
+
+export interface WeeklySummary {
+  from: string
+  to: string
+  /**
+   * Roster size the counts are out of, so the client renders "13 of 16"
+   * without a second call.
+   */
+  headcount: number
+  days: WeeklySummaryDay[]
+}
+
 /**
  * The payroll contract. Payroll imports `getMonthlySummary` rather than
  * re-deriving from `Attendance` rows: status is computed, so that function

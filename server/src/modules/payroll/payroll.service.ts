@@ -11,7 +11,10 @@ import prisma from "../../config/prisma"
 import type { Currency, PayrollStatus, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
+import { emitEvent } from "../event/event.emit"
+import { sweepClaimsReimbursed } from "../expense/expense.sweep"
 import { auditPayroll } from "./payroll.audit"
+import { payrollRunEvent, payslipPublishedEvent } from "./payroll.events"
 import { computePayslip } from "./payroll.calc"
 import { resolveRateOrThrow } from "./payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "./payroll.money"
@@ -394,6 +397,16 @@ export async function createRun(actorUserId: string, body: CreateRunBody) {
         changedBy: actorUserId,
         after: { month: run.month, year: run.year, notes: run.notes },
       })
+      await emitEvent(
+        tx,
+        payrollRunEvent({
+          stage: "created",
+          runId: run.id,
+          month: run.month,
+          year: run.year,
+          actorUserId,
+        })
+      )
       return run
     })
   } catch (err) {
@@ -620,6 +633,19 @@ export async function processRun(id: string, actorUserId: string) {
       changedBy: actorUserId,
       after: { payslipCount: roster.length, fxRateToBdt: usdRate?.toFixed(6) ?? null },
     })
+    await emitEvent(
+      tx,
+      payrollRunEvent({
+        stage: "processed",
+        runId: id,
+        month: run.month,
+        year: run.year,
+        actorUserId,
+        // A count, not a total. How many payslips is operationally useful;
+        // what they add up to is not a dashboard number.
+        meta: `${roster.length} payslip${roster.length === 1 ? "" : "s"}`,
+      })
+    )
 
     return updated
   })
@@ -644,6 +670,16 @@ export async function submitRun(id: string, actorUserId: string) {
       action: "SUBMIT",
       changedBy: actorUserId,
     })
+    await emitEvent(
+      tx,
+      payrollRunEvent({
+        stage: "submitted",
+        runId: id,
+        month: run.month,
+        year: run.year,
+        actorUserId,
+      })
+    )
     return updated
   })
 }
@@ -673,6 +709,36 @@ export async function approveRun(id: string, actorUserId: string) {
       action: "APPROVE",
       changedBy: actorUserId,
     })
+    await emitEvent(
+      tx,
+      payrollRunEvent({
+        stage: "approved",
+        runId: id,
+        month: run.month,
+        year: run.year,
+        actorUserId,
+      })
+    )
+
+    // Approval is the moment a payslip becomes visible to the person it
+    // belongs to — `visibleRunFilter` admits APPROVED and DISBURSED — so it
+    // is the moment to say so, and there is no earlier one.
+    const payslips = await tx.payslip.findMany({
+      where: { payrollRunId: id },
+      select: { id: true, employeeId: true },
+    })
+    for (const payslip of payslips) {
+      await emitEvent(
+        tx,
+        payslipPublishedEvent({
+          payslipId: payslip.id,
+          employeeId: payslip.employeeId,
+          month: run.month,
+          year: run.year,
+          actorUserId,
+        })
+      )
+    }
     return updated
   })
 }
@@ -699,6 +765,17 @@ export async function rejectRun(id: string, actorUserId: string, body: RejectRun
       changedBy: actorUserId,
       note: body.note,
     })
+    await emitEvent(
+      tx,
+      payrollRunEvent({
+        stage: "rejected",
+        runId: id,
+        month: run.month,
+        year: run.year,
+        actorUserId,
+        meta: body.note,
+      })
+    )
     return updated
   })
 }
@@ -727,10 +804,11 @@ export async function disburseRun(id: string, actorUserId: string) {
     })
     // A no-op until Task 11 introduces approved, unswept claims — the update
     // targets exactly the claims this run's own payslips consumed.
-    await tx.expenseClaim.updateMany({
-      where: { payslip: { payrollRunId: id }, status: "APPROVED" },
-      data: { status: "REIMBURSED" },
-    })
+    await sweepClaimsReimbursed(
+      tx,
+      { payslip: { payrollRunId: id }, status: "APPROVED" },
+      actorUserId
+    )
     await auditPayroll(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
@@ -738,6 +816,16 @@ export async function disburseRun(id: string, actorUserId: string) {
       changedBy: actorUserId,
       after: { disbursementFxRateToBdt: disbursementFxRateToBdt?.toFixed(6) ?? null },
     })
+    await emitEvent(
+      tx,
+      payrollRunEvent({
+        stage: "disbursed",
+        runId: id,
+        month: run.month,
+        year: run.year,
+        actorUserId,
+      })
+    )
     return updated
   })
 }
