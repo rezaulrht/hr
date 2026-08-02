@@ -682,8 +682,12 @@ describe("leave decisions", () => {
       employeeId: "emp-1",
       leaveTypeId: "lt-1",
       status: "PENDING",
-      startDate: parseDateOnly(futureDate(10)),
-      endDate: parseDateOnly(futureDate(12)),
+      // Fixed, not `futureDate(...)`: a relative window silently straddles the
+      // Friday weekly-off on some run dates, charging 2 days instead of 3 and
+      // failing an assertion that is about event payloads, not day counting.
+      // Mon 2026-09-07 to Wed 2026-09-09 contains no weekly off.
+      startDate: parseDateOnly("2026-09-07"),
+      endDate: parseDateOnly("2026-09-09"),
       reason: null,
       approvedBy: null,
       decidedAt: null,
