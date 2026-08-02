@@ -12,7 +12,7 @@ import type { Attendance, Prisma, Shift } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { formatDateOnly } from "../../utils/dates"
 import { auditAttendance } from "./attendance.audit"
-import { resolveShift, shiftInfo } from "./attendance.grid"
+import { effectiveShift, resolveShift, shiftInfo } from "./attendance.grid"
 import { requireEmployeeForUser } from "./attendance.service"
 import {
   addMinutesToTime,
@@ -52,6 +52,51 @@ export function computeIsEarlyOut(instant: Date, recordDate: Date, shift: Shift)
 
 async function shiftFor(employee: GridEmployee, date: Date): Promise<Shift> {
   return resolveShift(employee, date, await prisma.shift.findMany())
+}
+
+/**
+ * The shift window a punch on this date should be judged against.
+ *
+ * Punch flags are frozen at capture, so the leave has to be read *before* the
+ * write. The display-time lookup inside `describe` below is the same query,
+ * but it runs after `isLate` has already been decided — too late to matter.
+ *
+ * Without this, every first-half leave flags the employee roughly four and a
+ * half hours late, permanently, for arriving exactly when they were due.
+ */
+async function expectedWindowFor(
+  employee: GridEmployee,
+  date: Date,
+  shift: Shift
+): Promise<Shift> {
+  const leave = await prisma.leaveRequest.findFirst({
+    where: {
+      employeeId: employee.id,
+      status: "APPROVED",
+      startDate: { lte: date },
+      endDate: { gte: date },
+    },
+    select: { startDate: true, endDate: true, startSession: true, endSession: true },
+  })
+  if (!leave) return shift
+
+  const key = formatDateOnly(date)
+  let fraction = 1
+  if (key === formatDateOnly(leave.startDate) && leave.startSession === "SECOND_HALF") {
+    fraction -= 0.5
+  }
+  if (key === formatDateOnly(leave.endDate) && leave.endSession === "FIRST_HALF") {
+    fraction -= 0.5
+  }
+
+  return effectiveShift(
+    shift,
+    fraction,
+    fraction === 0.5 && key === formatDateOnly(leave.startDate) &&
+      leave.startSession === "SECOND_HALF"
+      ? "SECOND_HALF"
+      : "FIRST_HALF"
+  )
 }
 
 /** The derived context the punch card needs, without a second round trip. */
@@ -98,6 +143,7 @@ export async function checkIn(userId: string): Promise<PunchResult> {
   const now = new Date()
   const date = officeDateOf(now)
   const shift = await shiftFor(employee, date)
+  const expected = await expectedWindowFor(employee, date, shift)
 
   try {
     const row = await prisma.$transaction(async (tx) => {
@@ -106,7 +152,7 @@ export async function checkIn(userId: string): Promise<PunchResult> {
           employeeId: employee.id,
           date,
           checkIn: now,
-          isLate: computeIsLate(now, shift),
+          isLate: computeIsLate(now, expected),
           source: "WEB",
           approval: "PENDING",
         },
@@ -160,13 +206,22 @@ export async function checkOut(userId: string): Promise<PunchResult> {
   // has since changed does not rewrite what this day was judged against.
   const shift = await shiftFor(employee, open.date)
 
+  // Judged against the record's own date, and against the window a half-day
+  // leave leaves behind — leaving at the midpoint on a second-half leave is
+  // the expected behaviour, not an early departure.
+  const expected = await expectedWindowFor(
+    { ...employee, id: open.employeeId },
+    open.date,
+    shift
+  )
+
   const row = await prisma.$transaction(async (tx) => {
     const updated = await tx.attendance.update({
       where: { id: open.id },
       data: {
         checkOut: now,
         workedHours: hours,
-        isEarlyOut: computeIsEarlyOut(now, open.date, shift),
+        isEarlyOut: computeIsEarlyOut(now, open.date, expected),
       },
     })
     await auditAttendance(tx, {

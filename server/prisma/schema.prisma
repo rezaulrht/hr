@@ -219,6 +219,11 @@ model LeaveType {
   minServiceMonths Int               @default(0)
   // Ceiling on accumulated earned leave (§117: 60 days). Null means no cap.
   maxAccrual       Int?
+  // Whether a request against this type may be a half day. Company policy,
+  // not statute — the Act speaks in whole days, so charging 0.5 against a
+  // §115 quota is more generous than required, not a breach. False where a
+  // half is incoherent: a §46 maternity benefit is not taken in halves.
+  allowsHalfDay    Boolean           @default(true)
 
   leaveRequests LeaveRequest[]
   leaveBalances LeaveBalance[]
@@ -244,6 +249,17 @@ model LeaveRequest {
   leaveType    LeaveType   @relation(fields: [leaveTypeId], references: [id])
   startDate    DateTime
   endDate      DateTime
+  // Which half of the boundary dates the leave actually covers. A whole-day
+  // request is FIRST_HALF -> SECOND_HALF, which is the pair of defaults, so
+  // every row predating half-day support is already correct.
+  //
+  // A pair rather than one `halfDay` flag because a flag cannot say *which*
+  // half, and a single `session` column cannot express a range boundary.
+  // Charged days are still derived from the dates (see countChargedDays) —
+  // storing a duration here would drift from the calendar the first time a
+  // holiday were gazetted retroactively over an approved request.
+  startSession LeaveSession @default(FIRST_HALF)
+  endSession   LeaveSession @default(SECOND_HALF)
   reason       String?
   status       LeaveStatus @default(PENDING)
   approvedBy   String?
@@ -259,6 +275,14 @@ enum LeaveStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+// Which half of a working day. The boundary between the two is the shift
+// midpoint, derived per date from the shift in force — never stored, so a
+// dated shift override (Ramadan hours) moves it without rewriting any request.
+enum LeaveSession {
+  FIRST_HALF
+  SECOND_HALF
 }
 
 model Holiday {

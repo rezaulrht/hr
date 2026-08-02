@@ -11,6 +11,7 @@ vi.mock("./leave.service", () => ({
   rejectLeaveRequest: vi.fn(),
   cancelLeaveRequest: vi.fn(),
   revertLeaveRequest: vi.fn(),
+  getHalfDayWindow: vi.fn(),
 }))
 
 import app from "../../app"
@@ -226,5 +227,49 @@ describe("leave decision routes", () => {
       .patch("/api/leave/requests/req-1/cancel")
       .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
     expect(res.status).toBe(403)
+  })
+})
+
+describe("GET /api/leave/half-day-window", () => {
+  it("returns 401 with no Authorization header", async () => {
+    const res = await request(app).get("/api/leave/half-day-window?date=2026-09-07")
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 403 for a role with no leave of its own", async () => {
+    const res = await request(app)
+      .get("/api/leave/half-day-window?date=2026-09-07")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("returns the shift window and its midpoint", async () => {
+    vi.mocked(leaveService.getHalfDayWindow).mockResolvedValue({
+      startTime: "09:00",
+      midpoint: "13:30",
+      endTime: "18:00",
+    })
+
+    const res = await request(app)
+      .get("/api/leave/half-day-window?date=2026-09-07")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ startTime: "09:00", midpoint: "13:30", endTime: "18:00" })
+  })
+
+  it("returns 400 on a malformed date", async () => {
+    const res = await request(app)
+      .get("/api/leave/half-day-window?date=07-09-2026")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(400)
+    expect(leaveService.getHalfDayWindow).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 when the date is missing entirely", async () => {
+    const res = await request(app)
+      .get("/api/leave/half-day-window")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(400)
   })
 })

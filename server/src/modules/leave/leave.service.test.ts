@@ -22,6 +22,11 @@ vi.mock("../../config/prisma", () => {
     // The event log. Every lifecycle change now writes one row inside the
     // same transaction as the change itself.
     event: { create: vi.fn() },
+    // Approving or reverting a leave re-judges frozen punch flags for the
+    // dates it covers, so those writes go through this same mocked client.
+    attendance: { findMany: vi.fn(), update: vi.fn() },
+    attendanceAudit: { create: vi.fn() },
+    shift: { findMany: vi.fn() },
     // Hands the callback the same mocked client, so assertions written
     // against `prisma.leaveRequest.update` keep working now that the call
     // goes through a `tx`.
@@ -74,6 +79,9 @@ beforeEach(() => {
   // No payroll run for any month unless a test says otherwise, so the month
   // lock is open by default.
   vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(null)
+  // No attendance rows to re-judge unless a test says otherwise, so the
+  // punch-flag recompute is a no-op on the decision paths.
+  vi.mocked(prisma.attendance.findMany).mockResolvedValue([])
 })
 
 describe("computeEntitlement", () => {
@@ -990,5 +998,262 @@ describe("leave decisions", () => {
       await approveLeaveRequest("req-1", "hr-1")
       expect(emitted().title).toBe("Leave Without Pay approved")
     })
+  })
+})
+
+describe("half-day leave", () => {
+  const PRO_RATED_HALF = {
+    carryForwardPct: 0,
+    maxConsecutive: null,
+    statutory: true,
+    countsHolidays: false,
+    accrualBasis: "PRO_RATED" as const,
+    minServiceMonths: 0,
+    maxAccrual: null,
+    allowsHalfDay: true,
+  }
+
+  const employee = {
+    id: "emp-1",
+    fullName: "Ayesha Rahman",
+    employmentType: "FULL_TIME",
+    joiningDate: parseDateOnly("2020-01-01"),
+    employmentStatus: "ACTIVE",
+    shiftId: null,
+  }
+
+  const casual = {
+    id: "lt-1",
+    code: "CASUAL",
+    name: "Casual",
+    isPaid: true,
+    annualQuota: 10,
+    allowsBackdating: false,
+    eligibleFor: ["FULL_TIME"],
+    ...PRO_RATED_HALF,
+  }
+
+  // Mon 2026-09-07: a working day, in the future, no weekly off.
+  const DATE = "2026-09-07"
+
+  const halfDayBody = {
+    leaveTypeId: "lt-1",
+    startDate: DATE,
+    endDate: DATE,
+    startSession: "FIRST_HALF" as const,
+    endSession: "FIRST_HALF" as const,
+  }
+
+  const createdRow = (over: Record<string, unknown> = {}) => ({
+    id: "req-h",
+    employeeId: "emp-1",
+    leaveTypeId: "lt-1",
+    startDate: parseDateOnly(DATE),
+    endDate: parseDateOnly(DATE),
+    startSession: "FIRST_HALF",
+    endSession: "FIRST_HALF",
+    reason: null,
+    status: "PENDING",
+    createdAt: new Date(),
+    employee,
+    leaveType: casual,
+    ...over,
+  })
+
+  beforeEach(() => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(casual as any)
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+    vi.mocked(prisma.holiday.findMany).mockResolvedValue([])
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue(null as any)
+  })
+
+  it("charges 0.5 when applying for a morning half", async () => {
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue(createdRow() as any)
+
+    const result = await applyForLeave("user-1", halfDayBody as any)
+    expect(result.days).toBe(0.5)
+    expect(result.startSession).toBe("FIRST_HALF")
+    expect(result.endSession).toBe("FIRST_HALF")
+  })
+
+  it("persists the sessions it was given", async () => {
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue(
+      createdRow({ startSession: "SECOND_HALF", endSession: "SECOND_HALF" }) as any
+    )
+
+    await applyForLeave("user-1", {
+      ...halfDayBody,
+      startSession: "SECOND_HALF",
+      endSession: "SECOND_HALF",
+    } as any)
+
+    expect(vi.mocked(prisma.leaveRequest.create).mock.calls[0][0]).toMatchObject({
+      data: { startSession: "SECOND_HALF", endSession: "SECOND_HALF" },
+    })
+  })
+
+  it("refuses a half day on a type that does not allow one", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...casual,
+      name: "Maternity",
+      allowsHalfDay: false,
+    } as any)
+
+    await expect(applyForLeave("user-1", halfDayBody as any)).rejects.toThrow(
+      /Maternity leave cannot be taken as a half day/
+    )
+  })
+
+  it("allows a whole-day request on a type that forbids halves", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      ...casual,
+      name: "Maternity",
+      allowsHalfDay: false,
+    } as any)
+    vi.mocked(prisma.leaveRequest.create).mockResolvedValue(
+      createdRow({ startSession: "FIRST_HALF", endSession: "SECOND_HALF" }) as any
+    )
+
+    const result = await applyForLeave("user-1", {
+      leaveTypeId: "lt-1",
+      startDate: DATE,
+      endDate: DATE,
+      startSession: "FIRST_HALF",
+      endSession: "SECOND_HALF",
+    } as any)
+    expect(result.days).toBe(1)
+  })
+
+  it("charges 0.5 at approval, not a whole day", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      createdRow({ approvedBy: null, decidedAt: null, decisionNote: null }) as any
+    )
+
+    const result = await approveLeaveRequest("req-h", "hr-1")
+    expect(result.days).toBe(0.5)
+  })
+
+  it("counts a half day as 0.5 against the balance", async () => {
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly(DATE),
+        endDate: parseDateOnly(DATE),
+        startSession: "FIRST_HALF",
+        endSession: "FIRST_HALF",
+      },
+    ] as any)
+
+    const balances = await getBalancesForEmployee(employee as any, 2026)
+    expect(balances[0].used).toBe(0.5)
+  })
+
+  it("still charges whole days for a request with the default sessions", async () => {
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([
+      {
+        leaveTypeId: "lt-1",
+        status: "APPROVED",
+        startDate: parseDateOnly("2026-09-07"),
+        endDate: parseDateOnly("2026-09-09"),
+        startSession: "FIRST_HALF",
+        endSession: "SECOND_HALF",
+      },
+    ] as any)
+
+    const balances = await getBalancesForEmployee(employee as any, 2026)
+    expect(balances[0].used).toBe(3)
+  })
+})
+
+describe("punch-flag recompute on leave decisions", () => {
+  const employee = {
+    id: "emp-1",
+    fullName: "Ayesha Rahman",
+    employmentType: "FULL_TIME",
+    joiningDate: parseDateOnly("2020-01-01"),
+    employmentStatus: "ACTIVE",
+    shiftId: null,
+  }
+
+  const casual = {
+    id: "lt-1",
+    code: "CASUAL",
+    name: "Casual",
+    isPaid: true,
+    annualQuota: 10,
+    eligibleFor: ["FULL_TIME"],
+    carryForwardPct: 0,
+    maxConsecutive: null,
+    statutory: true,
+    countsHolidays: false,
+    accrualBasis: "PRO_RATED" as const,
+    minServiceMonths: 0,
+    maxAccrual: null,
+    allowsHalfDay: true,
+  }
+
+  const request = (over: Record<string, unknown> = {}) => ({
+    id: "req-1",
+    employeeId: "emp-1",
+    leaveTypeId: "lt-1",
+    status: "PENDING",
+    startDate: parseDateOnly("2026-09-07"),
+    endDate: parseDateOnly("2026-09-07"),
+    startSession: "FIRST_HALF",
+    endSession: "FIRST_HALF",
+    reason: null,
+    approvedBy: null,
+    decidedAt: null,
+    decisionNote: null,
+    createdAt: new Date(),
+    employee,
+    leaveType: casual,
+    ...over,
+  })
+
+  beforeEach(() => {
+    vi.mocked(prisma.leaveType.findMany).mockResolvedValue([casual] as any)
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([])
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
+  })
+
+  it("re-judges punch flags for the dates an approval covers", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(request() as any)
+
+    await approveLeaveRequest("req-1", "hr-1")
+
+    expect(prisma.attendance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          employeeId: "emp-1",
+          date: { gte: parseDateOnly("2026-09-07"), lte: parseDateOnly("2026-09-07") },
+        }),
+      })
+    )
+  })
+
+  it("does not re-judge anything on a rejection", async () => {
+    // A rejected request never made the day a half-day, so no flag was ever
+    // relaxed on its account and there is nothing to undo.
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(request() as any)
+
+    await rejectLeaveRequest("req-1", "hr-1", "Not this week")
+
+    expect(prisma.attendance.findMany).not.toHaveBeenCalled()
+  })
+
+  it("re-judges on revert, where a relaxed flag may already be stored", async () => {
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(
+      request({ status: "APPROVED" }) as any
+    )
+
+    await revertLeaveRequest("req-1", "hr-1", "Approved in error")
+
+    expect(prisma.attendance.findMany).toHaveBeenCalled()
   })
 })

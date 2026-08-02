@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 
-import { applyForLeave } from "@/lib/api/leave"
+import { applyForLeave, getHalfDayWindow } from "@/lib/api/leave"
 import { listHolidays } from "@/lib/api/attendance"
 import { ApiError } from "@/lib/api/client"
-import type { LeaveBalanceItem, LeaveType } from "@/lib/api/types"
+import type { HalfDayWindow, LeaveBalanceItem, LeaveType } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  countLeaveDays,
+  countChargedDays,
   EMPTY_LEAVE_CALENDAR,
   isNonWorkingDay,
   parseDateString,
@@ -37,6 +37,24 @@ import {
 
 /** Mirrors MAX_BACKDATE_DAYS on the server. */
 const MAX_BACKDATE_DAYS = 30
+
+/**
+ * The three shapes a single day can take. Declared out here so the control is
+ * a map rather than three near-identical blocks of JSX.
+ *
+ * `window` is rendered as a caption *below* the group rather than inside each
+ * button: a two-line button would not match the height of every other control
+ * in this dialog, and the times are only knowable once a date is picked.
+ */
+const DURATION_CHOICES: Array<{
+  value: "FULL" | "FIRST_HALF" | "SECOND_HALF"
+  label: string
+  window: (w: HalfDayWindow) => string
+}> = [
+  { value: "FULL", label: "Full day", window: (w) => `${w.startTime} – ${w.endTime}` },
+  { value: "FIRST_HALF", label: "First half", window: (w) => `${w.startTime} – ${w.midpoint}` },
+  { value: "SECOND_HALF", label: "Second half", window: (w) => `${w.midpoint} – ${w.endTime}` },
+]
 
 function startOfToday(): Date {
   const d = new Date()
@@ -69,6 +87,14 @@ export function ApplyLeaveDialog({
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [reason, setReason] = useState("")
+  /**
+   * Decides the shape of the rest of the form. Leading with this rather than
+   * inferring "single day" from two dates that happen to match is what makes
+   * the half-day option findable: it is on screen from the start instead of
+   * appearing once you pick the same date twice.
+   */
+  const [mode, setMode] = useState<"SINGLE" | "RANGE">("SINGLE")
+  const [duration, setDuration] = useState<"FULL" | "FIRST_HALF" | "SECOND_HALF">("FULL")
   const [formError, setFormError] = useState<string | null>(null)
 
   const selectedType = leaveTypes.find((t) => t.id === leaveTypeId) ?? null
@@ -117,13 +143,47 @@ export function ApplyLeaveDialog({
     (!countsHolidays && isNonWorkingDay(date, calendar)) ||
     date.getTime() < earliestSelectable.getTime()
 
+  // Halves are single-day only, and gated per type: a §46 maternity benefit
+  // is not taken in halves. The two conditions are kept apart because they
+  // read differently on screen — the mode hides the control, the type
+  // disables it with a reason.
+  const isSingleDay = mode === "SINGLE"
+  const typeAllowsHalfDay = !!selectedType?.allowsHalfDay
+  const canHalfDay = isSingleDay && typeAllowsHalfDay
+
+  const halfDayWindowQuery = useQuery({
+    queryKey: ["half-day-window", startDate],
+    queryFn: () => getHalfDayWindow(accessToken, startDate),
+    enabled: canHalfDay && !!startDate,
+  })
+  const halfDayWindow = halfDayWindowQuery.data ?? null
+
+  // Derived rather than reset in an effect, so a stale choice can never be
+  // submitted: switching to a range or to a whole-days-only type makes the
+  // stored `duration` inapplicable, and this falls straight back to a whole
+  // day without a render in between where the two disagree.
+  const effectiveDuration = canHalfDay ? duration : "FULL"
+
+  // The employee picks a half, never a time: a typed time would not line up
+  // with the shift midpoint and attendance would have nothing to check the
+  // punch against.
+  const sessions =
+    effectiveDuration === "FULL"
+      ? { startSession: "FIRST_HALF" as const, endSession: "SECOND_HALF" as const }
+      : effectiveDuration === "FIRST_HALF"
+        ? { startSession: "FIRST_HALF" as const, endSession: "FIRST_HALF" as const }
+        : { startSession: "SECOND_HALF" as const, endSession: "SECOND_HALF" as const }
+
   const chargedDays = useMemo(() => {
     if (!startDate || !endDate) return null
     const start = parseDateString(startDate)
     const end = parseDateString(endDate)
     if (end.getTime() < start.getTime()) return null
-    return countLeaveDays(start, end, { countsHolidays, calendar })
-  }, [startDate, endDate, countsHolidays, calendar])
+    return countChargedDays(start, end, sessions.startSession, sessions.endSession, {
+      countsHolidays,
+      calendar,
+    })
+  }, [startDate, endDate, countsHolidays, calendar, sessions.startSession, sessions.endSession])
 
   const exceedsBalance =
     chargedDays !== null && !isUnpaidType && !!selectedBalance && chargedDays > selectedBalance.balance
@@ -134,6 +194,7 @@ export function ApplyLeaveDialog({
         leaveTypeId,
         startDate,
         endDate,
+        ...sessions,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       }),
     onSuccess: () => {
@@ -151,7 +212,28 @@ export function ApplyLeaveDialog({
     setStartDate("")
     setEndDate("")
     setReason("")
+    setMode("SINGLE")
+    setDuration("FULL")
     setFormError(null)
+  }
+
+  /**
+   * Switching shape keeps whatever date is already picked rather than
+   * clearing it — the employee chose that day, and making them pick it again
+   * is the kind of small rudeness that makes a form feel hostile.
+   */
+  function handleModeChange(next: "SINGLE" | "RANGE") {
+    setMode(next)
+    // In single-day mode both ends are the same date, so the payload and the
+    // day count need no special case anywhere downstream.
+    if (next === "SINGLE") setEndDate(startDate)
+    setFormError(null)
+  }
+
+  /** In single-day mode one picker drives both ends of the request. */
+  function handleSingleDateChange(next: string) {
+    setStartDate(next)
+    setEndDate(next)
   }
 
   function handleOpenChange(next: boolean) {
@@ -217,6 +299,55 @@ export function ApplyLeaveDialog({
             ) : null}
           </div>
 
+          <div>
+            <Label className="mb-1.5 text-xs font-bold">How long?</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={isSingleDay ? "default" : "outline"}
+                disabled={!selectedType}
+                onClick={() => handleModeChange("SINGLE")}
+              >
+                Single day
+              </Button>
+              <Button
+                type="button"
+                variant={isSingleDay ? "outline" : "default"}
+                disabled={!selectedType}
+                onClick={() => handleModeChange("RANGE")}
+              >
+                Date range
+              </Button>
+            </div>
+          </div>
+
+          {isSingleDay ? (
+            <div>
+              <Label className="mb-1.5 text-xs font-bold">Date</Label>
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!selectedType}
+                      className="w-full justify-start font-normal"
+                    />
+                  }
+                >
+                  {startDate || "Pick a date"}
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={startDate ? parseDateString(startDate) : undefined}
+                    disabled={isDateDisabled}
+                    onSelect={(d) => d && handleSingleDateChange(toDateString(d))}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="mb-1.5 text-xs font-bold">Start date</Label>
@@ -276,6 +407,48 @@ export function ApplyLeaveDialog({
               </Popover>
             </div>
           </div>
+          )}
+
+          {isSingleDay ? (
+            <div>
+              <Label className="mb-1.5 text-xs font-bold">Duration</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {DURATION_CHOICES.map((choice) => {
+                  // Disabled rather than hidden for a whole-days-only type:
+                  // an option that silently vanishes when you change type is
+                  // its own small confusion, and the caption below teaches
+                  // the rule instead.
+                  const blocked = choice.value !== "FULL" && !typeAllowsHalfDay
+                  return (
+                    <Button
+                      key={choice.value}
+                      type="button"
+                      variant={effectiveDuration === choice.value ? "default" : "outline"}
+                      disabled={!selectedType || blocked}
+                      onClick={() => setDuration(choice.value)}
+                    >
+                      {choice.label}
+                    </Button>
+                  )
+                })}
+              </div>
+              {/*
+                One caption line, always present so the group never changes
+                height. It carries whichever of the three things is worth
+                saying: why halves are unavailable, the hours the selected
+                choice covers, or how to find those hours out.
+              */}
+              <p className="mt-1.5 text-xs text-[#7A8698]">
+                {selectedType && !typeAllowsHalfDay
+                  ? `${selectedType.name} leave is taken in whole days.`
+                  : halfDayWindow
+                    ? DURATION_CHOICES.find((c) => c.value === effectiveDuration)!.window(
+                        halfDayWindow
+                      )
+                    : "Pick a date to see the hours."}
+              </p>
+            </div>
+          ) : null}
 
           {chargedDays !== null ? (
             <div className="space-y-1">

@@ -18,9 +18,11 @@
  * - **Leave pay (§119)** — the daily average of wages and dearness allowance,
  *   excluding overtime and bonus — is likewise payroll's.
  * - **Weekly holiday (§103)** is 1.5 days per week for shop and commercial
- *   establishments. The system models a single Friday and has no half-day
- *   unit anywhere, in leave or attendance or payroll, so the half day is not
- *   represented. It cannot be fixed inside the leave module alone.
+ *   establishments. Leave now has a half-day unit, but §103's half day is a
+ *   half day *of weekly off* — a property of the shift calendar, and
+ *   `Shift.weeklyOffDays` is an `Int[]` that cannot express half of a
+ *   Saturday. Still unrepresented, for that reason and no longer for the
+ *   want of a fraction.
  */
 
 import type { EmploymentType, LeaveAccrualBasis } from "../../generated/prisma/client"
@@ -57,6 +59,11 @@ export interface LeaveTypeDefinition {
   accrualBasis: LeaveAccrualBasis
   minServiceMonths: number
   maxAccrual: number | null
+  /**
+   * Company policy layered on the Act, which speaks only in whole days.
+   * False where a half is incoherent rather than merely unusual.
+   */
+  allowsHalfDay: boolean
 }
 
 /**
@@ -81,6 +88,7 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "PRO_RATED",
     minServiceMonths: 0,
     maxAccrual: null,
+    allowsHalfDay: true,
   },
   {
     // §116. Fourteen days a year on full wages. Backdatable for the same
@@ -98,6 +106,7 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "PRO_RATED",
     minServiceMonths: 0,
     maxAccrual: null,
+    allowsHalfDay: true,
   },
   {
     // §117. `annualQuota` is 0 and means nothing here — the entitlement is
@@ -119,6 +128,9 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "EARNED",
     minServiceMonths: EARNED_LEAVE_MIN_SERVICE_MONTHS,
     maxAccrual: EARNED_LEAVE_MAX_ACCRUAL,
+    // §117 leave is drawn in days; a fractional numerator in the accrual
+    // maths buys nothing.
+    allowsHalfDay: false,
   },
   {
     // §46. Granted per delivery, not per year, so PER_EVENT: a November
@@ -148,6 +160,8 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "PER_EVENT",
     minServiceMonths: MATERNITY_MIN_SERVICE_MONTHS,
     maxAccrual: null,
+    // §46 grants 120 days per delivery. Half of one of them is not a thing.
+    allowsHalfDay: false,
   },
   {
     // Not statutory — the Act has no unpaid-leave provision. It is the
@@ -166,6 +180,7 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "NONE",
     minServiceMonths: 0,
     maxAccrual: null,
+    allowsHalfDay: true,
   },
   {
     // Company policy, predating the statutory rework. Kept rather than
@@ -185,5 +200,6 @@ export const LEAVE_TYPE_CATALOGUE: LeaveTypeDefinition[] = [
     accrualBasis: "PRO_RATED",
     minServiceMonths: 0,
     maxAccrual: null,
+    allowsHalfDay: true,
   },
 ]

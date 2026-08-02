@@ -2,6 +2,9 @@ import prisma from "../../config/prisma"
 import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
+import { resolveShift } from "../attendance/attendance.grid"
+import { recomputePunchFlags } from "../attendance/attendance.recompute"
+import { shiftMidpoint } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import {
@@ -18,12 +21,15 @@ import {
 import {
   addDays,
   calendarSpan,
-  countLeaveDays,
+  countChargedDays,
   formatDateOnly,
+  isHalfDay,
   MAX_BACKDATE_DAYS,
   parseDateOnly,
   todayUtc,
+  WHOLE_DAY,
   type LeaveCalendar,
+  type LeaveSessions,
 } from "./leave.dates"
 import { leaveEvent } from "./leave.events"
 import { EARNED_LEAVE_DAYS_PER_DAY } from "./leave.policy"
@@ -131,7 +137,14 @@ export async function getBalancesForEmployee(
           lte: new Date(Date.UTC(year, 11, 31)),
         },
       },
-      select: { leaveTypeId: true, status: true, startDate: true, endDate: true },
+      select: {
+        leaveTypeId: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        startSession: true,
+        endSession: true,
+      },
     }),
     loadCalendarForYear(year),
   ])
@@ -156,7 +169,9 @@ export async function getBalancesForEmployee(
         .reduce(
           (total, r) =>
             total +
-            countLeaveDays(r.startDate, r.endDate, {
+            // `r` carries startSession/endSession, so it satisfies
+            // LeaveSessions structurally and is passed straight through.
+            countChargedDays(r.startDate, r.endDate, r, {
               countsHolidays: lt.countsHolidays,
               calendar,
             }),
@@ -202,6 +217,7 @@ export async function listLeaveTypes(): Promise<LeaveTypeItem[]> {
     accrualBasis: t.accrualBasis,
     minServiceMonths: t.minServiceMonths,
     maxAccrual: t.maxAccrual,
+    allowsHalfDay: t.allowsHalfDay,
   }))
 }
 
@@ -212,6 +228,33 @@ export async function requireEmployeeForUser(userId: string) {
     throw new AppError(403, "This account has no employee profile, so it cannot hold leave")
   }
   return employee
+}
+
+/**
+ * The shift window a half day is measured against, for one date.
+ *
+ * Per date rather than per employee: a dated shift override (Ramadan hours)
+ * moves the midpoint, so a window resolved once at login would be wrong for a
+ * leave filed into that window.
+ *
+ * Null when no shift resolves — a half day is meaningless without one, and
+ * the dialog disables the option rather than defaulting to a shift the
+ * employee is not on.
+ */
+export async function getHalfDayWindow(
+  userId: string,
+  date: string
+): Promise<{ startTime: string; midpoint: string; endTime: string } | null> {
+  const employee = await requireEmployeeForUser(userId)
+  const shifts = await prisma.shift.findMany()
+  if (shifts.length === 0) return null
+
+  const shift = resolveShift(employee, parseDateOnly(date), shifts)
+  return {
+    startTime: shift.startTime,
+    midpoint: shiftMidpoint(shift),
+    endTime: shift.endTime,
+  }
 }
 
 export async function getMyBalances(userId: string): Promise<LeaveBalanceItem[]> {
@@ -230,12 +273,14 @@ const REQUEST_INCLUDE = {
 type IncludedRequest = {
   startDate: Date
   endDate: Date
+  startSession: LeaveSessions["startSession"]
+  endSession: LeaveSessions["endSession"]
   leaveType: { id: string; code: string; name: string; isPaid: boolean; countsHolidays: boolean }
 }
 
 /** Charged days for a stored request, honouring its own type's holiday rule. */
 function chargedDays(request: IncludedRequest, calendar: LeaveCalendar): number {
-  return countLeaveDays(request.startDate, request.endDate, {
+  return countChargedDays(request.startDate, request.endDate, request, {
     countsHolidays: request.leaveType.countsHolidays,
     calendar,
   })
@@ -295,6 +340,8 @@ export async function listLeaveRequests(actor: AccessTokenPayload): Promise<Leav
     leaveType: toLeaveTypeRef(r.leaveType),
     startDate: formatDateOnly(r.startDate),
     endDate: formatDateOnly(r.endDate),
+    startSession: r.startSession,
+    endSession: r.endSession,
     days: chargedDays(r, calendar),
     reason: r.reason,
     status: r.status,
@@ -388,6 +435,16 @@ export async function applyForLeave(
     throw new AppError(400, "That leave type no longer exists")
   }
 
+  // Half days are company policy on top of the Act, gated per type: a §46
+  // maternity benefit is not taken in halves.
+  const sessions: LeaveSessions = {
+    startSession: input.startSession ?? WHOLE_DAY.startSession,
+    endSession: input.endSession ?? WHOLE_DAY.endSession,
+  }
+  if (isHalfDay(sessions) && !leaveType.allowsHalfDay) {
+    throw new AppError(400, `${leaveType.name} leave cannot be taken as a half day`)
+  }
+
   // 3. Backdating
   const today = todayUtc()
   if (start.getTime() < today.getTime()) {
@@ -414,11 +471,11 @@ export async function applyForLeave(
 
   // 5. Must charge at least one day
   const calendar = await loadLeaveCalendar(start, end)
-  const days = countLeaveDays(start, end, {
+  const days = countChargedDays(start, end, sessions, {
     countsHolidays: leaveType.countsHolidays,
     calendar,
   })
-  if (days === 0) {
+  if (days < 0.5) {
     throw new AppError(
       400,
       "That range is entirely weekly holidays and public holidays, so there is nothing to charge"
@@ -477,6 +534,8 @@ export async function applyForLeave(
         leaveTypeId: leaveType.id,
         startDate: start,
         endDate: end,
+        startSession: sessions.startSession,
+        endSession: sessions.endSession,
         reason: input.reason ?? null,
         status: "PENDING",
       },
@@ -504,6 +563,8 @@ export async function applyForLeave(
     leaveType: toLeaveTypeRef(created.leaveType),
     startDate: formatDateOnly(created.startDate),
     endDate: formatDateOnly(created.endDate),
+    startSession: created.startSession,
+    endSession: created.endSession,
     days,
     reason: created.reason,
     status: created.status,
@@ -538,6 +599,8 @@ async function finishDecision(id: string): Promise<LeaveRequestItem> {
     leaveType: toLeaveTypeRef(updated.leaveType),
     startDate: formatDateOnly(updated.startDate),
     endDate: formatDateOnly(updated.endDate),
+    startSession: updated.startSession,
+    endSession: updated.endSession,
     days: chargedDays(updated, calendar),
     reason: updated.reason,
     status: updated.status,
@@ -572,7 +635,7 @@ export async function approveLeaveRequest(
   }
 
   const calendar = await loadLeaveCalendar(found.startDate, found.endDate)
-  const days = countLeaveDays(found.startDate, found.endDate, {
+  const days = countChargedDays(found.startDate, found.endDate, found, {
     countsHolidays: found.leaveType.countsHolidays,
     calendar,
   })
@@ -614,6 +677,11 @@ export async function approveLeaveRequest(
         decisionNote: null,
       },
     })
+    // Punch flags are frozen at capture, so a leave approved after the punch
+    // leaves `isLate` judged against a window that no longer applies. Same
+    // transaction: a recompute that survived a rolled-back approval would
+    // relax flags against leave that was never granted.
+    await recomputePunchFlags(tx, found.employeeId, found.startDate, found.endDate)
     await emitEvent(tx, {
       ...leaveEvent({
         type: "leave.approved",
@@ -730,14 +798,21 @@ export async function revertLeaveRequest(
   if (found.startDate.getTime() <= todayUtc().getTime()) {
     throw new AppError(409, "Leave that has already started cannot be reverted")
   }
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: "CANCELLED",
-      approvedBy: actorUserId,
-      decidedAt: new Date(),
-      decisionNote: note,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        approvedBy: actorUserId,
+        decidedAt: new Date(),
+        decisionNote: note,
+      },
+    })
+    // Un-approving may leave a relaxed flag behind, marking someone on time
+    // against a half-day window they are no longer entitled to. The helper
+    // re-derives from whatever leave is approved *now* — which, after the
+    // update above, no longer includes this request — so it needs no inverse.
+    await recomputePunchFlags(tx, found.employeeId, found.startDate, found.endDate)
   })
   return finishDecision(id)
 }

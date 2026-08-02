@@ -11,11 +11,11 @@
  * for a day that was granted.
  */
 
-import type { Attendance, Holiday, Shift } from "../../generated/prisma/client"
+import type { Attendance, Holiday, LeaveSession, Shift } from "../../generated/prisma/client"
 import prisma from "../../config/prisma"
 import { env } from "../../config/env"
 import { addDays, formatDateOnly, parseDateOnly } from "../../utils/dates"
-import { officeToday, toMinutes } from "./attendance.time"
+import { officeToday, shiftMidpoint, toMinutes } from "./attendance.time"
 import type { AttendanceDay, AttendanceStatus, GridEmployee, ShiftInfo } from "./attendance.types"
 
 /** The shift every employee falls back to when `shiftId` is null. */
@@ -95,6 +95,32 @@ export function resolveShift(
   return fallback
 }
 
+/**
+ * The shift window an employee is actually expected for on a given date.
+ *
+ * A half-day leave narrows the window to the half they are *not* on leave
+ * for. Returns a `Shift`-shaped value rather than a new type, so every
+ * existing consumer — `shiftInfo`, `computeIsLate`, `computeIsEarlyOut` —
+ * works on it unchanged. None of them learn about leave; they are simply
+ * handed a different window.
+ *
+ * Substituting the input rather than adding a `leave` parameter to three
+ * functions is what makes lateness, early-out and expected hours all come out
+ * right from one change.
+ *
+ * `startSession` is the half that is *off*, not the half that is worked.
+ */
+export function effectiveShift(
+  shift: Shift,
+  leaveFraction: number,
+  startSession: LeaveSession
+): Shift {
+  if (leaveFraction !== 0.5) return shift
+  const mid = shiftMidpoint(shift)
+  // The leave covers the first half, so work starts at the midpoint.
+  return startSession === "FIRST_HALF" ? { ...shift, startTime: mid } : { ...shift, endTime: mid }
+}
+
 /** Inclusive list of calendar dates, as YYYY-MM-DD strings. */
 export function eachDate(from: Date, to: Date): string[] {
   const dates: string[] = []
@@ -112,6 +138,11 @@ interface GridSources {
     employeeId: string
     startDate: Date
     endDate: Date
+    // Which half of each boundary date the leave covers. A whole-day request
+    // is FIRST_HALF -> SECOND_HALF; anything else makes that boundary a half
+    // day, which narrows the shift window and halves the day's charge.
+    startSession: LeaveSession
+    endSession: LeaveSession
     // `isPaid` rides along because payroll deducts for unpaid leave and must
     // not deduct for paid leave, and the grid is the only place that knows
     // which leave covered which day.
@@ -152,6 +183,8 @@ export async function loadGridSources(
         employeeId: true,
         startDate: true,
         endDate: true,
+        startSession: true,
+        endSession: true,
         leaveType: { select: { name: true, isPaid: true } },
       },
     }),
@@ -189,6 +222,10 @@ function indexHolidays(holidays: Holiday[]): Map<string, DateHolidays> {
 interface LeaveOnDay {
   name: string
   isPaid: boolean
+  /** 1 for a whole day, 0.5 when this date is a half boundary. */
+  fraction: number
+  /** Which half the leave *covers*, when `fraction` is 0.5. */
+  startSession: LeaveSession
 }
 
 function indexLeaves(
@@ -200,10 +237,26 @@ function indexLeaves(
   for (const leave of leaves) {
     const start = leave.startDate < from ? from : leave.startDate
     const end = leave.endDate > to ? to : leave.endDate
+    const startKey = formatDateOnly(leave.startDate)
+    const endKey = formatDateOnly(leave.endDate)
+
     for (const date of eachDate(start, end)) {
+      // Only the request's own boundary dates can be halves; interior dates
+      // are always whole, whatever the sessions say.
+      let fraction = 1
+      if (date === startKey && leave.startSession === "SECOND_HALF") fraction -= 0.5
+      if (date === endKey && leave.endSession === "FIRST_HALF") fraction -= 0.5
+
       byKey.set(key(leave.employeeId, date), {
         name: leave.leaveType.name,
         isPaid: leave.leaveType.isPaid,
+        fraction,
+        // The half that is *off*. `effectiveShift` reads it to decide which
+        // end of the window to move.
+        startSession:
+          fraction === 0.5 && date === startKey && leave.startSession === "SECOND_HALF"
+            ? "SECOND_HALF"
+            : "FIRST_HALF",
       })
     }
   }
@@ -247,10 +300,17 @@ export function resolveGrid(
     const exitBoundary = formatDateOnly(employee.lastWorkingDay ?? officeToday())
 
     const days: AttendanceDay[] = dates.map((date) => {
-      const shift = resolveShift(employee, parseDateOnly(date), sources.shifts)
-      const info = shiftInfo(shift)
       const row = attendanceByKey.get(key(employee.id, date))
       const leave = leaveByKey.get(key(employee.id, date))
+      // The leave is read first so the window can be narrowed before anything
+      // is derived from it: expectedHours, and through it shortfallHours and
+      // the SHORTFALL approval reason, all fall out of this one substitution.
+      const shift = effectiveShift(
+        resolveShift(employee, parseDateOnly(date), sources.shifts),
+        leave?.fraction ?? 0,
+        leave?.startSession ?? "FIRST_HALF"
+      )
+      const info = shiftInfo(shift)
       const holidayEntry = holidaysByDate.get(date)
 
       const isHoliday = (holidayEntry?.offNames.length ?? 0) > 0
@@ -318,6 +378,12 @@ export function resolveGrid(
         // while leave was approved is PRESENT, not leave, so it must not
         // report a paid-leave flag payroll would then act on.
         leaveIsPaid: status === "ON_LEAVE" ? (leave?.isPaid ?? null) : null,
+        leaveFraction: leave?.fraction ?? 0,
+        // Only meaningful for a partial leave nobody punched for. The
+        // past/future rule is the same one the ABSENT / NOT_CHECKED_IN split
+        // above uses, so the two can never disagree.
+        unservedStatus:
+          leave && leave.fraction < 1 && !row ? (date < today ? "ABSENT" : "NOT_CHECKED_IN") : null,
         regularised: row?.regularisedAt != null,
         corrected: row?.correctedAt != null,
         attendanceId: row?.id ?? null,

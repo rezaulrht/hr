@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest"
 import {
   addDays,
   calendarSpan,
+  countChargedDays,
   countLeaveDays,
   formatDateOnly,
+  isHalfDay,
   isNonWorkingDay,
   parseDateOnly,
+  WHOLE_DAY,
   type LeaveCalendar,
 } from "./leave.dates"
 
@@ -130,5 +133,85 @@ describe("addDays", () => {
   it("adds and subtracts days in UTC", () => {
     expect(formatDateOnly(addDays(parseDateOnly("2026-08-14"), 3))).toBe("2026-08-17")
     expect(formatDateOnly(addDays(parseDateOnly("2026-08-01"), -1))).toBe("2026-07-31")
+  })
+})
+
+describe("countChargedDays", () => {
+  // 2026-08-10 is a Monday; 2026-08-14 is the Friday weekly-off.
+  const MON = parseDateOnly("2026-08-10")
+  const THU = parseDateOnly("2026-08-13")
+  const FRI = parseDateOnly("2026-08-14")
+
+  const sessions = (start: "FIRST_HALF" | "SECOND_HALF", end: "FIRST_HALF" | "SECOND_HALF") => ({
+    startSession: start,
+    endSession: end,
+  })
+
+  it("charges a whole day for the default session pair", () => {
+    expect(countChargedDays(MON, MON, WHOLE_DAY)).toBe(1)
+  })
+
+  it("charges 0.5 for a morning half", () => {
+    expect(countChargedDays(MON, MON, sessions("FIRST_HALF", "FIRST_HALF"))).toBe(0.5)
+  })
+
+  it("charges 0.5 for an afternoon half", () => {
+    expect(countChargedDays(MON, MON, sessions("SECOND_HALF", "SECOND_HALF"))).toBe(0.5)
+  })
+
+  it("charges 0 for an inverted single-day pair, which is not a duration", () => {
+    // "the second half of Monday through the first half of Monday". The
+    // validator rejects this by name; the arithmetic must not invent a day.
+    expect(countChargedDays(MON, MON, sessions("SECOND_HALF", "FIRST_HALF"))).toBe(0)
+  })
+
+  it("leaves a multi-day whole-day range identical to countLeaveDays", () => {
+    // Mon-Thu, no weekly off inside: 4 either way. This is the regression
+    // that matters most — every pre-existing row is a whole-day range.
+    expect(countChargedDays(MON, THU, WHOLE_DAY)).toBe(4)
+  })
+
+  it("takes the half off a multi-day range's start", () => {
+    expect(countChargedDays(MON, THU, sessions("SECOND_HALF", "SECOND_HALF"))).toBe(3.5)
+  })
+
+  it("takes the half off a multi-day range's end", () => {
+    expect(countChargedDays(MON, THU, sessions("FIRST_HALF", "FIRST_HALF"))).toBe(3.5)
+  })
+
+  it("does not subtract a half from a boundary the day count never charged", () => {
+    // The Friday contributed 0 to the base count for a non-holiday-counting
+    // type. Subtracting 0.5 from it would charge a negative half day.
+    expect(countChargedDays(FRI, FRI, sessions("FIRST_HALF", "FIRST_HALF"))).toBe(0)
+  })
+
+  it("does subtract on a holiday boundary when the type counts holidays", () => {
+    // §117(3): earned leave charges every calendar day, so the Friday *is*
+    // charged and its half is real.
+    expect(
+      countChargedDays(FRI, FRI, sessions("FIRST_HALF", "FIRST_HALF"), { countsHolidays: true })
+    ).toBe(0.5)
+  })
+
+  it("does not subtract a half from a gazetted holiday boundary", () => {
+    // 2026-08-05 is the seeded July Uprising Day, a Wednesday.
+    const holiday = parseDateOnly("2026-08-05")
+    expect(
+      countChargedDays(holiday, holiday, sessions("FIRST_HALF", "FIRST_HALF"), {
+        calendar: withHolidays(["2026-08-05"]),
+      })
+    ).toBe(0)
+  })
+})
+
+describe("isHalfDay", () => {
+  it("is false for the whole-day pair", () => {
+    expect(isHalfDay(WHOLE_DAY)).toBe(false)
+  })
+
+  it("is true for either half", () => {
+    expect(isHalfDay({ startSession: "FIRST_HALF", endSession: "FIRST_HALF" })).toBe(true)
+    expect(isHalfDay({ startSession: "SECOND_HALF", endSession: "SECOND_HALF" })).toBe(true)
+    expect(isHalfDay({ startSession: "SECOND_HALF", endSession: "FIRST_HALF" })).toBe(true)
   })
 })

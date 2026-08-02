@@ -1,6 +1,7 @@
 import type {
   EmploymentType,
   LeaveAccrualBasis,
+  LeaveSession,
   LeaveStatus,
 } from "../../generated/prisma/client"
 
@@ -22,6 +23,8 @@ export interface LeaveTypeItem {
   accrualBasis: LeaveAccrualBasis
   minServiceMonths: number
   maxAccrual: number | null
+  /** Whether a request against this type may be a half day. */
+  allowsHalfDay: boolean
 }
 
 export interface DecidedBy {
@@ -36,6 +39,8 @@ export interface LeaveRequestItem {
   leaveType: { id: string; name: string; isPaid: boolean }
   startDate: string
   endDate: string
+  startSession: LeaveSession
+  endSession: LeaveSession
   days: number
   reason: string | null
   status: LeaveStatus
@@ -88,5 +93,8 @@ export interface ApplyLeaveInput {
   leaveTypeId: string
   startDate: string
   endDate: string
+  /** Defaulted by the validator, so these are only optional to callers. */
+  startSession?: LeaveSession
+  endSession?: LeaveSession
   reason?: string
 }

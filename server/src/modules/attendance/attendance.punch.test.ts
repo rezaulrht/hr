@@ -21,6 +21,7 @@ vi.mock("../../config/prisma", () => {
 import prisma from "../../config/prisma"
 import type { Attendance, Shift } from "../../generated/prisma/client"
 import { parseDateOnly } from "../../utils/dates"
+import { effectiveShift } from "./attendance.grid"
 import { checkIn, checkOut, computeIsEarlyOut, computeIsLate } from "./attendance.punch"
 
 const tx = (prisma as unknown as { __tx: Record<string, Record<string, ReturnType<typeof vi.fn>>> })
@@ -199,6 +200,12 @@ describe("checkIn", () => {
     vi.setSystemTime(dhaka("2026-08-03", "09:05"))
     tx.attendance.create.mockResolvedValue(row())
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({
+      // The dates are read too now: the punch path narrows the expected
+      // window for a half-day leave before deciding `isLate`.
+      startDate: parseDateOnly("2026-08-03"),
+      endDate: parseDateOnly("2026-08-03"),
+      startSession: "FIRST_HALF",
+      endSession: "SECOND_HALF",
       leaveType: { name: "Annual" },
     } as never)
 
@@ -291,6 +298,104 @@ describe("checkOut", () => {
           before: { checkOut: null, workedHours: null },
         }),
       })
+    )
+  })
+})
+
+describe("punch flags under a half-day leave", () => {
+  const SHIFT: Shift = {
+    id: "shift-general",
+    name: "General",
+    startTime: "09:00",
+    endTime: "18:00",
+    breakMinutes: 60,
+    graceMinutes: 15,
+    weeklyOffDays: [5],
+    effectiveFrom: null,
+    effectiveTo: null,
+  }
+
+  // 07:30Z is 13:30 in Asia/Dhaka; 03:00Z is 09:00.
+  const AT_MIDPOINT = new Date("2026-08-10T07:30:00.000Z")
+  const AT_START = new Date("2026-08-10T03:00:00.000Z")
+
+  it("is not late arriving at the midpoint on a first-half leave", () => {
+    expect(computeIsLate(AT_MIDPOINT, effectiveShift(SHIFT, 0.5, "FIRST_HALF"))).toBe(false)
+  })
+
+  it("IS late arriving at the midpoint with no leave", () => {
+    // The negative case, so the relaxation is proven to come from the leave
+    // rather than from a broken threshold.
+    expect(computeIsLate(AT_MIDPOINT, SHIFT)).toBe(true)
+  })
+
+  it("is not late arriving at the shift start on a first-half leave", () => {
+    // Working through the half you booked off is permitted and unflagged.
+    expect(computeIsLate(AT_START, effectiveShift(SHIFT, 0.5, "FIRST_HALF"))).toBe(false)
+  })
+
+  it("is not early out leaving at the midpoint on a second-half leave", () => {
+    expect(
+      computeIsEarlyOut(
+        AT_MIDPOINT,
+        parseDateOnly("2026-08-10"),
+        effectiveShift(SHIFT, 0.5, "SECOND_HALF")
+      )
+    ).toBe(false)
+  })
+
+  it("IS early out leaving at the midpoint with no leave", () => {
+    expect(computeIsEarlyOut(AT_MIDPOINT, parseDateOnly("2026-08-10"), SHIFT)).toBe(true)
+  })
+})
+
+describe("checkIn against a half-day leave", () => {
+  it("does not flag late when a first-half leave moved the expected start", async () => {
+    // 13:30 Dhaka: late against the 09:00 shift, on time against the 13:30
+    // window an approved first-half leave leaves behind.
+    vi.setSystemTime(dhaka("2026-08-03", "13:30"))
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({
+      startDate: parseDateOnly("2026-08-03"),
+      endDate: parseDateOnly("2026-08-03"),
+      startSession: "FIRST_HALF",
+      endSession: "FIRST_HALF",
+      leaveType: { name: "Casual" },
+    } as any)
+    tx.attendance.create.mockResolvedValue(row({ isLate: false }))
+
+    await checkIn("user-1")
+    expect(tx.attendance.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isLate: false }) })
+    )
+  })
+
+  it("still flags late at the same time with no approved leave", async () => {
+    vi.setSystemTime(dhaka("2026-08-03", "13:30"))
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null)
+    tx.attendance.create.mockResolvedValue(row({ isLate: true }))
+
+    await checkIn("user-1")
+    expect(tx.attendance.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isLate: true }) })
+    )
+  })
+
+  it("does not relax the window for a whole-day leave", async () => {
+    // A whole-day leave narrows nothing: someone who turns up anyway is
+    // judged against their real shift.
+    vi.setSystemTime(dhaka("2026-08-03", "13:30"))
+    vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue({
+      startDate: parseDateOnly("2026-08-03"),
+      endDate: parseDateOnly("2026-08-03"),
+      startSession: "FIRST_HALF",
+      endSession: "SECOND_HALF",
+      leaveType: { name: "Casual" },
+    } as any)
+    tx.attendance.create.mockResolvedValue(row({ isLate: true }))
+
+    await checkIn("user-1")
+    expect(tx.attendance.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isLate: true }) })
     )
   })
 })

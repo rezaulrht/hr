@@ -17,6 +17,10 @@ export type AuditAction =
   | "CORRECT"
   | "APPROVE"
   | "REJECT"
+  // A leave approval or revert changed what the day expected, so the frozen
+  // punch flags were re-judged. Nobody touched the record by hand, which is
+  // exactly why it needs an audit row.
+  | "LEAVE_RECOMPUTE"
 
 export interface AuditEntry {
   attendanceId: string

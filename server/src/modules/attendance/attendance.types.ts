@@ -78,6 +78,24 @@ export interface AttendanceDay {
    * because the grid is the only place that knows which leave applied.
    */
   leaveIsPaid: boolean | null
+  /**
+   * How much of this day is leave: 0, 0.5 or 1.
+   *
+   * Emitted **regardless of status**, unlike `leaveIsPaid` above which is
+   * nulled off unless the status is ON_LEAVE. That asymmetry is the point: a
+   * half-day's whole problem is that the day is PRESENT *and* partly leave,
+   * and payroll has to see both.
+   */
+  leaveFraction: number
+  /**
+   * What the unworked portion of a partial-leave day counts as, when nobody
+   * punched. Null when there is no partial leave, or when an attendance row
+   * exists — then the complement is PRESENT.
+   *
+   * Exists so `summariseDays` can stay pure: the past/future decision is the
+   * grid's, which already makes it for the ABSENT / NOT_CHECKED_IN split.
+   */
+  unservedStatus: "ABSENT" | "NOT_CHECKED_IN" | null
   regularised: boolean
   corrected: boolean
   attendanceId: string | null
