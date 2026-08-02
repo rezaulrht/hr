@@ -185,9 +185,27 @@ async function leaveConflictIds(employeeIds: string[], date: Date): Promise<Set<
       startDate: { lte: date },
       endDate: { gte: date },
     },
-    select: { employeeId: true },
+    select: {
+      employeeId: true,
+      startDate: true,
+      endDate: true,
+      startSession: true,
+      endSession: true,
+    },
   })
-  return new Set(leaves.map((l) => l.employeeId))
+  return new Set(
+    leaves
+      // A half-day is *expected* to have a check-in for the other half, so it
+      // is not an anomaly for a human to resolve. Only a whole-day leave with
+      // a punch against it is worth surfacing.
+      .filter((l) => {
+        const key = formatDateOnly(date)
+        const startsHalf = key === formatDateOnly(l.startDate) && l.startSession === "SECOND_HALF"
+        const endsHalf = key === formatDateOnly(l.endDate) && l.endSession === "FIRST_HALF"
+        return !startsHalf && !endsHalf
+      })
+      .map((l) => l.employeeId)
+  )
 }
 
 /**
@@ -325,28 +343,43 @@ export function summariseDays(
       summary.workingDays++
       summary.expectedHours += day.expectedHours
 
-      switch (day.status) {
-        case "PRESENT":
-          summary.present++
-          break
-        case "ABSENT":
-          summary.absent++
-          break
-        case "ON_LEAVE":
-          // `onLeave` stays the total, so the four-term identity
-          // present + absent + onLeave + notCheckedIn === workingDays
-          // — the identity payroll's denominator depends on — is untouched
-          // by the split.
-          summary.onLeave++
-          // An unknown flag counts as paid: a null here means the grid could
-          // not say, and deducting on an unknown would take money off
-          // somebody on the strength of missing data.
-          if (day.leaveIsPaid === false) summary.onUnpaidLeave++
-          else summary.onPaidLeave++
-          break
-        case "NOT_CHECKED_IN":
-          summary.notCheckedIn++
-          break
+      // Leave first, whatever the status says. A half-day is PRESENT *and*
+      // partly leave, so the two shares are counted independently and the
+      // four-term identity
+      //   present + absent + onLeave + notCheckedIn === workingDays
+      // — the identity payroll's denominator depends on — holds over
+      // fractions rather than being broken by them.
+      if (day.leaveFraction > 0) {
+        // `onLeave` stays the total; the paid/unpaid split sits inside it.
+        summary.onLeave += day.leaveFraction
+        // An unknown flag counts as paid: a null here means the grid could
+        // not say, and deducting on an unknown would take money off somebody
+        // on the strength of missing data.
+        if (day.leaveIsPaid === false) summary.onUnpaidLeave += day.leaveFraction
+        else summary.onPaidLeave += day.leaveFraction
+      }
+
+      // The complement — the part of the day that was not leave.
+      const workShare = 1 - day.leaveFraction
+      if (workShare > 0) {
+        switch (day.status) {
+          case "PRESENT":
+            summary.present += workShare
+            break
+          case "ABSENT":
+            summary.absent += workShare
+            break
+          case "NOT_CHECKED_IN":
+            summary.notCheckedIn += workShare
+            break
+          case "ON_LEAVE":
+            // A partial leave nobody punched for: the working half was owed
+            // and not served. Crediting `present` here would pay for a half
+            // day nobody worked.
+            if (day.unservedStatus === "ABSENT") summary.absent += workShare
+            else if (day.unservedStatus === "NOT_CHECKED_IN") summary.notCheckedIn += workShare
+            break
+        }
       }
     } else {
       // Counted outside the working-day identity on purpose: a Friday
@@ -393,6 +426,15 @@ export function summariseDays(
   summary.workedHours = round2(summary.workedHours)
   summary.expectedHours = round2(summary.expectedHours)
   summary.shortfallHours = round2(summary.shortfallHours)
+  // The day counters are fractional now, so float artefacts are reachable:
+  // three half-days sum to 1.5000000000000002 without this, and that number
+  // reaches a payslip.
+  summary.present = round2(summary.present)
+  summary.absent = round2(summary.absent)
+  summary.onLeave = round2(summary.onLeave)
+  summary.onPaidLeave = round2(summary.onPaidLeave)
+  summary.onUnpaidLeave = round2(summary.onUnpaidLeave)
+  summary.notCheckedIn = round2(summary.notCheckedIn)
   return summary
 }
 

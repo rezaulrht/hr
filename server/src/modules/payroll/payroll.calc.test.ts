@@ -324,3 +324,19 @@ describe("a flat monthly salary, with no components", () => {
     expect(result.netPayable.toFixed(2)).toBe("52500.00")
   })
 })
+
+describe("half-day loss of pay", () => {
+  // No payroll source change is needed for this — lopDays is already a
+  // Decimal and the payslip prints toFixed(2). The assertion exists because
+  // this is the money path: a half-day of unpaid leave must cost half a day.
+  it("pro-rates half a day of loss of pay", () => {
+    const result = computePayslip(input({ onUnpaidLeave: 0.5, present: 25.5 }))
+    expect(result.lopDays.toFixed(2)).toBe("0.50")
+    expect(result.payableDays.toFixed(2)).toBe("30.50")
+  })
+
+  it("keeps payableDays + lopDays === calendarDays across a fraction", () => {
+    const result = computePayslip(input({ absent: 0.5, onUnpaidLeave: 0.5, present: 25 }))
+    expect(result.payableDays.plus(result.lopDays).toFixed(2)).toBe("31.00")
+  })
+})

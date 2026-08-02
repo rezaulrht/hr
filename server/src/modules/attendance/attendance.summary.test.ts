@@ -20,7 +20,7 @@ import type { Attendance, Holiday, Shift } from "../../generated/prisma/client"
 import { parseDateOnly } from "../../utils/dates"
 import { resolveGrid } from "./attendance.grid"
 import { getDailySummary, getMonthlySummary, summariseDays } from "./attendance.summary"
-import type { EmployeeRef, GridEmployee } from "./attendance.types"
+import type { AttendanceDay, EmployeeRef, GridEmployee } from "./attendance.types"
 
 // Midday Dhaka on Saturday 15 August 2026. August 2026 starts on a Saturday,
 // so the Fridays are the 7th, 14th, 21st and 28th.
@@ -145,9 +145,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Annual", isPaid: true },
         },
@@ -170,9 +168,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Sick", isPaid: true },
         },
@@ -180,9 +176,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-12"),
           endDate: parseDateOnly("2026-08-13"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
@@ -202,9 +196,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
@@ -222,9 +214,7 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
@@ -449,19 +439,120 @@ describe("daily summary", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-14"),
           endDate: parseDateOnly("2026-08-16"),
-
           startSession: "FIRST_HALF",
-
           endSession: "SECOND_HALF",
           leaveType: { name: "Annual", isPaid: true },
         },
       ] as never)
-      .mockResolvedValueOnce([{ employeeId: "emp-1" }] as never)
+      .mockResolvedValueOnce([
+        {
+          employeeId: "emp-1",
+          startDate: parseDateOnly("2026-08-14"),
+          endDate: parseDateOnly("2026-08-16"),
+          startSession: "FIRST_HALF",
+          endSession: "SECOND_HALF",
+        },
+      ] as never)
 
     const summary = await getDailySummary(actor("HR_ADMIN"), "2026-08-15")
     expect(summary.totals.present).toBe(1)
     expect(summary.conflicts).toEqual([
       { employeeId: "emp-1", fullName: "Ayesha Rahman", reason: "CHECKED_IN_WHILE_ON_LEAVE" },
     ])
+  })
+})
+
+describe("half-day leave in the monthly summary", () => {
+  const REF_H: EmployeeRef = {
+    id: "emp-1",
+    fullName: "Ayesha Rahman",
+    employeeCode: "BS-EMP-00001",
+    designation: "Engineer",
+  }
+
+  const day = (over: Partial<AttendanceDay> = {}): AttendanceDay => ({
+    date: "2026-08-10",
+    status: "PRESENT",
+    isWorkingDay: true,
+    isOffDay: false,
+    isHoliday: false,
+    isWeeklyOff: false,
+    checkIn: null,
+    checkOut: null,
+    workedHours: null,
+    expectedHours: 4.5,
+    isLate: false,
+    isEarlyOut: false,
+    approval: null,
+    source: null,
+    detail: null,
+    leaveIsPaid: null,
+    leaveFraction: 0.5,
+    unservedStatus: null,
+    regularised: false,
+    corrected: false,
+    attendanceId: "att-1",
+    ...over,
+  })
+
+  const noShow = (over: Partial<AttendanceDay> = {}) =>
+    day({ status: "ON_LEAVE", attendanceId: null, unservedStatus: "ABSENT", ...over })
+
+  it("splits a worked half day between present and onLeave", () => {
+    const s = summariseDays(REF_H, [day()], 8, 2026)
+    expect(s.present).toBe(0.5)
+    expect(s.onLeave).toBe(0.5)
+    expect(s.workingDays).toBe(1)
+  })
+
+  it("counts the unserved half as absent on a past no-show", () => {
+    const s = summariseDays(REF_H, [noShow()], 8, 2026)
+    expect(s.onLeave).toBe(0.5)
+    expect(s.absent).toBe(0.5)
+    expect(s.present).toBe(0)
+  })
+
+  it("counts the unserved half as notCheckedIn on a future no-show", () => {
+    const s = summariseDays(REF_H, [noShow({ unservedStatus: "NOT_CHECKED_IN" })], 8, 2026)
+    expect(s.onLeave).toBe(0.5)
+    expect(s.notCheckedIn).toBe(0.5)
+  })
+
+  it("holds the identity payroll divides by, in all three cases", () => {
+    for (const d of [day(), noShow(), noShow({ unservedStatus: "NOT_CHECKED_IN" })]) {
+      const s = summariseDays(REF_H, [d], 8, 2026)
+      expect(s.present + s.absent + s.onLeave + s.notCheckedIn).toBe(s.workingDays)
+    }
+  })
+
+  it("splits paid and unpaid leave by the same fraction", () => {
+    const s = summariseDays(REF_H, [day({ leaveIsPaid: false })], 8, 2026)
+    expect(s.onUnpaidLeave).toBe(0.5)
+    expect(s.onPaidLeave).toBe(0)
+  })
+
+  it("charges a full LOP day for an unpaid half nobody served", () => {
+    // 0.5 unpaid leave + 0.5 absent. Crediting `present` unconditionally here
+    // would pay for half a day nobody worked.
+    const s = summariseDays(REF_H, [noShow({ leaveIsPaid: false })], 8, 2026)
+    expect(s.onUnpaidLeave + s.absent).toBe(1)
+  })
+
+  it("leaves a whole-day leave counted exactly as before", () => {
+    const s = summariseDays(
+      REF_H,
+      [day({ status: "ON_LEAVE", leaveFraction: 1, attendanceId: null, expectedHours: 9 })],
+      8,
+      2026
+    )
+    expect(s.onLeave).toBe(1)
+    expect(s.present).toBe(0)
+    expect(s.absent).toBe(0)
+  })
+
+  it("leaves an ordinary present day counted exactly as before", () => {
+    const s = summariseDays(REF_H, [day({ leaveFraction: 0, expectedHours: 9 })], 8, 2026)
+    expect(s.present).toBe(1)
+    expect(s.onLeave).toBe(0)
   })
 })
