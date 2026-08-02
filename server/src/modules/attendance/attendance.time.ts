@@ -108,7 +108,7 @@ export function toMinutes(time: string): number {
   return Number(match[1]) * 60 + Number(match[2])
 }
 
-function fromMinutes(total: number): string {
+export function fromMinutes(total: number): string {
   const hours = String(Math.floor(total / 60)).padStart(2, "0")
   const minutes = String(total % 60).padStart(2, "0")
   return `${hours}:${minutes}`
@@ -131,6 +131,24 @@ export function officeInstantOf(date: Date, time: string): Date {
   const probe = new Date(date.getTime() + 12 * 3_600_000)
   const offsetMinutes = toMinutes(officeTimeOf(probe)) - 12 * 60
   return new Date(date.getTime() + (minutes - offsetMinutes) * 60_000)
+}
+
+/**
+ * The boundary between a shift's two halves, as "HH:mm".
+ *
+ * Rounds rather than floors: 09:00-17:45 is 525.5 minutes past start and
+ * `fromMinutes` needs an integer.
+ *
+ * Does **not** subtract `breakMinutes`. Lunch sits inside the span everywhere
+ * in this module — `expectedHours` for 09:00-18:00 is 9, not 8 — and a
+ * midpoint using a different convention would make the two halves fail to sum
+ * to the whole day.
+ *
+ * A night shift whose span wraps midnight would break this, as it breaks the
+ * rest of this file; night shifts are not modelled (see `addMinutesToTime`).
+ */
+export function shiftMidpoint(shift: { startTime: string; endTime: string }): string {
+  return fromMinutes(Math.round((toMinutes(shift.startTime) + toMinutes(shift.endTime)) / 2))
 }
 
 /** Whole elapsed hours between two instants, rounded to 2dp. */

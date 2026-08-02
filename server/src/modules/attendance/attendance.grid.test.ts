@@ -21,6 +21,7 @@ import type { Attendance, Holiday, Shift } from "../../generated/prisma/client"
 import { parseDateOnly } from "../../utils/dates"
 import {
   buildDayGrid,
+  effectiveShift,
   eachDate,
   resolveGrid,
   resolveShift,
@@ -476,5 +477,38 @@ describe("buildDayGrid query budget", () => {
   it("queries nothing at all for an empty roster", async () => {
     expect((await buildDayGrid([], FROM, TO)).size).toBe(0)
     expect(prisma.attendance.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe("effectiveShift", () => {
+  it("returns the shift untouched for a whole day", () => {
+    expect(effectiveShift(GENERAL, 1, "FIRST_HALF")).toBe(GENERAL)
+  })
+
+  it("returns the shift untouched when there is no leave", () => {
+    expect(effectiveShift(GENERAL, 0, "FIRST_HALF")).toBe(GENERAL)
+  })
+
+  it("starts at the midpoint when the morning is off", () => {
+    const eff = effectiveShift(GENERAL, 0.5, "FIRST_HALF")
+    expect(eff.startTime).toBe("13:30")
+    expect(eff.endTime).toBe("18:00")
+  })
+
+  it("ends at the midpoint when the afternoon is off", () => {
+    const eff = effectiveShift(GENERAL, 0.5, "SECOND_HALF")
+    expect(eff.startTime).toBe("09:00")
+    expect(eff.endTime).toBe("13:30")
+  })
+
+  it("halves expectedHours through shiftInfo, with no change to shiftInfo", () => {
+    expect(shiftInfo(effectiveShift(GENERAL, 0.5, "FIRST_HALF")).expectedHours).toBe(4.5)
+    expect(shiftInfo(GENERAL).expectedHours).toBe(9)
+  })
+
+  it("keeps grace and weekly-off days from the original shift", () => {
+    const eff = effectiveShift(GENERAL, 0.5, "FIRST_HALF")
+    expect(eff.graceMinutes).toBe(15)
+    expect(eff.weeklyOffDays).toEqual([5])
   })
 })

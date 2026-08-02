@@ -161,3 +161,20 @@ describe("module constants", () => {
     expect(time.AGING_WARN_DAYS).toBe(3)
   })
 })
+
+describe("shiftMidpoint", () => {
+  it("halves a 09:00-18:00 shift at 13:30", () => {
+    expect(time.shiftMidpoint({ startTime: "09:00", endTime: "18:00" })).toBe("13:30")
+  })
+
+  it("rounds an odd-minute span rather than emitting a fraction", () => {
+    // 09:00-17:45 is 525.5 minutes past start; fromMinutes needs an integer.
+    expect(time.shiftMidpoint({ startTime: "09:00", endTime: "17:45" })).toBe("13:23")
+  })
+
+  it("ignores the break, matching how expectedHours is derived", () => {
+    // The break sits *inside* the span everywhere in this module. A midpoint
+    // that subtracted it would make the two halves fail to sum to the day.
+    expect(time.shiftMidpoint({ startTime: "08:00", endTime: "16:00" })).toBe("12:00")
+  })
+})

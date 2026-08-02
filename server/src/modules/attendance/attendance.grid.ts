@@ -11,11 +11,11 @@
  * for a day that was granted.
  */
 
-import type { Attendance, Holiday, Shift } from "../../generated/prisma/client"
+import type { Attendance, Holiday, LeaveSession, Shift } from "../../generated/prisma/client"
 import prisma from "../../config/prisma"
 import { env } from "../../config/env"
 import { addDays, formatDateOnly, parseDateOnly } from "../../utils/dates"
-import { officeToday, toMinutes } from "./attendance.time"
+import { officeToday, shiftMidpoint, toMinutes } from "./attendance.time"
 import type { AttendanceDay, AttendanceStatus, GridEmployee, ShiftInfo } from "./attendance.types"
 
 /** The shift every employee falls back to when `shiftId` is null. */
@@ -93,6 +93,32 @@ export function resolveShift(
     throw new Error(`No "${DEFAULT_SHIFT_NAME}" shift exists — run the seed before using attendance`)
   }
   return fallback
+}
+
+/**
+ * The shift window an employee is actually expected for on a given date.
+ *
+ * A half-day leave narrows the window to the half they are *not* on leave
+ * for. Returns a `Shift`-shaped value rather than a new type, so every
+ * existing consumer — `shiftInfo`, `computeIsLate`, `computeIsEarlyOut` —
+ * works on it unchanged. None of them learn about leave; they are simply
+ * handed a different window.
+ *
+ * Substituting the input rather than adding a `leave` parameter to three
+ * functions is what makes lateness, early-out and expected hours all come out
+ * right from one change.
+ *
+ * `startSession` is the half that is *off*, not the half that is worked.
+ */
+export function effectiveShift(
+  shift: Shift,
+  leaveFraction: number,
+  startSession: LeaveSession
+): Shift {
+  if (leaveFraction !== 0.5) return shift
+  const mid = shiftMidpoint(shift)
+  // The leave covers the first half, so work starts at the midpoint.
+  return startSession === "FIRST_HALF" ? { ...shift, startTime: mid } : { ...shift, endTime: mid }
 }
 
 /** Inclusive list of calendar dates, as YYYY-MM-DD strings. */
