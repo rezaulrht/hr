@@ -2,7 +2,9 @@ import prisma from "../../config/prisma"
 import type { Employee, LeaveType } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { assertMonthNotLocked } from "../../utils/month-lock"
+import { resolveShift } from "../attendance/attendance.grid"
 import { recomputePunchFlags } from "../attendance/attendance.recompute"
+import { shiftMidpoint } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import {
@@ -226,6 +228,33 @@ export async function requireEmployeeForUser(userId: string) {
     throw new AppError(403, "This account has no employee profile, so it cannot hold leave")
   }
   return employee
+}
+
+/**
+ * The shift window a half day is measured against, for one date.
+ *
+ * Per date rather than per employee: a dated shift override (Ramadan hours)
+ * moves the midpoint, so a window resolved once at login would be wrong for a
+ * leave filed into that window.
+ *
+ * Null when no shift resolves — a half day is meaningless without one, and
+ * the dialog disables the option rather than defaulting to a shift the
+ * employee is not on.
+ */
+export async function getHalfDayWindow(
+  userId: string,
+  date: string
+): Promise<{ startTime: string; midpoint: string; endTime: string } | null> {
+  const employee = await requireEmployeeForUser(userId)
+  const shifts = await prisma.shift.findMany()
+  if (shifts.length === 0) return null
+
+  const shift = resolveShift(employee, parseDateOnly(date), shifts)
+  return {
+    startTime: shift.startTime,
+    midpoint: shiftMidpoint(shift),
+    endTime: shift.endTime,
+  }
 }
 
 export async function getMyBalances(userId: string): Promise<LeaveBalanceItem[]> {

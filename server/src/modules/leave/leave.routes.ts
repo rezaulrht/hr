@@ -7,6 +7,7 @@ import {
   applyForLeaveHandler,
   approveLeaveRequestHandler,
   cancelLeaveRequestHandler,
+  getHalfDayWindowHandler,
   getMyBalancesHandler,
   getTeamStatusHandler,
   listLeaveRequestsHandler,
@@ -24,6 +25,10 @@ const STAFF_ROLES = [Role.EMPLOYEE, Role.REPORTING_MANAGER] as const
 const REVIEWER_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
 
 router.get("/types", requireAuth, listLeaveTypesHandler)
+// Above any `/requests/:id` route below — Express would otherwise match
+// "half-day-window" as an id. Not role-gated beyond auth: it returns the
+// caller's own shift window and nothing else.
+router.get("/half-day-window", requireAuth, requireRole(...STAFF_ROLES), getHalfDayWindowHandler)
 router.get("/balances/me", requireAuth, requireRole(...STAFF_ROLES), getMyBalancesHandler)
 router.get("/requests", requireAuth, listLeaveRequestsHandler)
 router.get("/team-status", requireAuth, requireRole(Role.REPORTING_MANAGER), getTeamStatusHandler)

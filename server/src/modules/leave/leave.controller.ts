@@ -1,9 +1,12 @@
 import type { NextFunction, Request, Response } from "express"
 
+import { AppError } from "../../middleware/errorHandler"
+
 import {
   applyForLeave,
   approveLeaveRequest,
   cancelLeaveRequest,
+  getHalfDayWindow,
   getMyBalances,
   getTeamStatus,
   listLeaveRequests,
@@ -24,6 +27,18 @@ export async function listLeaveTypesHandler(_req: Request, res: Response, next: 
 export async function getMyBalancesHandler(req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await getMyBalances(req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getHalfDayWindowHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const date = req.query.date
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new AppError(400, "Expected a YYYY-MM-DD `date` query parameter")
+    }
+    return res.status(200).json(await getHalfDayWindow(req.user!.sub, date))
   } catch (err) {
     return next(err)
   }
