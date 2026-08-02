@@ -26,7 +26,9 @@ import { DecisionDialog } from "@/components/leave/decision-dialog"
 import {
   coversToday,
   decidedByLabel,
+  formatLeaveDays,
   formatRange,
+  formatSessionLabel,
   isFutureDated,
   STATUS_LABEL,
   STATUS_TONE,
@@ -236,7 +238,7 @@ export function LeavePage() {
     return [
       ...balanceTiles,
       { label: "Pending", value: String(pending), sub: "Awaiting a decision" },
-      { label: "Days taken", value: String(takenYtd), sub: "Approved so far this year" },
+      { label: "Days taken", value: formatLeaveDays(takenYtd), sub: "Approved so far this year" },
     ]
   }, [myRequests, balances])
 
@@ -268,7 +270,7 @@ export function LeavePage() {
     { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 600 },
     { text: r.leaveType.name, sub: r.leaveType.isPaid ? "Paid" : "Unpaid" },
     { text: formatRange(r.startDate, r.endDate) },
-    { text: String(r.days) },
+    { text: formatLeaveDays(r.days), ...(formatSessionLabel(r) ? { sub: formatSessionLabel(r)! } : {}) },
     {
       tag: STATUS_LABEL[r.status],
       tone: STATUS_TONE[r.status],
@@ -337,14 +339,14 @@ export function LeavePage() {
     { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 600 },
     { text: r.leaveType.name },
     { text: formatRange(r.startDate, r.endDate) },
-    { text: String(r.days) },
+    { text: formatLeaveDays(r.days), ...(formatSessionLabel(r) ? { sub: formatSessionLabel(r)! } : {}) },
     { tag: STATUS_LABEL[r.status], tone: STATUS_TONE[r.status] },
   ])
 
   const myRows: TableCell[][] = myRequests.map((r) => [
     { text: r.leaveType.name, sub: r.leaveType.isPaid ? "Paid" : "Unpaid", weight: 600 },
     { text: formatRange(r.startDate, r.endDate) },
-    { text: String(r.days) },
+    { text: formatLeaveDays(r.days), ...(formatSessionLabel(r) ? { sub: formatSessionLabel(r)! } : {}) },
     {
       tag: STATUS_LABEL[r.status],
       tone: STATUS_TONE[r.status],
