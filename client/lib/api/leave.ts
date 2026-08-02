@@ -1,6 +1,7 @@
 import { apiFetch } from "./client"
 import type {
   ApplyLeaveInput,
+  HalfDayWindow,
   LeaveBalanceItem,
   LeaveRequestItem,
   LeaveType,
@@ -17,6 +18,19 @@ export function listLeaveRequests(accessToken: string): Promise<LeaveRequestItem
 
 export function getTeamStatus(accessToken: string): Promise<TeamMemberStatus[]> {
   return apiFetch<TeamMemberStatus[]>("/api/leave/team-status", { accessToken })
+}
+
+/**
+ * The shift window a half day is measured against, for one date. Null when
+ * the employee has no resolvable shift — the picker disables halves then.
+ */
+export function getHalfDayWindow(
+  accessToken: string,
+  date: string
+): Promise<HalfDayWindow | null> {
+  return apiFetch<HalfDayWindow | null>(`/api/leave/half-day-window?date=${date}`, {
+    accessToken,
+  })
 }
 
 export function getMyLeaveBalances(accessToken: string): Promise<LeaveBalanceItem[]> {

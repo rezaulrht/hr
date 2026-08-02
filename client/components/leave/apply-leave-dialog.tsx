@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 
-import { applyForLeave } from "@/lib/api/leave"
+import { applyForLeave, getHalfDayWindow } from "@/lib/api/leave"
 import { listHolidays } from "@/lib/api/attendance"
 import { ApiError } from "@/lib/api/client"
 import type { LeaveBalanceItem, LeaveType } from "@/lib/api/types"
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  countLeaveDays,
+  countChargedDays,
   EMPTY_LEAVE_CALENDAR,
   isNonWorkingDay,
   parseDateString,
@@ -69,6 +69,7 @@ export function ApplyLeaveDialog({
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [reason, setReason] = useState("")
+  const [duration, setDuration] = useState<"FULL" | "FIRST_HALF" | "SECOND_HALF">("FULL")
   const [formError, setFormError] = useState<string | null>(null)
 
   const selectedType = leaveTypes.find((t) => t.id === leaveTypeId) ?? null
@@ -117,13 +118,43 @@ export function ApplyLeaveDialog({
     (!countsHolidays && isNonWorkingDay(date, calendar)) ||
     date.getTime() < earliestSelectable.getTime()
 
+  // Halves are single-day only, and gated per type: a §46 maternity benefit
+  // is not taken in halves.
+  const canHalfDay = !!startDate && startDate === endDate && !!selectedType?.allowsHalfDay
+
+  const halfDayWindowQuery = useQuery({
+    queryKey: ["half-day-window", startDate],
+    queryFn: () => getHalfDayWindow(accessToken, startDate),
+    enabled: canHalfDay,
+  })
+  const halfDayWindow = halfDayWindowQuery.data ?? null
+
+  // Derived rather than reset in an effect, so a stale choice can never be
+  // submitted: changing the type or widening the range makes the stored
+  // `duration` inapplicable, and this falls straight back to a whole day
+  // without a render in between where the two disagree.
+  const effectiveDuration = canHalfDay ? duration : "FULL"
+
+  // The employee picks a half, never a time: a typed time would not line up
+  // with the shift midpoint and attendance would have nothing to check the
+  // punch against.
+  const sessions =
+    effectiveDuration === "FULL"
+      ? { startSession: "FIRST_HALF" as const, endSession: "SECOND_HALF" as const }
+      : effectiveDuration === "FIRST_HALF"
+        ? { startSession: "FIRST_HALF" as const, endSession: "FIRST_HALF" as const }
+        : { startSession: "SECOND_HALF" as const, endSession: "SECOND_HALF" as const }
+
   const chargedDays = useMemo(() => {
     if (!startDate || !endDate) return null
     const start = parseDateString(startDate)
     const end = parseDateString(endDate)
     if (end.getTime() < start.getTime()) return null
-    return countLeaveDays(start, end, { countsHolidays, calendar })
-  }, [startDate, endDate, countsHolidays, calendar])
+    return countChargedDays(start, end, sessions.startSession, sessions.endSession, {
+      countsHolidays,
+      calendar,
+    })
+  }, [startDate, endDate, countsHolidays, calendar, sessions.startSession, sessions.endSession])
 
   const exceedsBalance =
     chargedDays !== null && !isUnpaidType && !!selectedBalance && chargedDays > selectedBalance.balance
@@ -134,6 +165,7 @@ export function ApplyLeaveDialog({
         leaveTypeId,
         startDate,
         endDate,
+        ...sessions,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       }),
     onSuccess: () => {
@@ -151,6 +183,7 @@ export function ApplyLeaveDialog({
     setStartDate("")
     setEndDate("")
     setReason("")
+    setDuration("FULL")
     setFormError(null)
   }
 
@@ -276,6 +309,35 @@ export function ApplyLeaveDialog({
               </Popover>
             </div>
           </div>
+
+          {canHalfDay ? (
+            <div>
+              <Label className="mb-1.5 text-xs font-bold">Duration</Label>
+              <Select value={effectiveDuration} onValueChange={(v) => setDuration(v as typeof duration)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL">Full day</SelectItem>
+                  {/*
+                    The derived times are in the label on purpose: they are
+                    what settles whether lunch falls inside the half, before
+                    the employee files rather than after.
+                  */}
+                  <SelectItem value="FIRST_HALF">
+                    {halfDayWindow
+                      ? `First half (${halfDayWindow.startTime} – ${halfDayWindow.midpoint})`
+                      : "First half"}
+                  </SelectItem>
+                  <SelectItem value="SECOND_HALF">
+                    {halfDayWindow
+                      ? `Second half (${halfDayWindow.midpoint} – ${halfDayWindow.endTime})`
+                      : "Second half"}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
 
           {chargedDays !== null ? (
             <div className="space-y-1">
