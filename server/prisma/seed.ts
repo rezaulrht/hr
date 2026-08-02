@@ -342,6 +342,13 @@ async function main() {
         accrualBasis: leaveType.accrualBasis,
         minServiceMonths: leaveType.minServiceMonths,
         maxAccrual: leaveType.maxAccrual,
+        // PERSONAL and LWP are non-statutory, so the `continue` above skips
+        // them once they exist and they keep the column default of `true`.
+        // That is the intended value, but it is inherited rather than
+        // asserted — do not "fix" that by dropping the statutory guard, which
+        // exists so a section-number correction cannot quietly reduce a
+        // company-policy allowance.
+        allowsHalfDay: leaveType.allowsHalfDay,
       },
       create: leaveType,
     })
