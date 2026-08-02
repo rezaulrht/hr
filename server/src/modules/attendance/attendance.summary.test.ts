@@ -145,6 +145,10 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Annual", isPaid: true },
         },
       ],
@@ -166,12 +170,20 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Sick", isPaid: true },
         },
         {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-12"),
           endDate: parseDateOnly("2026-08-13"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
       ],
@@ -190,6 +202,10 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
       ],
@@ -206,6 +222,10 @@ describe("the monthly working-day identity", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-10"),
           endDate: parseDateOnly("2026-08-11"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
       ],
@@ -429,6 +449,10 @@ describe("daily summary", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-14"),
           endDate: parseDateOnly("2026-08-16"),
+
+          startSession: "FIRST_HALF",
+
+          endSession: "SECOND_HALF",
           leaveType: { name: "Annual", isPaid: true },
         },
       ] as never)

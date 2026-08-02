@@ -182,6 +182,8 @@ describe("status precedence", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-03"),
           endDate: parseDateOnly("2026-08-04"),
+          startSession: "FIRST_HALF",
+          endSession: "SECOND_HALF",
           leaveType: { name: "Sick", isPaid: true },
         },
       ],
@@ -228,6 +230,8 @@ describe("precedence inversions", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-06"),
           endDate: parseDateOnly("2026-08-08"),
+          startSession: "FIRST_HALF",
+          endSession: "SECOND_HALF",
           leaveType: { name: "Annual", isPaid: true },
         },
       ],
@@ -349,6 +353,8 @@ describe("leaveIsPaid on the day grid", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-03"),
           endDate: parseDateOnly("2026-08-03"),
+          startSession: "FIRST_HALF",
+          endSession: "SECOND_HALF",
           leaveType: { name: "Leave without pay", isPaid: false },
         },
       ],
@@ -374,6 +380,8 @@ describe("leaveIsPaid on the day grid", () => {
           employeeId: "emp-1",
           startDate: parseDateOnly("2026-08-03"),
           endDate: parseDateOnly("2026-08-03"),
+          startSession: "FIRST_HALF",
+          endSession: "SECOND_HALF",
           leaveType: { name: "Sick", isPaid: true },
         },
       ],
@@ -510,5 +518,98 @@ describe("effectiveShift", () => {
     const eff = effectiveShift(GENERAL, 0.5, "FIRST_HALF")
     expect(eff.graceMinutes).toBe(15)
     expect(eff.weeklyOffDays).toEqual([5])
+  })
+})
+
+describe("half-day leave in the grid", () => {
+  const halfLeave = (startSession: "FIRST_HALF" | "SECOND_HALF") => [
+    {
+      employeeId: "emp-1",
+      startDate: parseDateOnly("2026-08-10"),
+      endDate: parseDateOnly("2026-08-10"),
+      startSession,
+      endSession: startSession,
+      leaveType: { name: "Casual", isPaid: true },
+    },
+  ]
+
+  const wholeLeave = [
+    {
+      employeeId: "emp-1",
+      startDate: parseDateOnly("2026-08-10"),
+      endDate: parseDateOnly("2026-08-10"),
+      startSession: "FIRST_HALF",
+      endSession: "SECOND_HALF",
+      leaveType: { name: "Casual", isPaid: true },
+    },
+  ]
+
+  const dayFor = (leaves: unknown[], attendances: unknown[] = []) =>
+    resolveGrid([employee()], parseDateOnly("2026-08-10"), parseDateOnly("2026-08-10"), {
+      attendances,
+      leaves,
+      holidays: [],
+      shifts: [GENERAL],
+    } as any).get("emp-1")![0]
+
+  it("reports leaveFraction 0.5 for a morning half", () => {
+    expect(dayFor(halfLeave("FIRST_HALF")).leaveFraction).toBe(0.5)
+  })
+
+  it("reports leaveFraction 1 for a whole-day leave", () => {
+    expect(dayFor(wholeLeave).leaveFraction).toBe(1)
+  })
+
+  it("reports leaveFraction 0 when no leave covers the date", () => {
+    expect(dayFor([]).leaveFraction).toBe(0)
+  })
+
+  it("halves expectedHours on a half-day date", () => {
+    expect(dayFor(halfLeave("FIRST_HALF")).expectedHours).toBe(4.5)
+  })
+
+  it("carries leaveFraction even when the day resolves to PRESENT", () => {
+    // The whole point: a check-in beats leave for `status`, but the day is
+    // still half leave and payroll has to see that.
+    const row = {
+      id: "att-1",
+      employeeId: "emp-1",
+      date: parseDateOnly("2026-08-10"),
+      checkIn: new Date("2026-08-10T07:30:00.000Z"),
+      checkOut: null,
+      workedHours: null,
+      isLate: false,
+      isEarlyOut: false,
+      source: "WEB",
+      approval: "PENDING",
+      regularisedAt: null,
+      correctedAt: null,
+    }
+
+    const day = dayFor(halfLeave("FIRST_HALF"), [row])
+    expect(day.status).toBe("PRESENT")
+    expect(day.leaveFraction).toBe(0.5)
+  })
+
+  it("marks the unserved half ABSENT on a past date with no punch", () => {
+    const day = dayFor(halfLeave("FIRST_HALF"))
+    expect(day.status).toBe("ON_LEAVE")
+    expect(day.unservedStatus).toBe("ABSENT")
+  })
+
+  it("leaves unservedStatus null when an attendance row exists", () => {
+    const row = {
+      id: "att-1",
+      employeeId: "emp-1",
+      date: parseDateOnly("2026-08-10"),
+      approval: "PENDING",
+      regularisedAt: null,
+      correctedAt: null,
+    }
+    expect(dayFor(halfLeave("FIRST_HALF"), [row]).unservedStatus).toBeNull()
+  })
+
+  it("leaves unservedStatus null for a whole-day leave", () => {
+    expect(dayFor(wholeLeave).unservedStatus).toBeNull()
   })
 })
