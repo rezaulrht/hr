@@ -42,29 +42,18 @@ const MAX_BACKDATE_DAYS = 30
  * The three shapes a single day can take. Declared out here so the control is
  * a map rather than three near-identical blocks of JSX.
  *
- * `window` renders the times once they are known and a stable placeholder
- * before then, so the buttons do not resize when the query resolves.
+ * `window` is rendered as a caption *below* the group rather than inside each
+ * button: a two-line button would not match the height of every other control
+ * in this dialog, and the times are only knowable once a date is picked.
  */
 const DURATION_CHOICES: Array<{
   value: "FULL" | "FIRST_HALF" | "SECOND_HALF"
   label: string
-  window: (w: HalfDayWindow | null) => string
+  window: (w: HalfDayWindow) => string
 }> = [
-  {
-    value: "FULL",
-    label: "Full day",
-    window: (w) => (w ? `${w.startTime} – ${w.endTime}` : " "),
-  },
-  {
-    value: "FIRST_HALF",
-    label: "First half",
-    window: (w) => (w ? `${w.startTime} – ${w.midpoint}` : " "),
-  },
-  {
-    value: "SECOND_HALF",
-    label: "Second half",
-    window: (w) => (w ? `${w.midpoint} – ${w.endTime}` : " "),
-  },
+  { value: "FULL", label: "Full day", window: (w) => `${w.startTime} – ${w.endTime}` },
+  { value: "FIRST_HALF", label: "First half", window: (w) => `${w.startTime} – ${w.midpoint}` },
+  { value: "SECOND_HALF", label: "Second half", window: (w) => `${w.midpoint} – ${w.endTime}` },
 ]
 
 function startOfToday(): Date {
@@ -427,8 +416,8 @@ export function ApplyLeaveDialog({
                 {DURATION_CHOICES.map((choice) => {
                   // Disabled rather than hidden for a whole-days-only type:
                   // an option that silently vanishes when you change type is
-                  // its own small confusion, and the reason below teaches the
-                  // rule instead.
+                  // its own small confusion, and the caption below teaches
+                  // the rule instead.
                   const blocked = choice.value !== "FULL" && !typeAllowsHalfDay
                   return (
                     <Button
@@ -437,25 +426,27 @@ export function ApplyLeaveDialog({
                       variant={effectiveDuration === choice.value ? "default" : "outline"}
                       disabled={!selectedType || blocked}
                       onClick={() => setDuration(choice.value)}
-                      className="h-auto flex-col py-2"
                     >
-                      <span>{choice.label}</span>
-                      {/*
-                        The derived times settle whether lunch falls inside
-                        the half, before the employee files rather than after.
-                      */}
-                      <span className="text-[11px] font-normal opacity-70">
-                        {choice.window(halfDayWindow)}
-                      </span>
+                      {choice.label}
                     </Button>
                   )
                 })}
               </div>
-              {!typeAllowsHalfDay && selectedType ? (
-                <p className="mt-1.5 text-xs text-[#7A8698]">
-                  {selectedType.name} leave is taken in whole days.
-                </p>
-              ) : null}
+              {/*
+                One caption line, always present so the group never changes
+                height. It carries whichever of the three things is worth
+                saying: why halves are unavailable, the hours the selected
+                choice covers, or how to find those hours out.
+              */}
+              <p className="mt-1.5 text-xs text-[#7A8698]">
+                {selectedType && !typeAllowsHalfDay
+                  ? `${selectedType.name} leave is taken in whole days.`
+                  : halfDayWindow
+                    ? DURATION_CHOICES.find((c) => c.value === effectiveDuration)!.window(
+                        halfDayWindow
+                      )
+                    : "Pick a date to see the hours."}
+              </p>
             </div>
           ) : null}
 
