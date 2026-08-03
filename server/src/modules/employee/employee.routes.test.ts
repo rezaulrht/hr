@@ -85,6 +85,18 @@ describe("POST /api/employees/staff", () => {
       .send({ fullName: "No other fields" })
     expect(res.status).toBe(400)
   })
+
+  it("says which rule the joining date broke, not just that the body was bad", async () => {
+    // The schema distinguishes "not a date at all" from "a date that does not
+    // exist"; a form can only point at the offending field if the message
+    // survives the HTTP boundary.
+    const res = await request(app)
+      .post("/api/employees/staff")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ ...validBody, joiningDate: "banana" })
+    expect(res.status).toBe(400)
+    expect(res.body.error).not.toBe("Invalid request body")
+  })
 })
 
 describe("employee read routes", () => {

@@ -36,7 +36,13 @@ type RequestWithDoc = Request<{ id: string; docId: string }>
 export async function createStaffAccountHandler(req: Request, res: Response, next: NextFunction) {
   const parsed = createStaffAccountSchema.safeParse(req.body)
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid request body" })
+    // Same reasoning as updateEmployeeHandler. The creation schema now rejects
+    // a malformed joining date, a whitespace-only name and an impossible
+    // calendar date with distinct messages; collapsing all of them into one
+    // opaque string leaves the form with nothing to point the user at.
+    return res
+      .status(400)
+      .json({ error: parsed.error.issues[0]?.message ?? "Invalid request body" })
   }
   try {
     const result = await createStaffAccount(parsed.data, req.user!.sub)
