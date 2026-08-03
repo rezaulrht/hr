@@ -22,3 +22,16 @@ export const setSalaryStructureSchema = z.object({
   salaryStructureId: z.string().min(1).nullable(),
 })
 export type SetSalaryStructureBody = z.infer<typeof setSalaryStructureSchema>
+
+/**
+ * The document type arrives as a multipart TEXT field alongside the file, so
+ * it is validated on its own rather than as part of a JSON body.
+ */
+export const documentTypeSchema = z.enum([
+  "CONTRACT",
+  "NID",
+  "CERTIFICATE",
+  "OFFER_LETTER",
+  "RESIGNATION",
+  "OTHER",
+])

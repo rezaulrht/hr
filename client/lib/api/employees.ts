@@ -1,5 +1,12 @@
 import { apiFetch } from "./client"
-import type { CreateStaffAccountInput, CreateStaffAccountResult, Employee } from "./types"
+import type {
+  CreateStaffAccountInput,
+  CreateStaffAccountResult,
+  DocumentItem,
+  DocumentType,
+  Employee,
+  SignedDocumentUrl,
+} from "./types"
 
 export function listEmployees(accessToken: string): Promise<Employee[]> {
   return apiFetch<Employee[]>("/api/employees", { accessToken })
@@ -29,5 +36,75 @@ export function createStaffAccount(
     method: "POST",
     accessToken,
     body: JSON.stringify(input),
+  })
+}
+
+export function listDocuments(accessToken: string, employeeId: string): Promise<DocumentItem[]> {
+  return apiFetch<DocumentItem[]>(`/api/employees/${employeeId}/documents`, { accessToken })
+}
+
+/**
+ * Posts the file to our own API, which forwards it to the file store. The
+ * client never talks to Cloudinary and never learns the cloud name.
+ */
+export function uploadDocument(
+  accessToken: string,
+  employeeId: string,
+  file: File,
+  type: DocumentType
+): Promise<DocumentItem> {
+  const form = new FormData()
+  form.append("file", file)
+  form.append("type", type)
+  return apiFetch<DocumentItem>(`/api/employees/${employeeId}/documents`, {
+    method: "POST",
+    accessToken,
+    body: form,
+  })
+}
+
+export function getDocumentUrl(
+  accessToken: string,
+  employeeId: string,
+  documentId: string
+): Promise<SignedDocumentUrl> {
+  return apiFetch<SignedDocumentUrl>(
+    `/api/employees/${employeeId}/documents/${documentId}/url`,
+    { accessToken }
+  )
+}
+
+export function deleteDocument(
+  accessToken: string,
+  employeeId: string,
+  documentId: string
+): Promise<void> {
+  return apiFetch<void>(`/api/employees/${employeeId}/documents/${documentId}`, {
+    method: "DELETE",
+    accessToken,
+  })
+}
+
+export function uploadAvatar(
+  accessToken: string,
+  employeeId: string,
+  file: File
+): Promise<{ avatarUrl: string | null }> {
+  const form = new FormData()
+  form.append("file", file)
+  return apiFetch<{ avatarUrl: string | null }>(`/api/employees/${employeeId}/avatar`, {
+    method: "PATCH",
+    accessToken,
+    body: form,
+  })
+}
+
+export function deleteAvatar(
+  accessToken: string,
+  employeeId: string
+): Promise<{ avatarUrl: null }> {
+  return apiFetch<{ avatarUrl: null }>(`/api/employees/${employeeId}/avatar`, {
+    method: "DELETE",
+    accessToken,
   })
 }

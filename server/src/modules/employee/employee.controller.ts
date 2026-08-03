@@ -1,13 +1,31 @@
 import type { NextFunction, Request, Response } from "express"
 
+import prisma from "../../config/prisma"
+import { AppError } from "../../middleware/errorHandler"
+import type { AccessTokenPayload } from "../auth/auth.types"
 import { exitDetailsBody } from "../settlement/settlement.validators"
+import {
+  clearAvatar,
+  deleteDocument,
+  getDocumentUrl,
+  listDocuments,
+  uploadAvatar,
+  uploadDocument,
+} from "./employee.media"
 import {
   createStaffAccount,
   listEmployees,
   setExitDetails,
   setSalaryStructure,
 } from "./employee.service"
-import { createStaffAccountSchema, setSalaryStructureSchema } from "./employee.validators"
+import {
+  createStaffAccountSchema,
+  documentTypeSchema,
+  setSalaryStructureSchema,
+} from "./employee.validators"
+
+type RequestWithId = Request<{ id: string }>
+type RequestWithDoc = Request<{ id: string; docId: string }>
 
 export async function createStaffAccountHandler(req: Request, res: Response, next: NextFunction) {
   const parsed = createStaffAccountSchema.safeParse(req.body)
@@ -55,6 +73,124 @@ export async function setExitDetailsHandler(
   try {
     const body = exitDetailsBody.parse(req.body)
     return res.status(200).json(await setExitDetails(req.params.id, req.user!.sub, body))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+function isHrOrAdmin(user: AccessTokenPayload): boolean {
+  return user.role === "SUPER_ADMIN" || user.role === "HR_ADMIN"
+}
+
+/**
+ * Temporary local authorisation.
+ *
+ * The employee-record plan introduces `visibilityTierFor` in
+ * `employee.access.ts` and replaces this helper with it. Duplicated here only
+ * because the media work ships first.
+ */
+async function assertSelfOrHr(user: AccessTokenPayload, employeeId: string): Promise<void> {
+  if (isHrOrAdmin(user)) return
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { userId: true },
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+  if (employee.userId !== user.sub) {
+    throw new AppError(403, "You do not have access to this employee's records")
+  }
+}
+
+function assertHrOnly(user: AccessTokenPayload): void {
+  if (!isHrOrAdmin(user)) throw new AppError(403, "Only HR can change employee documents")
+}
+
+/** multer puts the parsed file here; the type comes from @types/multer. */
+function requireFile(req: Request): Express.Multer.File {
+  if (!req.file) throw new AppError(400, "Attach a file in a `file` field")
+  return req.file
+}
+
+export async function listDocumentsHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    await assertSelfOrHr(req.user!, req.params.id)
+    return res.status(200).json(await listDocuments(req.params.id))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function uploadDocumentHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    assertHrOnly(req.user!)
+    const parsed = documentTypeSchema.safeParse(req.body?.type)
+    if (!parsed.success) throw new AppError(400, "Choose a valid document type")
+    const file = requireFile(req)
+    return res
+      .status(201)
+      .json(await uploadDocument(req.params.id, req.user!.sub, file, parsed.data))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getDocumentUrlHandler(
+  req: RequestWithDoc,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    await assertSelfOrHr(req.user!, req.params.id)
+    return res.status(200).json(await getDocumentUrl(req.params.id, req.params.docId))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function deleteDocumentHandler(
+  req: RequestWithDoc,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    assertHrOnly(req.user!)
+    await deleteDocument(req.params.id, req.params.docId, req.user!.sub)
+    return res.status(204).send()
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function uploadAvatarHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    await assertSelfOrHr(req.user!, req.params.id)
+    const file = requireFile(req)
+    return res.status(200).json(await uploadAvatar(req.params.id, req.user!.sub, file))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function clearAvatarHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    await assertSelfOrHr(req.user!, req.params.id)
+    return res.status(200).json(await clearAvatar(req.params.id, req.user!.sub))
   } catch (err) {
     return next(err)
   }
