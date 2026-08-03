@@ -31,6 +31,7 @@ import {
   deleteDocument,
   getDocumentUrl,
   listDocuments,
+  unpackAvatar,
   uploadAvatar,
   uploadDocument,
 } from "./employee.media"
@@ -39,6 +40,9 @@ const file = { buffer: Buffer.from("pdf-bytes"), originalname: "contract.pdf" }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Both upload paths check the employee exists before spending an upload.
+  // The default is "it exists"; the tests that care override it.
+  vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as any)
 })
 
 describe("uploadDocument", () => {
@@ -140,6 +144,30 @@ describe("uploadDocument", () => {
       }),
     })
   })
+
+  it("404s a stale employee id without spending an upload", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+
+    await expect(uploadDocument("gone", "u-hr", file, "CONTRACT")).rejects.toThrowError(
+      "Employee not found"
+    )
+    expect(uploadBuffer).not.toHaveBeenCalled()
+  })
+
+  it("destroys the uploaded asset when the row cannot be written", async () => {
+    // A dangling row is recoverable; a dangling asset is invisible and bills
+    // forever. The upload is already done by the time the write fails.
+    vi.mocked(uploadBuffer).mockResolvedValue({
+      publicId: "hr/documents/emp-1/generated-uuid",
+      version: 1,
+      bytes: 9,
+      format: "pdf",
+    })
+    txMock.document.create.mockRejectedValue(new Error("db down"))
+
+    await expect(uploadDocument("emp-1", "u-hr", file, "CONTRACT")).rejects.toThrowError("db down")
+    expect(destroyAsset).toHaveBeenCalledWith("hr/documents/emp-1/generated-uuid")
+  })
 })
 
 describe("getDocumentUrl", () => {
@@ -231,6 +259,53 @@ describe("uploadAvatar", () => {
       data: { profilePicture: "hr/avatars/emp-1#9" },
       select: { profilePicture: true },
     })
+  })
+
+  it("404s a stale employee id without spending an upload", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+
+    await expect(
+      uploadAvatar("gone", "u-1", { buffer: Buffer.from("img"), originalname: "me.jpg" })
+    ).rejects.toThrowError("Employee not found")
+    expect(uploadBuffer).not.toHaveBeenCalled()
+  })
+
+  it("destroys the uploaded asset when the column cannot be written", async () => {
+    vi.mocked(uploadBuffer).mockResolvedValue({
+      publicId: "hr/avatars/emp-1",
+      version: 9,
+      bytes: 100,
+      format: "jpg",
+    })
+    txMock.employee.update.mockRejectedValue(new Error("db down"))
+
+    await expect(
+      uploadAvatar("emp-1", "u-1", { buffer: Buffer.from("img"), originalname: "me.jpg" })
+    ).rejects.toThrowError("db down")
+    expect(destroyAsset).toHaveBeenCalledWith("hr/avatars/emp-1")
+  })
+})
+
+describe("unpackAvatar", () => {
+  it("splits a packed publicId#version", () => {
+    expect(unpackAvatar("hr/avatars/emp-1#9")).toEqual({
+      publicId: "hr/avatars/emp-1",
+      version: 9,
+    })
+  })
+
+  it("treats an unversioned value as the whole public id", () => {
+    expect(unpackAvatar("hr/avatars/emp-1")).toEqual({ publicId: "hr/avatars/emp-1" })
+  })
+
+  it("does not read a trailing # as version 0", () => {
+    // `Number("")` is 0, which is finite — the naive check let a truncated
+    // value through as a real version and produced a broken delivery URL.
+    expect(unpackAvatar("hr/avatars/emp-1#")).toEqual({ publicId: "hr/avatars/emp-1#" })
+  })
+
+  it("rejects a non-numeric version", () => {
+    expect(unpackAvatar("hr/avatars/emp-1#abc")).toEqual({ publicId: "hr/avatars/emp-1#abc" })
   })
 })
 

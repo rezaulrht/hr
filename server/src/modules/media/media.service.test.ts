@@ -150,6 +150,10 @@ describe("signedDocumentUrl", () => {
     const [, format, options] = (cloudinaryMock.utils.private_download_url.mock.calls as any[])[0]
     expect(format).toBe("pdf")
     expect((options as any).type).toBe("authenticated")
+    // The specific failure the spec calls out: a mismatch between upload and
+    // delivery resource_type produces a download URL that 404s against a
+    // stored asset.
+    expect((options as any).resource_type).toBe("image")
     expect((options as any).expires_at).toBeGreaterThanOrEqual(before + DOCUMENT_URL_TTL_SECONDS)
 
     expect(result.url).toBe("https://api.cloudinary.com/download?sig=x")

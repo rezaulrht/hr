@@ -41,7 +41,9 @@ export function unpackAvatar(stored: string): { publicId: string; version?: numb
   const hash = stored.lastIndexOf("#")
   if (hash === -1) return { publicId: stored }
   const version = Number(stored.slice(hash + 1))
-  if (!Number.isFinite(version)) return { publicId: stored }
+  // `Number("")` is `0`, which is finite — a trailing `#` with nothing after
+  // it must not be read as a real version 0.
+  if (!Number.isInteger(version) || version <= 0) return { publicId: stored }
   return { publicId: stored.slice(0, hash), version }
 }
 
@@ -73,38 +75,56 @@ export async function uploadDocument(
   file: UploadedFile,
   type: DocumentType
 ): Promise<DocumentItem> {
+  // Before the upload, not just before the write: a stale employee id (the
+  // record was deleted between page load and submit) should cost no upload
+  // at all, not an upload followed by a foreign-key-violation 500.
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { id: true },
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+
   const asset = await uploadBuffer(file.buffer, documentPublicId(employeeId))
 
-  return prisma.$transaction(async (tx) => {
-    const created = await tx.document.create({
-      data: {
-        employeeId,
-        type,
-        publicId: asset.publicId,
-        // What the uploader called it: the public id is a UUID and HR needs to
-        // tell two certificates apart in a list.
-        fileName: file.originalname,
-        bytes: asset.bytes,
-        format: asset.format,
-        uploadedBy: actorUserId,
-      },
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const created = await tx.document.create({
+        data: {
+          employeeId,
+          type,
+          publicId: asset.publicId,
+          // What the uploader called it: the public id is a UUID and HR needs to
+          // tell two certificates apart in a list.
+          fileName: file.originalname,
+          bytes: asset.bytes,
+          format: asset.format,
+          uploadedBy: actorUserId,
+        },
+      })
+      await auditPayroll(tx, {
+        entity: "EMPLOYEE_DOCUMENT",
+        entityId: created.id,
+        action: "CREATE",
+        changedBy: actorUserId,
+        after: { type, fileName: file.originalname },
+      })
+      return {
+        id: created.id,
+        type: created.type,
+        fileName: created.fileName,
+        bytes: created.bytes,
+        format: created.format,
+        uploadedAt: created.uploadedAt.toISOString(),
+      }
     })
-    await auditPayroll(tx, {
-      entity: "EMPLOYEE_DOCUMENT",
-      entityId: created.id,
-      action: "CREATE",
-      changedBy: actorUserId,
-      after: { type, fileName: file.originalname },
-    })
-    return {
-      id: created.id,
-      type: created.type,
-      fileName: created.fileName,
-      bytes: created.bytes,
-      format: created.format,
-      uploadedAt: created.uploadedAt.toISOString(),
-    }
-  })
+  } catch (err) {
+    // The asset already exists in Cloudinary at this point; a persist
+    // failure here must not leave it dangling with no row pointing at it.
+    // Mirrors the rule `destroyAsset` states for deletion: a dangling row is
+    // recoverable, a dangling asset is invisible.
+    await destroyAsset(asset.publicId)
+    throw err
+  }
 }
 
 export async function getDocumentUrl(
@@ -149,22 +169,37 @@ export async function uploadAvatar(
   actorUserId: string,
   file: UploadedFile
 ): Promise<{ avatarUrl: string | null }> {
+  // Same existence check `clearAvatar` already does, and for the same
+  // reason: a bad id should 404 before any upload happens, not after.
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { id: true },
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+
   const asset = await uploadBuffer(file.buffer, avatarPublicId(employeeId))
 
-  await prisma.$transaction(async (tx) => {
-    await tx.employee.update({
-      where: { id: employeeId },
-      data: { profilePicture: packAvatar(asset.publicId, asset.version) },
-      select: { profilePicture: true },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: { profilePicture: packAvatar(asset.publicId, asset.version) },
+        select: { profilePicture: true },
+      })
+      await auditPayroll(tx, {
+        entity: "EMPLOYEE_PROFILE",
+        entityId: employeeId,
+        action: "UPDATE",
+        changedBy: actorUserId,
+        after: { profilePicture: "updated" },
+      })
     })
-    await auditPayroll(tx, {
-      entity: "EMPLOYEE_PROFILE",
-      entityId: employeeId,
-      action: "UPDATE",
-      changedBy: actorUserId,
-      after: { profilePicture: "updated" },
-    })
-  })
+  } catch (err) {
+    // Same compensating cleanup as uploadDocument: the asset is already in
+    // Cloudinary, so a persist failure here must not leave it dangling.
+    await destroyAsset(asset.publicId)
+    throw err
+  }
 
   return { avatarUrl: signedAvatarUrl(asset.publicId, asset.version) }
 }

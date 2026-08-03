@@ -47,17 +47,32 @@ router.patch(
   setExitDetailsHandler
 )
 
-// No `requireRole`: what a caller may do depends on the relationship between
-// them and the subject, not on the role alone.
-//
-// Order is `requireAuth` -> multer -> handler. multer must run before the
-// handler to populate `req.file`, and Express cannot know the caller's tier
-// until requireAuth has run. An unauthorised caller therefore still has their
-// file buffered before being refused — the size cap is what bounds that.
+// No `requireRole`: listing is self-or-HR, so what a caller may do depends on
+// the relationship between them and the subject, not on the role alone. No
+// multer here, so there is no buffering concern to weigh against that.
 router.get("/:id/documents", requireAuth, listDocumentsHandler)
-router.post("/:id/documents", requireAuth, documentUpload, uploadDocumentHandler)
+
+// Unlike the avatar route below, uploading a document is a pure role check
+// (`assertHrOnly` in the handler) — not self-or-HR — so the caller's tier is
+// known from the JWT alone, with no DB lookup required. That means
+// `requireRole` can run BEFORE multer, refusing a non-HR caller before their
+// file is ever buffered into memory, rather than after. `assertHrOnly` stays
+// in the handler as defence in depth.
+router.post(
+  "/:id/documents",
+  requireAuth,
+  requireRole(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  documentUpload,
+  uploadDocumentHandler
+)
 router.get("/:id/documents/:docId/url", requireAuth, getDocumentUrlHandler)
 router.delete("/:id/documents/:docId", requireAuth, deleteDocumentHandler)
+
+// No `requireRole` here: who may set this avatar depends on the relationship
+// between the caller and the subject (self-or-HR), not on role alone, and
+// resolving that tier needs a DB lookup that only the handler can do. multer
+// must therefore run before the handler regardless of caller, unlike the
+// document route above.
 router.patch("/:id/avatar", requireAuth, avatarUpload, uploadAvatarHandler)
 router.delete("/:id/avatar", requireAuth, clearAvatarHandler)
 
