@@ -21,11 +21,13 @@ import {
   setExitDetails,
   setSalaryStructure,
 } from "./employee.service"
+import { updateEmployee } from "./employee.update"
 import { visibilityTierFor } from "./employee.access"
 import {
   createStaffAccountSchema,
   documentTypeSchema,
   setSalaryStructureSchema,
+  updateEmployeeSchema,
 } from "./employee.validators"
 
 type RequestWithId = Request<{ id: string }>
@@ -79,6 +81,22 @@ export async function setSalaryStructureHandler(
   }
   try {
     return res.status(200).json(await setSalaryStructure(req.params.id, req.user!.sub, parsed.data))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function updateEmployeeHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = updateEmployeeSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request body" })
+  }
+  try {
+    return res.status(200).json(await updateEmployee(req.user!, req.params.id, parsed.data))
   } catch (err) {
     return next(err)
   }

@@ -15,6 +15,7 @@ import {
   listEmployeesHandler,
   setExitDetailsHandler,
   setSalaryStructureHandler,
+  updateEmployeeHandler,
   uploadAvatarHandler,
   uploadDocumentHandler,
 } from "./employee.controller"
@@ -29,6 +30,10 @@ router.get("/", requireAuth, listEmployeesHandler)
 // BEFORE "/:id", or Express matches :id = "me".
 router.get("/me", requireAuth, getMyProfileHandler)
 router.get("/:id", requireAuth, getEmployeeHandler)
+
+// No `requireRole`: the permitted field set depends on the relationship
+// between caller and subject, not on role alone. See employee.access.ts.
+router.patch("/:id", requireAuth, updateEmployeeHandler)
 
 router.post(
   "/staff",

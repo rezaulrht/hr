@@ -23,10 +23,15 @@ vi.mock("../../config/prisma", () => ({
   default: { employee: { findUnique: vi.fn() } },
 }))
 
+vi.mock("./employee.update", () => ({
+  updateEmployee: vi.fn(),
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import * as employeeService from "./employee.service"
 import * as employeeMedia from "./employee.media"
+import * as employeeUpdate from "./employee.update"
 import prismaForRoutes from "../../config/prisma"
 
 function tokenFor(role: "HR_ADMIN" | "EMPLOYEE" | "FINANCE_OFFICER" | "SUPER_ADMIN", sub = "actor-1") {
@@ -295,6 +300,66 @@ describe("employee document routes", () => {
       .delete("/api/employees/emp-1/documents/doc-1")
       .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
     expect(res.status).toBe(204)
+  })
+})
+
+describe("PATCH /api/employees/:id", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("returns 401 unauthenticated", async () => {
+    const res = await request(app).patch("/api/employees/emp-1").send({ phone: "+880" })
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 400 for an empty body", async () => {
+    const res = await request(app)
+      .patch("/api/employees/emp-1")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({})
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 400 for a malformed date", async () => {
+    const res = await request(app)
+      .patch("/api/employees/emp-1")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ dateOfBirth: "banana" })
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 200 and the projected view on success", async () => {
+    vi.mocked(employeeUpdate.updateEmployee).mockResolvedValue({
+      id: "emp-1",
+      work: {
+        fullName: "Rita Sen",
+        designation: "Analyst",
+        department: { id: "d", name: "Finance" },
+        reportingManager: null,
+        email: "rita@demo.com",
+        phone: "+8801800000000",
+        avatarUrl: null,
+      },
+      editableFields: ["phone"],
+    } as any)
+    const res = await request(app)
+      .patch("/api/employees/emp-1")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ phone: "+8801800000000" })
+    expect(res.status).toBe(200)
+    expect(res.body.work.phone).toBe("+8801800000000")
+  })
+
+  it("surfaces the service's 403 with the field names", async () => {
+    const { AppError } = await import("../../middleware/errorHandler")
+    vi.mocked(employeeUpdate.updateEmployee).mockRejectedValue(
+      new AppError(403, "You cannot change: bankAccountNumber")
+    )
+    const res = await request(app)
+      .patch("/api/employees/emp-1")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+      .send({ bankAccountNumber: "999" })
+    expect(res.status).toBe(403)
+    expect(res.body.error).toContain("bankAccountNumber")
   })
 })
 
