@@ -129,7 +129,14 @@ export function AdjustmentsPanel({ month, year }: { month: number; year: number 
           key={`adj-${year}-${month}`}
           open={open}
           onOpenChange={setOpen}
-          employees={employeesQuery.data ?? []}
+          // HR (the only role that opens this dialog) always gets the
+          // `employment` group; filtering rather than fabricating a code
+          // for the rare row that somehow lacks one.
+          employees={(employeesQuery.data ?? []).flatMap((e) =>
+            e.employment
+              ? [{ id: e.id, fullName: e.work.fullName, employeeCode: e.employment.employeeCode }]
+              : []
+          )}
           month={month}
           year={year}
           pending={createMutation.isPending}

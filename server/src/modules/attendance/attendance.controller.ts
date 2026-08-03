@@ -4,6 +4,7 @@ import {
   getEmployeeAttendance,
   getMyAttendance,
   getToday,
+  listShifts,
 } from "./attendance.service"
 import {
   createHoliday,
@@ -47,6 +48,14 @@ import {
  */
 type RequestWithEmployeeId = Request<{ employeeId: string }>
 type RequestWithId = Request<{ id: string }>
+
+export async function listShiftsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await listShifts())
+  } catch (err) {
+    return next(err)
+  }
+}
 
 export async function getTodayHandler(req: Request, res: Response, next: NextFunction) {
   try {

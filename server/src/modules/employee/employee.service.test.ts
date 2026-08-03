@@ -15,6 +15,10 @@ vi.mock("../../config/prisma", () => ({
     $transaction: vi.fn((fn: any) => fn(txMock)),
     employee: { findMany: vi.fn(), findUnique: vi.fn() },
     salaryStructure: { findUnique: vi.fn() },
+    document: { findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
+    department: { findUnique: vi.fn() },
+    shift: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }))
 
@@ -23,11 +27,58 @@ vi.mock("../auth/mailer", () => ({
 }))
 
 import prisma from "../../config/prisma"
-import { createStaffAccount, listEmployees, setSalaryStructure } from "./employee.service"
+import { createStaffAccount, getEmployee, getMyProfile, listEmployees, setSalaryStructure } from "./employee.service"
+import { createStaffAccountSchema } from "./employee.validators"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
+
+function viewerToken(role: any, sub = "u-viewer") {
+  return { sub, role, email: "v@b.com", mustChangePassword: false }
+}
+
+const dbRow = {
+  id: "emp-1",
+  userId: "u-1",
+  employeeCode: "BS-EMP-00001",
+  fullName: "Rita Sen",
+  profilePicture: null,
+  dateOfBirth: null,
+  gender: null,
+  nationalId: null,
+  bloodGroup: null,
+  maritalStatus: null,
+  phone: null,
+  presentAddress: null,
+  permanentAddress: null,
+  emergencyContact: null,
+  designation: "Analyst",
+  departmentId: "dept-1",
+  department: { id: "dept-1", name: "Finance" },
+  reportingManagerId: null,
+  reportingManager: null,
+  employmentType: "FULL_TIME",
+  employmentStatus: "ACTIVE",
+  joiningDate: new Date("2025-01-06T00:00:00.000Z"),
+  officeLocation: null,
+  shiftId: null,
+  shift: null,
+  deviceUserId: null,
+  bankAccountNumber: null,
+  bankName: null,
+  bankRoutingNumber: null,
+  salaryStructureId: null,
+  salaryStructure: null,
+  lastWorkingDay: null,
+  exitReason: null,
+  exitNote: null,
+  user: { email: "rita@demo.com" },
+} as any
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: department exists. `createStaffAccount` now pre-checks it, and
+  // most tests in this file create against "dept-1" without caring about that
+  // check — only the validation-and-error-mapping suite below overrides it.
+  vi.mocked(prisma.department.findUnique).mockResolvedValue({ id: "dept-1" } as any)
 })
 
 describe("createStaffAccount", () => {
@@ -91,73 +142,69 @@ describe("createStaffAccount", () => {
   })
 })
 
-describe("listEmployees", () => {
-  it("returns employees mapped to the list shape, ordered by fullName", async () => {
-    vi.mocked(prisma.employee.findMany).mockResolvedValue([
-      {
-        id: "e1",
-        employeeCode: "BS-EMP-00002",
-        fullName: "Bea Smith",
-        designation: "Analyst",
-        employmentType: "FULL_TIME",
-        employmentStatus: "ACTIVE",
-        joiningDate: new Date("2026-01-15T00:00:00.000Z"),
-        department: { id: "d1", name: "Engineering" },
-        user: { email: "bea@b.com" },
-        salaryStructure: { id: "s1", name: "Standard (BDT)", currency: "BDT" },
-      },
-      {
-        id: "e2",
-        employeeCode: "BS-EMP-00001",
-        fullName: "Alice Doe",
-        designation: "Lead",
-        employmentType: "CONTRACT",
-        employmentStatus: "ON_LEAVE",
-        joiningDate: new Date("2025-11-01T00:00:00.000Z"),
-        department: { id: "d2", name: "Sales" },
-        user: { email: "alice@b.com" },
-        salaryStructure: null,
-      },
-    ] as any)
-
-    const result = await listEmployees()
-
-    expect(prisma.employee.findMany).toHaveBeenCalledWith({
-      include: { department: true, user: true, salaryStructure: true },
-      orderBy: { fullName: "asc" },
-    })
-    expect(result).toEqual([
-      {
-        id: "e1",
-        employeeCode: "BS-EMP-00002",
-        fullName: "Bea Smith",
-        email: "bea@b.com",
-        designation: "Analyst",
-        department: { id: "d1", name: "Engineering" },
-        employmentType: "FULL_TIME",
-        employmentStatus: "ACTIVE",
-        joiningDate: "2026-01-15T00:00:00.000Z",
-        salaryStructure: { id: "s1", name: "Standard (BDT)", currency: "BDT" },
-      },
-      {
-        id: "e2",
-        employeeCode: "BS-EMP-00001",
-        fullName: "Alice Doe",
-        email: "alice@b.com",
-        designation: "Lead",
-        department: { id: "d2", name: "Sales" },
-        employmentType: "CONTRACT",
-        employmentStatus: "ON_LEAVE",
-        joiningDate: "2025-11-01T00:00:00.000Z",
-        salaryStructure: null,
-      },
-    ])
+describe("getEmployee", () => {
+  it("throws 404 for an unknown id", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+    await expect(getEmployee(viewerToken("HR_ADMIN"), "nope")).rejects.toThrowError(
+      "Employee not found"
+    )
   })
 
-  it("returns an empty array when there are no employees", async () => {
-    vi.mocked(prisma.employee.findMany).mockResolvedValue([])
-    const result = await listEmployees()
-    expect(result).toEqual([])
+  it("never refuses a COLLEAGUE — it narrows instead", async () => {
+    // A valid employee id always yields the directory entry. There is no case
+    // where a colleague gets a 403 from this endpoint.
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(dbRow)
+    vi.mocked(prisma.employee.findFirst)?.mockResolvedValue?.({ id: "emp-9" } as any)
+    const view = await getEmployee(viewerToken("EMPLOYEE", "u-other"), "emp-1")
+    expect(view.personal).toBeUndefined()
+    expect(view.work.fullName).toBe("Rita Sen")
+  })
+
+  it("attaches documents and blockers for FULL only", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(dbRow)
+    vi.mocked(prisma.document.findMany).mockResolvedValue([])
+    const full = await getEmployee(viewerToken("HR_ADMIN"), "emp-1")
+    expect(full.blockers).toBeDefined()
+    expect(full.documents).toBeDefined()
+
+    const finance = await getEmployee(viewerToken("FINANCE_OFFICER"), "emp-1")
+    expect(finance.blockers).toBeUndefined()
+    expect(finance.documents).toBeUndefined()
+  })
+})
+
+describe("getMyProfile", () => {
+  it("returns employee: null for an administrative account, not a 404", async () => {
+    // Having no employee record is the NORMAL case for three of five roles.
+    // 404-as-control-flow forces every caller to guess which 404 it is.
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+    const result = await getMyProfile(viewerToken("HR_ADMIN", "u-hr"))
+    expect(result.employee).toBeNull()
+    expect(result.account.role).toBe("HR_ADMIN")
+  })
+
+  it("returns the SELF projection for a staff account", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(dbRow)
+    vi.mocked(prisma.document.findMany).mockResolvedValue([])
+    const result = await getMyProfile(viewerToken("EMPLOYEE", "u-1"))
+    expect(result.employee?.personal).toBeDefined()
+    expect(result.employee?.employment?.deviceUserId).toBeUndefined()
+  })
+})
+
+describe("listEmployees", () => {
+  it("returns work-identity-only rows to an EMPLOYEE caller", async () => {
+    // The regression that would re-expose salary data to the whole company.
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([dbRow])
+    const rows = await listEmployees(viewerToken("EMPLOYEE", "u-other"))
+    expect(rows[0].payroll).toBeUndefined()
+    expect(rows[0].employment).toBeUndefined()
+  })
+
+  it("returns payroll columns to FINANCE", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([dbRow])
+    const rows = await listEmployees(viewerToken("FINANCE_OFFICER"))
+    expect(rows[0].payroll).toBeDefined()
   })
 })
 
@@ -310,5 +357,124 @@ describe("lifecycle events", () => {
 
     await expect(createStaffAccount(input, "hr-user")).rejects.toThrow("duplicate email")
     expect(txMock.event.create).not.toHaveBeenCalled()
+  })
+})
+
+describe("createStaffAccount validation and error mapping", () => {
+  const base = {
+    fullName: "New Hire",
+    email: "new@b.com",
+    role: "EMPLOYEE" as const,
+    designation: "Analyst",
+    departmentId: "dept-1",
+    employmentType: "FULL_TIME" as const,
+    joiningDate: "2026-07-27",
+  }
+
+  beforeEach(() => {
+    vi.mocked(prisma.department.findUnique).mockResolvedValue({ id: "dept-1" } as any)
+    txMock.idCounter.upsert.mockResolvedValue({ id: "EMP", value: 1 })
+    txMock.user.create.mockResolvedValue({ id: "u1" })
+    txMock.employee.create.mockResolvedValue({ id: "emp-1", fullName: "New Hire", designation: "Analyst" })
+  })
+
+  it("maps a duplicate email to 409, not a 500", async () => {
+    // Prisma P2002 is currently uncaught and surfaces as a 500.
+    const p2002 = Object.assign(new Error("Unique constraint"), { code: "P2002" })
+    vi.mocked(prisma.$transaction).mockRejectedValueOnce(p2002)
+    await expect(createStaffAccount(base)).rejects.toThrowError(
+      "An account with this email already exists"
+    )
+  })
+
+  it("rejects an unknown department with 400 rather than a foreign-key 500", async () => {
+    vi.mocked(prisma.department.findUnique).mockResolvedValue(null)
+    await expect(createStaffAccount(base)).rejects.toThrowError("Department not found")
+  })
+
+  it("lowercases the email so Bob@x.com and bob@x.com are one account", async () => {
+    await createStaffAccount({ ...base, email: "Bob@X.com" })
+    expect(txMock.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: "bob@x.com" }) })
+    )
+  })
+
+  it("trims the full name so a single space is not a valid name", async () => {
+    await createStaffAccount({ ...base, fullName: "  Rita Sen  " })
+    expect(txMock.employee.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ fullName: "Rita Sen" }) })
+    )
+  })
+
+  it("rejects a reporting manager who is not a REPORTING_MANAGER", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({
+      id: "emp-9",
+      user: { role: "EMPLOYEE" },
+    } as any)
+    await expect(
+      createStaffAccount({ ...base, reportingManagerId: "emp-9" })
+    ).rejects.toThrowError("not a reporting manager")
+  })
+
+  it("accepts a valid reporting manager", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({
+      id: "emp-9",
+      user: { role: "REPORTING_MANAGER" },
+    } as any)
+    await createStaffAccount({ ...base, reportingManagerId: "emp-9" })
+    expect(txMock.employee.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ reportingManagerId: "emp-9" }) })
+    )
+  })
+
+  it("rejects an unknown shift", async () => {
+    vi.mocked(prisma.shift.findUnique).mockResolvedValue(null)
+    await expect(createStaffAccount({ ...base, shiftId: "nope" })).rejects.toThrowError(
+      "Shift not found"
+    )
+  })
+
+  it("stores the chosen shift", async () => {
+    vi.mocked(prisma.shift.findUnique).mockResolvedValue({ id: "shift-2" } as any)
+    await createStaffAccount({ ...base, shiftId: "shift-2" })
+    expect(txMock.employee.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ shiftId: "shift-2" }) })
+    )
+  })
+})
+
+describe("createStaffAccountSchema", () => {
+  const base = {
+    fullName: "New Hire",
+    email: "new@b.com",
+    role: "EMPLOYEE",
+    designation: "Analyst",
+    departmentId: "dept-1",
+    employmentType: "FULL_TIME",
+    joiningDate: "2026-07-27",
+  }
+
+  it("rejects a joining date that is not YYYY-MM-DD", () => {
+    // `.min(1)` accepted "banana", which became `Invalid Date` and a 500.
+    expect(createStaffAccountSchema.safeParse({ ...base, joiningDate: "banana" }).success).toBe(false)
+  })
+
+  it("rejects a YYYY-MM-DD string that is not a real date", () => {
+    expect(createStaffAccountSchema.safeParse({ ...base, joiningDate: "2026-02-31" }).success).toBe(
+      false
+    )
+  })
+
+  it("rejects a whitespace-only full name", () => {
+    expect(createStaffAccountSchema.safeParse({ ...base, fullName: "   " }).success).toBe(false)
+  })
+
+  it("accepts an optional reporting manager and shift", () => {
+    const parsed = createStaffAccountSchema.safeParse({
+      ...base,
+      reportingManagerId: "emp-9",
+      shiftId: "shift-1",
+    })
+    expect(parsed.success).toBe(true)
   })
 })

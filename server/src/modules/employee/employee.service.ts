@@ -5,14 +5,37 @@ import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
 import { emitEvent } from "../event/event.emit"
 import { auditPayroll } from "../payroll/payroll.audit"
+import { EMPLOYEE_INCLUDE, projectEmployee, visibilityTierFor } from "./employee.access"
+import { computeBlockers } from "./employee.blockers"
 import { employeeExitedEvent, employeeJoinedEvent } from "./employee.events"
+import { listDocuments } from "./employee.media"
+import type { AccessTokenPayload } from "../auth/auth.types"
 import type { ExitDetailsBody } from "../settlement/settlement.validators"
-import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
+import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeView, MyProfileResponse } from "./employee.types"
 import type { SetSalaryStructureBody } from "./employee.validators"
 
 const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
   EMPLOYEE: "EMP",
   REPORTING_MANAGER: "MNG",
+}
+
+/**
+ * Shared by creation and editing, because a reporting line has to mean the
+ * same thing however it was set. Holding two copies of this rule is how one
+ * path ends up accepting a manager the other would reject.
+ *
+ * The caller owns the "not themselves" check: it is meaningful when editing an
+ * existing employee and impossible at creation, where the subject has no id yet.
+ */
+export async function assertIsReportingManager(managerId: string): Promise<void> {
+  const manager = await prisma.employee.findUnique({
+    where: { id: managerId },
+    include: { user: { select: { role: true } } },
+  })
+  if (!manager) throw new AppError(400, "Reporting manager not found")
+  if (manager.user.role !== "REPORTING_MANAGER") {
+    throw new AppError(400, "That employee is not a reporting manager")
+  }
 }
 
 /**
@@ -24,85 +47,165 @@ export async function createStaffAccount(
   input: CreateStaffAccountInput,
   actorUserId?: string
 ): Promise<CreateStaffAccountResult> {
+  const email = input.email.trim().toLowerCase()
+  const fullName = input.fullName.trim()
+  const designation = input.designation.trim()
+
+  // Pre-checked so a bad id is a 400 naming the thing, not a foreign-key 500.
+  const department = await prisma.department.findUnique({ where: { id: input.departmentId } })
+  if (!department) throw new AppError(400, "Department not found")
+
+  if (input.reportingManagerId) {
+    await assertIsReportingManager(input.reportingManagerId)
+  }
+
+  if (input.shiftId) {
+    const shift = await prisma.shift.findUnique({ where: { id: input.shiftId } })
+    if (!shift) throw new AppError(400, "Shift not found")
+  }
+
   const temporaryPassword = generateTemporaryPassword()
   const passwordHash = await hashPassword(temporaryPassword)
   const prefix = CODE_PREFIX[input.role]
 
-  const employeeCode = await prisma.$transaction(async (tx) => {
-    const counter = await tx.idCounter.upsert({
-      where: { id: prefix },
-      update: { value: { increment: 1 } },
-      create: { id: prefix, value: 1 },
-    })
-    const code = `BS-${prefix}-${String(counter.value).padStart(5, "0")}`
-
-    const user = await tx.user.create({
-      data: {
-        email: input.email,
-        passwordHash,
-        role: input.role,
-        mustChangePassword: true,
-      },
-    })
-
-    const employee = await tx.employee.create({
-      data: {
-        userId: user.id,
-        employeeCode: code,
-        fullName: input.fullName,
-        designation: input.designation,
-        departmentId: input.departmentId,
-        employmentType: input.employmentType,
-        joiningDate: new Date(input.joiningDate),
-        reportingManagerId: input.reportingManagerId,
-      },
-    })
-
-    await emitEvent(
-      tx,
-      employeeJoinedEvent({
-        employeeId: employee.id,
-        fullName: employee.fullName,
-        designation: employee.designation,
-        employeeCode: code,
-        actorUserId: actorUserId ?? null,
+  let employeeCode: string
+  try {
+    employeeCode = await prisma.$transaction(async (tx) => {
+      const counter = await tx.idCounter.upsert({
+        where: { id: prefix },
+        update: { value: { increment: 1 } },
+        create: { id: prefix, value: 1 },
       })
-    )
+      const code = `BS-${prefix}-${String(counter.value).padStart(5, "0")}`
 
-    return code
-  })
+      const user = await tx.user.create({
+        data: { email, passwordHash, role: input.role, mustChangePassword: true },
+      })
 
-  await sendStaffCredentialsEmail(input.email, employeeCode, temporaryPassword).catch((err) => {
+      const employee = await tx.employee.create({
+        data: {
+          userId: user.id,
+          employeeCode: code,
+          fullName,
+          designation,
+          departmentId: input.departmentId,
+          employmentType: input.employmentType,
+          joiningDate: new Date(`${input.joiningDate}T00:00:00.000Z`),
+          reportingManagerId: input.reportingManagerId,
+          shiftId: input.shiftId,
+        },
+      })
+
+      await emitEvent(
+        tx,
+        employeeJoinedEvent({
+          employeeId: employee.id,
+          fullName: employee.fullName,
+          designation: employee.designation,
+          employeeCode: code,
+          actorUserId: actorUserId ?? null,
+        })
+      )
+
+      return code
+    })
+  } catch (err) {
+    // Caught AROUND the transaction, not inside it: the unique violation on
+    // User.email aborts the transaction, and catching inside would try to
+    // continue on a dead one.
+    if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
+      throw new AppError(409, "An account with this email already exists")
+    }
+    throw err
+  }
+
+  await sendStaffCredentialsEmail(email, employeeCode, temporaryPassword).catch((err) => {
     console.error("Failed to send staff credentials email", err)
   })
 
-  return {
-    employeeCode,
-    temporaryPassword,
-    fullName: input.fullName,
-    email: input.email,
-  }
+  return { employeeCode, temporaryPassword, fullName, email }
 }
 
-export async function listEmployees(): Promise<EmployeeListItem[]> {
-  const employees = await prisma.employee.findMany({
-    include: { department: true, user: true, salaryStructure: true },
-    orderBy: { fullName: "asc" },
+/**
+ * The viewer's own employee id, or null for an administrative account.
+ *
+ * Needed by `visibilityTierFor` to answer "is the subject one of my direct
+ * reports", which is a comparison between two *employee* ids while the token
+ * only carries a user id.
+ */
+export async function employeeIdForUser(userId: string): Promise<string | null> {
+  const row = await prisma.employee.findUnique({
+    where: { userId },
+    select: { id: true },
   })
-  return employees.map((e) => ({
-    id: e.id,
-    employeeCode: e.employeeCode,
-    fullName: e.fullName,
-    email: e.user.email,
-    designation: e.designation,
-    department: { id: e.department.id, name: e.department.name },
-    employmentType: e.employmentType,
-    employmentStatus: e.employmentStatus,
-    joiningDate: e.joiningDate.toISOString(),
-    salaryStructure: e.salaryStructure
-      ? { id: e.salaryStructure.id, name: e.salaryStructure.name, currency: e.salaryStructure.currency }
-      : null,
-  }))
+  return row?.id ?? null
+}
+
+export async function getEmployee(
+  viewer: AccessTokenPayload,
+  id: string
+): Promise<EmployeeView> {
+  const employee = await prisma.employee.findUnique({
+    where: { id },
+    include: EMPLOYEE_INCLUDE,
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  const viewerEmployeeId = await employeeIdForUser(viewer.sub)
+  const tier = visibilityTierFor(viewer, employee, viewerEmployeeId)
+
+  // Documents and blockers are SELF/FULL only. A blocker names an operational
+  // gap and is HR's work queue; it is not information Finance or a manager
+  // acts on.
+  if (tier !== "SELF" && tier !== "FULL") {
+    return projectEmployee(employee, tier)
+  }
+  const documents = await listDocuments(id)
+  const blockers = computeBlockers(
+    employee,
+    documents.map((d) => d.type)
+  )
+  return projectEmployee(employee, tier, documents, blockers)
+}
+
+export async function getMyProfile(viewer: AccessTokenPayload): Promise<MyProfileResponse> {
+  const account = {
+    email: viewer.email,
+    role: viewer.role,
+    mustChangePassword: viewer.mustChangePassword,
+  }
+  const employee = await prisma.employee.findUnique({
+    where: { userId: viewer.sub },
+    include: EMPLOYEE_INCLUDE,
+  })
+  // `employee: null` rather than a 404. Having no employee record is the
+  // normal case for SUPER_ADMIN, HR_ADMIN and FINANCE_OFFICER, not an error.
+  if (!employee) return { account, employee: null }
+
+  const documents = await listDocuments(employee.id)
+  const blockers = computeBlockers(
+    employee,
+    documents.map((d) => d.type)
+  )
+  return { account, employee: projectEmployee(employee, "SELF", documents, blockers) }
+}
+
+/**
+ * One endpoint, three surfaces.
+ *
+ * Each row is projected at the caller's tier, so this serves HR's full
+ * directory, Finance's payroll-scoped directory, and the company-wide
+ * colleague directory — because the COLLEAGUE projection *is* the colleague
+ * card.
+ */
+export async function listEmployees(viewer: AccessTokenPayload): Promise<EmployeeView[]> {
+  const [employees, viewerEmployeeId] = await Promise.all([
+    prisma.employee.findMany({ include: EMPLOYEE_INCLUDE, orderBy: { fullName: "asc" } }),
+    employeeIdForUser(viewer.sub),
+  ])
+  return employees.map((e) =>
+    projectEmployee(e, visibilityTierFor(viewer, e, viewerEmployeeId))
+  )
 }
 
 /**

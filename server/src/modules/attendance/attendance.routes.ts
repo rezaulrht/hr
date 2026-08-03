@@ -20,6 +20,7 @@ import {
   getTodayHandler,
   listApprovalsHandler,
   listHolidaysHandler,
+  listShiftsHandler,
   regulariseHandler,
   rejectAttendanceHandler,
   updateHolidayHandler,
@@ -81,6 +82,9 @@ router.patch("/:id/reject", requireAuth, requireRole(...APPROVER_ROLES), rejectA
 // The dispute trail. HR only — it names who changed what.
 router.get("/:id/audit", requireAuth, requireRole(...HR_ROLES), getAuditTrailHandler)
 router.patch("/:id", requireAuth, requireRole(...HR_ROLES), correctAttendanceHandler)
+
+// The employee-create/edit forms' shift picker. Only HR assigns a shift.
+router.get("/shifts", requireAuth, requireRole(...HR_ROLES), listShiftsHandler)
 
 // Everyone reads the calendar; only HR writes it.
 router.get("/holidays", requireAuth, listHolidaysHandler)

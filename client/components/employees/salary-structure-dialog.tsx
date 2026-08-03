@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 
-import type { Employee, SalaryStructure } from "@/lib/api/types"
+import type { EmployeeView, SalaryStructure } from "@/lib/api/types"
 import { formatMoney } from "@/lib/money"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,7 +25,7 @@ export function SalaryStructureDialog({
   onOpenChange,
   onSubmit,
 }: {
-  employee: Employee | null
+  employee: EmployeeView | null
   structures: SalaryStructure[]
   pending: boolean
   error: string | null
@@ -44,12 +44,12 @@ export function SalaryStructureDialog({
       open={!!employee}
       onOpenChange={(open) => {
         if (!open) onOpenChange(false)
-        else setSelected(employee?.salaryStructure?.id ?? NONE)
+        else setSelected(employee?.payroll?.salaryStructure?.id ?? NONE)
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Salary structure — {employee?.fullName}</DialogTitle>
+          <DialogTitle>Salary structure — {employee?.work.fullName}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">

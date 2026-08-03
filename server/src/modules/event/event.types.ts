@@ -42,6 +42,7 @@ export type EventType =
   | "announcement.published"
   | "employee.joined"
   | "employee.exited"
+  | "employee.bank_changed"
 
 /**
  * A transaction client, and *only* a transaction client.

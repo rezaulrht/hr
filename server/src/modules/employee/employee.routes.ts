@@ -9,17 +9,31 @@ import {
   createStaffAccountHandler,
   deleteDocumentHandler,
   getDocumentUrlHandler,
+  getEmployeeHandler,
+  getMyProfileHandler,
   listDocumentsHandler,
   listEmployeesHandler,
   setExitDetailsHandler,
   setSalaryStructureHandler,
+  updateEmployeeHandler,
   uploadAvatarHandler,
   uploadDocumentHandler,
 } from "./employee.controller"
 
 const router = Router()
 
-router.get("/", requireAuth, requireRole(Role.SUPER_ADMIN, Role.HR_ADMIN), listEmployeesHandler)
+// requireAuth only. Each row is projected at the caller's tier, so this one
+// endpoint serves HR's directory, Finance's (fixing the /finance/employees
+// 403) and the company-wide colleague directory.
+router.get("/", requireAuth, listEmployeesHandler)
+
+// BEFORE "/:id", or Express matches :id = "me".
+router.get("/me", requireAuth, getMyProfileHandler)
+router.get("/:id", requireAuth, getEmployeeHandler)
+
+// No `requireRole`: the permitted field set depends on the relationship
+// between caller and subject, not on role alone. See employee.access.ts.
+router.patch("/:id", requireAuth, updateEmployeeHandler)
 
 router.post(
   "/staff",

@@ -51,6 +51,11 @@ export interface CreateStaffAccountInput {
   departmentId: string
   employmentType: EmploymentType
   joiningDate: string
+  // Both optional: the server already accepted `reportingManagerId` (see
+  // employee.validators.ts's createStaffAccountSchema) before this task —
+  // only `shiftId` is new. Mirrored together since the create form sends both.
+  reportingManagerId?: string
+  shiftId?: string
 }
 
 export interface CreateStaffAccountResult {
@@ -559,4 +564,109 @@ export interface DocumentItem {
 export interface SignedDocumentUrl {
   url: string
   expiresAt: string
+}
+
+// ── EMPLOYEE RECORD (tiered view) ─────────────
+// Hand-mirrored from server/src/modules/employee/employee.types.ts. The
+// server projects a row to one of five tiers depending on the caller's
+// relationship to the subject, so every group below the required `work` is
+// optional — a COLLEAGUE-tier row genuinely has no `employment`/`payroll`.
+
+export interface WorkIdentity {
+  fullName: string
+  designation: string
+  department: { id: string; name: string }
+  reportingManager: { id: string; fullName: string } | null
+  email: string
+  phone: string | null
+  avatarUrl: string | null
+}
+
+export interface PersonalIdentity {
+  dateOfBirth: string | null
+  gender: string | null
+  nationalId: string | null
+  bloodGroup: string | null
+  maritalStatus: string | null
+}
+
+export interface ContactDetails {
+  presentAddress: string | null
+  permanentAddress: string | null
+  emergencyContact: string | null
+}
+
+export interface EmploymentDetails {
+  employeeCode: string
+  employmentType: EmploymentType
+  employmentStatus: EmploymentStatus
+  joiningDate: string
+  officeLocation: string | null
+  shift: { id: string; name: string } | null
+  deviceUserId?: string | null
+}
+
+export interface PayrollDetails {
+  salaryStructure: { id: string; name: string; currency: "BDT" | "USD" } | null
+  bankAccountNumber: string | null
+  bankName: string | null
+  bankRoutingNumber: string | null
+}
+
+export interface ExitDetailsView {
+  lastWorkingDay: string
+  exitReason: string
+  exitNote: string | null
+}
+
+export interface Blocker {
+  field: string
+  blocks: string
+}
+
+/**
+ * Every group key is optional, matching the server's projection. A component
+ * reading `employee.payroll.bankName` without a guard fails `tsc` rather than
+ * crashing at runtime for a viewer whose tier never had it.
+ */
+export interface EmployeeView {
+  id: string
+  work: WorkIdentity
+  personal?: PersonalIdentity
+  contact?: ContactDetails
+  employment?: EmploymentDetails
+  payroll?: PayrollDetails
+  exit?: ExitDetailsView | null
+  documents?: DocumentItem[]
+  blockers?: Blocker[]
+  editableFields: string[]
+}
+
+export interface MyProfileResponse {
+  account: { email: string; role: Role; mustChangePassword: boolean }
+  employee: EmployeeView | null
+}
+
+export interface UpdateEmployeeInput {
+  phone?: string | null
+  presentAddress?: string | null
+  emergencyContact?: string | null
+  maritalStatus?: string | null
+  bloodGroup?: string | null
+  fullName?: string
+  dateOfBirth?: string | null
+  gender?: string | null
+  nationalId?: string | null
+  permanentAddress?: string | null
+  designation?: string
+  departmentId?: string
+  reportingManagerId?: string | null
+  employmentType?: EmploymentType
+  joiningDate?: string
+  officeLocation?: string | null
+  shiftId?: string | null
+  deviceUserId?: string | null
+  bankAccountNumber?: string | null
+  bankName?: string | null
+  bankRoutingNumber?: string | null
 }
