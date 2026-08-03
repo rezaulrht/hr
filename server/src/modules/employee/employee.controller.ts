@@ -93,7 +93,13 @@ export async function updateEmployeeHandler(
 ) {
   const parsed = updateEmployeeSchema.safeParse(req.body)
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid request body" })
+    // Surfaces the actual Zod message rather than a generic one. This endpoint
+    // names every field a caller may not write rather than dropping it
+    // silently; a 400 that hides "No fields to update" behind "Invalid request
+    // body" gives back the vagueness the 403 was designed to avoid.
+    return res
+      .status(400)
+      .json({ error: parsed.error.issues[0]?.message ?? "Invalid request body" })
   }
   try {
     return res.status(200).json(await updateEmployee(req.user!, req.params.id, parsed.data))

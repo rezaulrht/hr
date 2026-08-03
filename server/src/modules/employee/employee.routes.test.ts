@@ -311,12 +311,16 @@ describe("PATCH /api/employees/:id", () => {
     expect(res.status).toBe(401)
   })
 
-  it("returns 400 for an empty body", async () => {
+  it("returns 400 for an empty body, saying so rather than 'Invalid request body'", async () => {
+    // The schema's .refine names this case on purpose. A generic message reads
+    // as a network hiccup worth retrying; this one tells the caller they sent
+    // nothing. Same reason the 403 below names every field it refuses.
     const res = await request(app)
       .patch("/api/employees/emp-1")
       .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
       .send({})
     expect(res.status).toBe(400)
+    expect(res.body.error).toBe("No fields to update")
   })
 
   it("returns 400 for a malformed date", async () => {
