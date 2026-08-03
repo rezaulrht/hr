@@ -28,64 +28,90 @@ export async function createStaffAccount(
   input: CreateStaffAccountInput,
   actorUserId?: string
 ): Promise<CreateStaffAccountResult> {
+  const email = input.email.trim().toLowerCase()
+  const fullName = input.fullName.trim()
+  const designation = input.designation.trim()
+
+  // Pre-checked so a bad id is a 400 naming the thing, not a foreign-key 500.
+  const department = await prisma.department.findUnique({ where: { id: input.departmentId } })
+  if (!department) throw new AppError(400, "Department not found")
+
+  if (input.reportingManagerId) {
+    const manager = await prisma.employee.findUnique({
+      where: { id: input.reportingManagerId },
+      include: { user: { select: { role: true } } },
+    })
+    if (!manager) throw new AppError(400, "Reporting manager not found")
+    if (manager.user.role !== "REPORTING_MANAGER") {
+      throw new AppError(400, "That employee is not a reporting manager")
+    }
+  }
+
+  if (input.shiftId) {
+    const shift = await prisma.shift.findUnique({ where: { id: input.shiftId } })
+    if (!shift) throw new AppError(400, "Shift not found")
+  }
+
   const temporaryPassword = generateTemporaryPassword()
   const passwordHash = await hashPassword(temporaryPassword)
   const prefix = CODE_PREFIX[input.role]
 
-  const employeeCode = await prisma.$transaction(async (tx) => {
-    const counter = await tx.idCounter.upsert({
-      where: { id: prefix },
-      update: { value: { increment: 1 } },
-      create: { id: prefix, value: 1 },
-    })
-    const code = `BS-${prefix}-${String(counter.value).padStart(5, "0")}`
-
-    const user = await tx.user.create({
-      data: {
-        email: input.email,
-        passwordHash,
-        role: input.role,
-        mustChangePassword: true,
-      },
-    })
-
-    const employee = await tx.employee.create({
-      data: {
-        userId: user.id,
-        employeeCode: code,
-        fullName: input.fullName,
-        designation: input.designation,
-        departmentId: input.departmentId,
-        employmentType: input.employmentType,
-        joiningDate: new Date(input.joiningDate),
-        reportingManagerId: input.reportingManagerId,
-      },
-    })
-
-    await emitEvent(
-      tx,
-      employeeJoinedEvent({
-        employeeId: employee.id,
-        fullName: employee.fullName,
-        designation: employee.designation,
-        employeeCode: code,
-        actorUserId: actorUserId ?? null,
+  let employeeCode: string
+  try {
+    employeeCode = await prisma.$transaction(async (tx) => {
+      const counter = await tx.idCounter.upsert({
+        where: { id: prefix },
+        update: { value: { increment: 1 } },
+        create: { id: prefix, value: 1 },
       })
-    )
+      const code = `BS-${prefix}-${String(counter.value).padStart(5, "0")}`
 
-    return code
-  })
+      const user = await tx.user.create({
+        data: { email, passwordHash, role: input.role, mustChangePassword: true },
+      })
 
-  await sendStaffCredentialsEmail(input.email, employeeCode, temporaryPassword).catch((err) => {
+      const employee = await tx.employee.create({
+        data: {
+          userId: user.id,
+          employeeCode: code,
+          fullName,
+          designation,
+          departmentId: input.departmentId,
+          employmentType: input.employmentType,
+          joiningDate: new Date(`${input.joiningDate}T00:00:00.000Z`),
+          reportingManagerId: input.reportingManagerId,
+          shiftId: input.shiftId,
+        },
+      })
+
+      await emitEvent(
+        tx,
+        employeeJoinedEvent({
+          employeeId: employee.id,
+          fullName: employee.fullName,
+          designation: employee.designation,
+          employeeCode: code,
+          actorUserId: actorUserId ?? null,
+        })
+      )
+
+      return code
+    })
+  } catch (err) {
+    // Caught AROUND the transaction, not inside it: the unique violation on
+    // User.email aborts the transaction, and catching inside would try to
+    // continue on a dead one.
+    if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
+      throw new AppError(409, "An account with this email already exists")
+    }
+    throw err
+  }
+
+  await sendStaffCredentialsEmail(email, employeeCode, temporaryPassword).catch((err) => {
     console.error("Failed to send staff credentials email", err)
   })
 
-  return {
-    employeeCode,
-    temporaryPassword,
-    fullName: input.fullName,
-    email: input.email,
-  }
+  return { employeeCode, temporaryPassword, fullName, email }
 }
 
 /**

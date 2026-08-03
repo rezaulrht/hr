@@ -1,14 +1,35 @@
 import { z } from "zod"
 
+/**
+ * A real date, not any non-empty string.
+ *
+ * `z.string().min(1)` accepted "banana", which reached `new Date("banana")`,
+ * produced `Invalid Date`, and surfaced as a 500 from Prisma.
+ */
+const dateOnlyString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`)
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+  }, "That date does not exist")
+
 export const createStaffAccountSchema = z.object({
-  fullName: z.string().min(1),
-  email: z.string().email(),
+  // `.trim()` before `.min(1)`: otherwise a single space is a valid name.
+  fullName: z.string().trim().min(1).max(200),
+  // Lowercased so `Bob@x.com` and `bob@x.com` cannot become two accounts.
+  email: z.string().email().toLowerCase(),
   role: z.enum(["EMPLOYEE", "REPORTING_MANAGER"]),
-  designation: z.string().min(1),
+  designation: z.string().trim().min(1).max(200),
   departmentId: z.string().min(1),
   employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]),
-  joiningDate: z.string().min(1),
-  reportingManagerId: z.string().optional(),
+  joiningDate: dateOnlyString,
+  reportingManagerId: z.string().min(1).optional(),
+  // Optional. Null falls back to the General shift (attendance.grid.ts), but
+  // that fallback is silent — somebody hired onto the night shift and never
+  // edited is judged for lateness against the wrong window and nobody finds
+  // out. Putting it on the form makes the default a visible choice.
+  shiftId: z.string().min(1).optional(),
 })
 export type CreateStaffAccountBody = z.infer<typeof createStaffAccountSchema>
 

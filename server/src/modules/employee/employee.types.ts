@@ -7,6 +7,7 @@ export interface CreateStaffAccountInput {
   employmentType: "FULL_TIME" | "PART_TIME" | "CONTRACT" | "INTERN"
   joiningDate: string
   reportingManagerId?: string
+  shiftId?: string
 }
 
 export interface CreateStaffAccountResult {
