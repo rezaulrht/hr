@@ -34,6 +34,13 @@ const envSchema = z.object({
   // not survive a restart on an ephemeral filesystem and does not work across
   // replicas. Isolated to payroll.storage.ts so swapping in S3 is one file.
   PAYSLIP_STORAGE_DIR: z.string().default("./storage/payslips"),
+  // Optional, following SMTP_HOST: an unconfigured integration degrades to a
+  // clear 503 on upload rather than refusing to boot. Requiring them would
+  // block every developer and every CI run on a Cloudinary account, for a
+  // feature most work does not touch.
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),

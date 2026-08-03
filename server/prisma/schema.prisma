@@ -161,13 +161,39 @@ model Department {
   announcements Announcement[]
 }
 
+enum DocumentType {
+  CONTRACT
+  NID
+  CERTIFICATE
+  OFFER_LETTER
+  RESIGNATION
+  OTHER
+}
+
 model Document {
-  id         String   @id @default(uuid())
+  id         String       @id @default(uuid())
   employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id])
-  type       String
-  fileUrl    String
-  uploadedAt DateTime @default(now())
+  employee   Employee     @relation(fields: [employeeId], references: [id])
+  // An enum, not free text. Not because it drives money — it does not — but
+  // because the profile page shows *missing* document slots, and "which
+  // required documents are absent" is not a question that can be asked of
+  // user-typed category strings.
+  type       DocumentType
+  // Cloudinary asset ID. Not a URL: delivery URLs are signed per request and
+  // expire after five minutes, so a stored URL would be a dead link.
+  publicId   String       @unique
+  // What the uploader called it. `publicId` is a UUID and unreadable; HR
+  // needs to tell two certificates apart in a list.
+  fileName   String
+  bytes      Int
+  format     String
+  // User id of the HR user who uploaded it. Nullable for the same reason
+  // `actorUserId` is nullable on employee events — a seeded or migrated row
+  // has no actor, and "the system did it" is the honest value.
+  uploadedBy String?
+  uploadedAt DateTime     @default(now())
+
+  @@index([employeeId, uploadedAt])
 }
 
 // ── LEAVE ─────────────────────────────────────
