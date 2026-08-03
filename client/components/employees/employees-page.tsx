@@ -159,8 +159,16 @@ export function EmployeesPage() {
 
   // Reporting managers come from the employee list already loaded — no second
   // endpoint for a subset of rows we have.
+  //
+  // Only active staff: offering someone who has left produces a manager the
+  // new hire reports to on paper and nowhere in practice. This cannot narrow
+  // further to people who actually hold the REPORTING_MANAGER role, because
+  // EmployeeView carries no role — the server makes that check on submit and
+  // rejects with a named 400, so the worst case here is a rejected choice
+  // rather than a bad record.
   const managers = useMemo(
-    () => (employeesQuery.data ?? []).filter((e) => e.work.designation && e.id !== undefined),
+    () =>
+      (employeesQuery.data ?? []).filter((e) => e.employment?.employmentStatus === "ACTIVE"),
     [employeesQuery.data]
   )
 
