@@ -9,6 +9,8 @@ import {
   createStaffAccountHandler,
   deleteDocumentHandler,
   getDocumentUrlHandler,
+  getEmployeeHandler,
+  getMyProfileHandler,
   listDocumentsHandler,
   listEmployeesHandler,
   setExitDetailsHandler,
@@ -19,7 +21,14 @@ import {
 
 const router = Router()
 
-router.get("/", requireAuth, requireRole(Role.SUPER_ADMIN, Role.HR_ADMIN), listEmployeesHandler)
+// requireAuth only. Each row is projected at the caller's tier, so this one
+// endpoint serves HR's directory, Finance's (fixing the /finance/employees
+// 403) and the company-wide colleague directory.
+router.get("/", requireAuth, listEmployeesHandler)
+
+// BEFORE "/:id", or Express matches :id = "me".
+router.get("/me", requireAuth, getMyProfileHandler)
+router.get("/:id", requireAuth, getEmployeeHandler)
 
 router.post(
   "/staff",

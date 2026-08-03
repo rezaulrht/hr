@@ -5,6 +5,9 @@ vi.mock("./employee.service", () => ({
   createStaffAccount: vi.fn(),
   listEmployees: vi.fn(),
   setSalaryStructure: vi.fn(),
+  getEmployee: vi.fn(),
+  getMyProfile: vi.fn(),
+  employeeIdForUser: vi.fn(),
 }))
 
 vi.mock("./employee.media", () => ({
@@ -79,36 +82,32 @@ describe("POST /api/employees/staff", () => {
   })
 })
 
-describe("GET /api/employees", () => {
-  it("returns 401 with no Authorization header", async () => {
+describe("employee read routes", () => {
+  it("returns 401 unauthenticated on GET /api/employees", async () => {
     const res = await request(app).get("/api/employees")
     expect(res.status).toBe(401)
   })
 
-  it("returns 403 for a non-HR/Admin caller", async () => {
-    const res = await request(app).get("/api/employees").set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
-    expect(res.status).toBe(403)
+  it("no longer 403s an EMPLOYEE on GET /api/employees", async () => {
+    // This is what fixes /finance/employees and enables the staff directory.
+    vi.mocked(employeeService.listEmployees).mockResolvedValue([])
+    const res = await request(app)
+      .get("/api/employees")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(200)
   })
 
-  it("returns 200 with the employee list for an HR Admin caller", async () => {
-    vi.mocked(employeeService.listEmployees).mockResolvedValue([
-      {
-        id: "e1",
-        employeeCode: "BS-EMP-00001",
-        fullName: "New Hire",
-        email: "new@b.com",
-        designation: "Analyst",
-        department: { id: "dept-1", name: "Engineering" },
-        employmentType: "FULL_TIME",
-        employmentStatus: "ACTIVE",
-        joiningDate: "2026-07-27T00:00:00.000Z",
-        salaryStructure: null,
-      },
-    ])
-    const res = await request(app).get("/api/employees").set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+  it("routes /me to the profile handler, not to :id", async () => {
+    vi.mocked(employeeService.getMyProfile).mockResolvedValue({
+      account: { email: "hr@demo.com", role: "HR_ADMIN", mustChangePassword: false },
+      employee: null,
+    })
+    const res = await request(app)
+      .get("/api/employees/me")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
     expect(res.status).toBe(200)
-    expect(res.body).toHaveLength(1)
-    expect(res.body[0].employeeCode).toBe("BS-EMP-00001")
+    expect(res.body.employee).toBeNull()
+    expect(employeeService.getEmployee).not.toHaveBeenCalled()
   })
 })
 
@@ -184,6 +183,10 @@ describe("employee document routes", () => {
   })
 
   it("lets HR list documents", async () => {
+    vi.mocked(prismaForRoutes.employee.findUnique).mockResolvedValue({
+      userId: "u-other",
+      reportingManagerId: null,
+    } as any)
     vi.mocked(employeeMedia.listDocuments).mockResolvedValue([])
     const res = await request(app)
       .get("/api/employees/emp-1/documents")
@@ -271,6 +274,10 @@ describe("employee document routes", () => {
   })
 
   it("returns a signed url with an expiry", async () => {
+    vi.mocked(prismaForRoutes.employee.findUnique).mockResolvedValue({
+      userId: "u-other",
+      reportingManagerId: null,
+    } as any)
     vi.mocked(employeeMedia.getDocumentUrl).mockResolvedValue({
       url: "https://dl/x",
       expiresAt: "2026-08-03T10:05:00.000Z",

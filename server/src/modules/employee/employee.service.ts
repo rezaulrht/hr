@@ -5,9 +5,13 @@ import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
 import { emitEvent } from "../event/event.emit"
 import { auditPayroll } from "../payroll/payroll.audit"
+import { EMPLOYEE_INCLUDE, projectEmployee, visibilityTierFor } from "./employee.access"
+import { computeBlockers } from "./employee.blockers"
 import { employeeExitedEvent, employeeJoinedEvent } from "./employee.events"
+import { listDocuments } from "./employee.media"
+import type { AccessTokenPayload } from "../auth/auth.types"
 import type { ExitDetailsBody } from "../settlement/settlement.validators"
-import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeListItem } from "./employee.types"
+import type { CreateStaffAccountInput, CreateStaffAccountResult, EmployeeView, MyProfileResponse } from "./employee.types"
 import type { SetSalaryStructureBody } from "./employee.validators"
 
 const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
@@ -84,25 +88,86 @@ export async function createStaffAccount(
   }
 }
 
-export async function listEmployees(): Promise<EmployeeListItem[]> {
-  const employees = await prisma.employee.findMany({
-    include: { department: true, user: true, salaryStructure: true },
-    orderBy: { fullName: "asc" },
+/**
+ * The viewer's own employee id, or null for an administrative account.
+ *
+ * Needed by `visibilityTierFor` to answer "is the subject one of my direct
+ * reports", which is a comparison between two *employee* ids while the token
+ * only carries a user id.
+ */
+export async function employeeIdForUser(userId: string): Promise<string | null> {
+  const row = await prisma.employee.findUnique({
+    where: { userId },
+    select: { id: true },
   })
-  return employees.map((e) => ({
-    id: e.id,
-    employeeCode: e.employeeCode,
-    fullName: e.fullName,
-    email: e.user.email,
-    designation: e.designation,
-    department: { id: e.department.id, name: e.department.name },
-    employmentType: e.employmentType,
-    employmentStatus: e.employmentStatus,
-    joiningDate: e.joiningDate.toISOString(),
-    salaryStructure: e.salaryStructure
-      ? { id: e.salaryStructure.id, name: e.salaryStructure.name, currency: e.salaryStructure.currency }
-      : null,
-  }))
+  return row?.id ?? null
+}
+
+export async function getEmployee(
+  viewer: AccessTokenPayload,
+  id: string
+): Promise<EmployeeView> {
+  const employee = await prisma.employee.findUnique({
+    where: { id },
+    include: EMPLOYEE_INCLUDE,
+  })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  const viewerEmployeeId = await employeeIdForUser(viewer.sub)
+  const tier = visibilityTierFor(viewer, employee, viewerEmployeeId)
+
+  // Documents and blockers are SELF/FULL only. A blocker names an operational
+  // gap and is HR's work queue; it is not information Finance or a manager
+  // acts on.
+  if (tier !== "SELF" && tier !== "FULL") {
+    return projectEmployee(employee, tier)
+  }
+  const documents = await listDocuments(id)
+  const blockers = computeBlockers(
+    employee,
+    documents.map((d) => d.type)
+  )
+  return projectEmployee(employee, tier, documents, blockers)
+}
+
+export async function getMyProfile(viewer: AccessTokenPayload): Promise<MyProfileResponse> {
+  const account = {
+    email: viewer.email,
+    role: viewer.role,
+    mustChangePassword: viewer.mustChangePassword,
+  }
+  const employee = await prisma.employee.findUnique({
+    where: { userId: viewer.sub },
+    include: EMPLOYEE_INCLUDE,
+  })
+  // `employee: null` rather than a 404. Having no employee record is the
+  // normal case for SUPER_ADMIN, HR_ADMIN and FINANCE_OFFICER, not an error.
+  if (!employee) return { account, employee: null }
+
+  const documents = await listDocuments(employee.id)
+  const blockers = computeBlockers(
+    employee,
+    documents.map((d) => d.type)
+  )
+  return { account, employee: projectEmployee(employee, "SELF", documents, blockers) }
+}
+
+/**
+ * One endpoint, three surfaces.
+ *
+ * Each row is projected at the caller's tier, so this serves HR's full
+ * directory, Finance's payroll-scoped directory, and the company-wide
+ * colleague directory — because the COLLEAGUE projection *is* the colleague
+ * card.
+ */
+export async function listEmployees(viewer: AccessTokenPayload): Promise<EmployeeView[]> {
+  const [employees, viewerEmployeeId] = await Promise.all([
+    prisma.employee.findMany({ include: EMPLOYEE_INCLUDE, orderBy: { fullName: "asc" } }),
+    employeeIdForUser(viewer.sub),
+  ])
+  return employees.map((e) =>
+    projectEmployee(e, visibilityTierFor(viewer, e, viewerEmployeeId))
+  )
 }
 
 /**

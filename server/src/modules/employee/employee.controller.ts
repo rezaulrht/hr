@@ -14,10 +14,14 @@ import {
 } from "./employee.media"
 import {
   createStaffAccount,
+  employeeIdForUser,
+  getEmployee,
+  getMyProfile,
   listEmployees,
   setExitDetails,
   setSalaryStructure,
 } from "./employee.service"
+import { visibilityTierFor } from "./employee.access"
 import {
   createStaffAccountSchema,
   documentTypeSchema,
@@ -40,10 +44,25 @@ export async function createStaffAccountHandler(req: Request, res: Response, nex
   }
 }
 
-export async function listEmployeesHandler(_req: Request, res: Response, next: NextFunction) {
+export async function listEmployeesHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const employees = await listEmployees()
-    return res.status(200).json(employees)
+    return res.status(200).json(await listEmployees(req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getEmployeeHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getEmployee(req.user!, req.params.id))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getMyProfileHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    return res.status(200).json(await getMyProfile(req.user!))
   } catch (err) {
     return next(err)
   }
@@ -82,21 +101,14 @@ function isHrOrAdmin(user: AccessTokenPayload): boolean {
   return user.role === "SUPER_ADMIN" || user.role === "HR_ADMIN"
 }
 
-/**
- * Temporary local authorisation.
- *
- * The employee-record plan introduces `visibilityTierFor` in
- * `employee.access.ts` and replaces this helper with it. Duplicated here only
- * because the media work ships first.
- */
 async function assertSelfOrHr(user: AccessTokenPayload, employeeId: string): Promise<void> {
-  if (isHrOrAdmin(user)) return
   const employee = await prisma.employee.findUnique({
     where: { id: employeeId },
-    select: { userId: true },
+    select: { userId: true, reportingManagerId: true },
   })
   if (!employee) throw new AppError(404, "Employee not found")
-  if (employee.userId !== user.sub) {
+  const tier = visibilityTierFor(user, employee, await employeeIdForUser(user.sub))
+  if (tier !== "SELF" && tier !== "FULL") {
     throw new AppError(403, "You do not have access to this employee's records")
   }
 }
