@@ -20,6 +20,25 @@ const CODE_PREFIX: Record<CreateStaffAccountInput["role"], string> = {
 }
 
 /**
+ * Shared by creation and editing, because a reporting line has to mean the
+ * same thing however it was set. Holding two copies of this rule is how one
+ * path ends up accepting a manager the other would reject.
+ *
+ * The caller owns the "not themselves" check: it is meaningful when editing an
+ * existing employee and impossible at creation, where the subject has no id yet.
+ */
+export async function assertIsReportingManager(managerId: string): Promise<void> {
+  const manager = await prisma.employee.findUnique({
+    where: { id: managerId },
+    include: { user: { select: { role: true } } },
+  })
+  if (!manager) throw new AppError(400, "Reporting manager not found")
+  if (manager.user.role !== "REPORTING_MANAGER") {
+    throw new AppError(400, "That employee is not a reporting manager")
+  }
+}
+
+/**
  * @param actorUserId The HR user creating the account. Optional so the seed
  *   and existing callers are unaffected; a null actor on the event reads as
  *   "the system did it", which for a seeded account is true.
@@ -37,14 +56,7 @@ export async function createStaffAccount(
   if (!department) throw new AppError(400, "Department not found")
 
   if (input.reportingManagerId) {
-    const manager = await prisma.employee.findUnique({
-      where: { id: input.reportingManagerId },
-      include: { user: { select: { role: true } } },
-    })
-    if (!manager) throw new AppError(400, "Reporting manager not found")
-    if (manager.user.role !== "REPORTING_MANAGER") {
-      throw new AppError(400, "That employee is not a reporting manager")
-    }
+    await assertIsReportingManager(input.reportingManagerId)
   }
 
   if (input.shiftId) {

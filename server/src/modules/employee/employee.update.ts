@@ -28,7 +28,7 @@ import type { EmployeeWithRelations, Tier } from "./employee.access"
 import { computeBlockers } from "./employee.blockers"
 import { employeeBankChangedEvent } from "./employee.events"
 import { listDocuments } from "./employee.media"
-import { employeeIdForUser } from "./employee.service"
+import { assertIsReportingManager, employeeIdForUser } from "./employee.service"
 import type { EmployeeView } from "./employee.types"
 import type { UpdateEmployeeBody } from "./employee.validators"
 
@@ -170,14 +170,7 @@ async function assertReferencesExist(
     if (body.reportingManagerId === employeeId) {
       throw new AppError(400, "An employee cannot report to themselves")
     }
-    const manager = await prisma.employee.findUnique({
-      where: { id: body.reportingManagerId },
-      include: { user: { select: { role: true } } },
-    })
-    if (!manager) throw new AppError(400, "Reporting manager not found")
-    if (manager.user.role !== "REPORTING_MANAGER") {
-      throw new AppError(400, "That employee is not a reporting manager")
-    }
+    await assertIsReportingManager(body.reportingManagerId)
   }
 
   if (body.dateOfBirth !== undefined && body.dateOfBirth !== null) {

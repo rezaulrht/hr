@@ -72,13 +72,32 @@ describe("writableFieldsFor", () => {
   })
 
   it("gives FULL the self fields plus the HR-only ones", () => {
-    const full = writableFieldsFor("FULL")
-    expect(full.has("phone")).toBe(true)
-    expect(full.has("nationalId")).toBe(true)
-    expect(full.has("bankRoutingNumber")).toBe(true)
-    expect(full.has("permanentAddress")).toBe(true)
-    expect(full.has("shiftId")).toBe(true)
-    expect(full.has("deviceUserId")).toBe(true)
+    // The exact set, not `.has()` spot-checks: a stray field added to FULL_SET
+    // by accident is precisely what this needs to catch, and a presence-only
+    // assertion never would.
+    expect([...writableFieldsFor("FULL")].sort()).toEqual([
+      "bankAccountNumber",
+      "bankName",
+      "bankRoutingNumber",
+      "bloodGroup",
+      "dateOfBirth",
+      "departmentId",
+      "designation",
+      "deviceUserId",
+      "emergencyContact",
+      "employmentType",
+      "fullName",
+      "gender",
+      "joiningDate",
+      "maritalStatus",
+      "nationalId",
+      "officeLocation",
+      "permanentAddress",
+      "phone",
+      "presentAddress",
+      "reportingManagerId",
+      "shiftId",
+    ])
   })
 
   it("never lets anyone write an immutable or separately-owned field", () => {
@@ -187,6 +206,54 @@ describe("projectEmployee", () => {
     for (const tier of ["FINANCE", "MANAGER", "COLLEAGUE"] as const) {
       expect(JSON.stringify(projectEmployee(row, tier))).not.toContain("1234567890")
     }
+  })
+
+  // Scans the serialised payload for the VALUE, so it catches a field misfiled
+  // into a group the tier is allowed to see — which asserting on top-level keys
+  // alone cannot. Every value below is unique to one field in `row`.
+  it.each([
+    ["nationalId", "1234567890"],
+    ["dateOfBirth", "1995-04-02"],
+    ["presentAddress", "Dhanmondi"],
+    ["permanentAddress", "Sylhet"],
+    ["emergencyContact", "Mother +8801711111111"],
+  ])("never leaks %s to MANAGER or COLLEAGUE", (_field, value) => {
+    for (const tier of ["MANAGER", "COLLEAGUE"] as const) {
+      expect(JSON.stringify(projectEmployee(row, tier))).not.toContain(value)
+    }
+  })
+
+  it.each([
+    ["bankAccountNumber", "0011223344"],
+    ["bankRoutingNumber", "060270425"],
+    ["bankName", "BRAC Bank"],
+  ])("never leaks %s to MANAGER or COLLEAGUE", (_field, value) => {
+    // Finance is deliberately excluded: chasing bank details is its job.
+    for (const tier of ["MANAGER", "COLLEAGUE"] as const) {
+      expect(JSON.stringify(projectEmployee(row, tier))).not.toContain(value)
+    }
+  })
+
+  // COLLEAGUE, MANAGER and FINANCE each pin an exact key set above; without
+  // these two, SELF and FULL pin none, so a group dropped from either branch
+  // would go unnoticed.
+  it("gives SELF every group except documents and blockers", () => {
+    expect(Object.keys(projectEmployee(row, "SELF")).sort()).toEqual([
+      "contact",
+      "editableFields",
+      "employment",
+      "exit",
+      "id",
+      "payroll",
+      "personal",
+      "work",
+    ])
+  })
+
+  it("gives FULL the same groups as SELF", () => {
+    expect(Object.keys(projectEmployee(row, "FULL")).sort()).toEqual(
+      Object.keys(projectEmployee(row, "SELF")).sort()
+    )
   })
 
   it("hides deviceUserId even from SELF", () => {
