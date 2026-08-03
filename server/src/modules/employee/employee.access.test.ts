@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("../media/media.service", () => ({
+  signedAvatarUrl: vi.fn(() => "https://res/avatar.jpg"),
+}))
+vi.mock("../media/media.provider", () => ({
+  isMediaConfigured: () => true,
+}))
 
 import { visibilityTierFor, writableFieldsFor } from "./employee.access"
+import { projectEmployee } from "./employee.access"
 import type { AccessTokenPayload } from "../auth/auth.types"
 
 function viewer(role: AccessTokenPayload["role"], sub = "u-viewer"): AccessTokenPayload {
@@ -100,5 +108,138 @@ describe("writableFieldsFor", () => {
     expect(writableFieldsFor("FINANCE").size).toBe(0)
     expect(writableFieldsFor("MANAGER").size).toBe(0)
     expect(writableFieldsFor("COLLEAGUE").size).toBe(0)
+  })
+})
+
+const row = {
+  id: "emp-1",
+  userId: "u-1",
+  employeeCode: "BS-EMP-00001",
+  fullName: "Rita Sen",
+  profilePicture: null,
+  dateOfBirth: new Date("1995-04-02T00:00:00.000Z"),
+  gender: "F",
+  nationalId: "1234567890",
+  bloodGroup: "O+",
+  maritalStatus: "Single",
+  phone: "+8801700000000",
+  presentAddress: "Dhanmondi",
+  permanentAddress: "Sylhet",
+  emergencyContact: "Mother +8801711111111",
+  designation: "Analyst",
+  departmentId: "dept-1",
+  department: { id: "dept-1", name: "Finance" },
+  reportingManagerId: "emp-mgr",
+  reportingManager: { id: "emp-mgr", fullName: "Karim Rahman" },
+  employmentType: "FULL_TIME",
+  employmentStatus: "ACTIVE",
+  joiningDate: new Date("2025-01-06T00:00:00.000Z"),
+  officeLocation: "Dhaka HQ",
+  shiftId: "shift-1",
+  shift: { id: "shift-1", name: "General" },
+  deviceUserId: "77",
+  bankAccountNumber: "0011223344",
+  bankName: "BRAC Bank",
+  bankRoutingNumber: "060270425",
+  salaryStructureId: "ss-1",
+  salaryStructure: { id: "ss-1", name: "Band B", currency: "BDT" },
+  lastWorkingDay: null,
+  exitReason: null,
+  exitNote: null,
+  user: { email: "rita@demo.com" },
+} as any
+
+describe("projectEmployee", () => {
+  it("gives COLLEAGUE work identity and NOTHING else", () => {
+    const view = projectEmployee(row, "COLLEAGUE")
+    // Asserted key by key. A test that only checks the allowed keys are
+    // present passes happily while leaking every other field.
+    expect(Object.keys(view).sort()).toEqual(["editableFields", "id", "work"])
+    expect(view.work.fullName).toBe("Rita Sen")
+    expect(view.work.phone).toBe("+8801700000000")
+  })
+
+  it("gives MANAGER work identity and employment, but no payroll and no personal", () => {
+    const view = projectEmployee(row, "MANAGER")
+    expect(Object.keys(view).sort()).toEqual([
+      "editableFields",
+      "employment",
+      "id",
+      "work",
+    ])
+    expect(view.employment?.employeeCode).toBe("BS-EMP-00001")
+  })
+
+  it("gives FINANCE employment, payroll and exit, but no personal and no contact", () => {
+    const view = projectEmployee(row, "FINANCE")
+    expect(Object.keys(view).sort()).toEqual([
+      "editableFields",
+      "employment",
+      "exit",
+      "id",
+      "payroll",
+      "work",
+    ])
+    expect(view.payroll?.bankRoutingNumber).toBe("060270425")
+  })
+
+  it("never leaks nationalId to FINANCE, MANAGER or COLLEAGUE", () => {
+    for (const tier of ["FINANCE", "MANAGER", "COLLEAGUE"] as const) {
+      expect(JSON.stringify(projectEmployee(row, tier))).not.toContain("1234567890")
+    }
+  })
+
+  it("hides deviceUserId even from SELF", () => {
+    // A biometric enrolment id only HR configures. Showing it to the employee
+    // invites support questions about a field they cannot act on.
+    const view = projectEmployee(row, "SELF")
+    expect(view.employment?.deviceUserId).toBeUndefined()
+    expect(projectEmployee(row, "FULL").employment?.deviceUserId).toBe("77")
+  })
+
+  it("gives SELF everything except deviceUserId", () => {
+    const view = projectEmployee(row, "SELF")
+    expect(view.personal?.nationalId).toBe("1234567890")
+    expect(view.contact?.permanentAddress).toBe("Sylhet")
+    expect(view.payroll?.bankName).toBe("BRAC Bank")
+  })
+
+  it("returns exit as null when the employee has not left", () => {
+    expect(projectEmployee(row, "FULL").exit).toBeNull()
+  })
+
+  it("returns exit details when they exist", () => {
+    const leaver = {
+      ...row,
+      lastWorkingDay: new Date("2026-09-30T00:00:00.000Z"),
+      exitReason: "RESIGNATION",
+      exitNote: "60 days waived",
+    }
+    expect(projectEmployee(leaver, "FULL").exit).toEqual({
+      lastWorkingDay: "2026-09-30",
+      exitReason: "RESIGNATION",
+      exitNote: "60 days waived",
+    })
+  })
+
+  it("carries editableFields so the client renders controls without knowing a rule", () => {
+    expect(projectEmployee(row, "SELF").editableFields.sort()).toEqual([
+      "bloodGroup",
+      "emergencyContact",
+      "maritalStatus",
+      "phone",
+      "presentAddress",
+    ])
+    expect(projectEmployee(row, "FINANCE").editableFields).toEqual([])
+  })
+
+  it("only includes documents and blockers when they are passed", () => {
+    const bare = projectEmployee(row, "FULL")
+    expect(bare.documents).toBeUndefined()
+    expect(bare.blockers).toBeUndefined()
+
+    const rich = projectEmployee(row, "FULL", [], [{ field: "x", blocks: "y" }])
+    expect(rich.documents).toEqual([])
+    expect(rich.blockers).toHaveLength(1)
   })
 })
