@@ -6,11 +6,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createStaffAccount, listEmployees, setSalaryStructure } from "@/lib/api/employees"
 import { listDepartments } from "@/lib/api/departments"
 import { listSalaryStructures } from "@/lib/api/payroll"
+import { listShifts } from "@/lib/api/shifts"
 import { SalaryStructureDialog } from "@/components/employees/salary-structure-dialog"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import { parseDateString, toDateString } from "@/lib/utils"
-import type { CreateStaffAccountInput, CreateStaffAccountResult, Department, Employee } from "@/lib/api/types"
+import type {
+  CreateStaffAccountInput,
+  CreateStaffAccountResult,
+  Department,
+  EmployeeView,
+  EmploymentStatus,
+} from "@/lib/api/types"
 import { DataTable } from "@/components/dashboard/data-table"
 import { MiniStat } from "@/components/dashboard/page-header"
 import { Button } from "@/components/ui/button"
@@ -23,14 +30,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import type { TableCell, Tone } from "@/components/dashboard/types"
 
-const STATUS_TONE: Record<Employee["employmentStatus"], Tone> = {
+const STATUS_TONE: Record<EmploymentStatus, Tone> = {
   ACTIVE: "green",
   ON_LEAVE: "yellow",
   RESIGNED: "red",
   TERMINATED: "red",
 }
 
-const STATUS_LABEL: Record<Employee["employmentStatus"], string> = {
+const STATUS_LABEL: Record<EmploymentStatus, string> = {
   ACTIVE: "Active",
   ON_LEAVE: "On leave",
   RESIGNED: "Resigned",
@@ -41,35 +48,41 @@ function formatJoiningDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
-function toRows(employees: Employee[], onAssign: (employee: Employee) => void): TableCell[][] {
+function toRows(employees: EmployeeView[], onAssign: (employee: EmployeeView) => void): TableCell[][] {
   return employees.map((e) => [
-    { text: e.fullName, sub: e.email, weight: 600 },
-    { text: e.department.name },
-    { text: formatJoiningDate(e.joiningDate) },
+    { text: e.work.fullName, sub: e.work.email, weight: 600 },
+    { text: e.work.department.name },
+    // A COLLEAGUE-tier row genuinely has no `employment` group. Rendering a
+    // dash is the honest answer, not a crash and not a fabricated value.
+    e.employment ? { text: formatJoiningDate(e.employment.joiningDate) } : { text: "—" },
     // Shown in the directory because a missing structure is not a cosmetic
     // gap — it is the run that will refuse to process, found here instead.
-    e.salaryStructure
-      ? { text: e.salaryStructure.name, sub: e.salaryStructure.currency }
-      : { tag: "Not set", tone: "red" as const },
-    { tag: STATUS_LABEL[e.employmentStatus], tone: STATUS_TONE[e.employmentStatus] },
+    e.payroll?.salaryStructure
+      ? { text: e.payroll.salaryStructure.name, sub: e.payroll.salaryStructure.currency }
+      : { tag: e.payroll ? "Not set" : "—", tone: e.payroll ? ("red" as const) : ("neutral" as const) },
+    e.employment
+      ? { tag: STATUS_LABEL[e.employment.employmentStatus], tone: STATUS_TONE[e.employment.employmentStatus] }
+      : { text: "—" },
     {
-      node: (
+      node: e.payroll ? (
         <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
-          {e.salaryStructure ? "Change" : "Assign"}
+          {e.payroll.salaryStructure ? "Change" : "Assign"}
         </button>
-      ),
+      ) : null,
     },
   ])
 }
 
-function computeStats(employees: Employee[]) {
+function computeStats(employees: EmployeeView[]) {
   const now = new Date()
-  const newThisMonth = employees.filter((e) => {
-    const joined = new Date(e.joiningDate)
+  const withEmployment = employees.filter((e) => e.employment)
+  const newThisMonth = withEmployment.filter((e) => {
+    const joined = new Date(e.employment!.joiningDate)
     return joined.getFullYear() === now.getFullYear() && joined.getMonth() === now.getMonth()
   }).length
-  const departmentCount = new Set(employees.map((e) => e.department.id)).size
-  const unassigned = employees.filter((e) => !e.salaryStructure).length
+  const departmentCount = new Set(employees.map((e) => e.work.department.id)).size
+  const withPayroll = employees.filter((e) => e.payroll)
+  const unassigned = withPayroll.filter((e) => !e.payroll!.salaryStructure).length
 
   return [
     { label: "Headcount", value: String(employees.length), sub: `${employees.length} total employees` },
@@ -107,7 +120,7 @@ export function EmployeesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [result, setResult] = useState<CreateStaffAccountResult | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
-  const [assigning, setAssigning] = useState<Employee | null>(null)
+  const [assigning, setAssigning] = useState<EmployeeView | null>(null)
   const [assignError, setAssignError] = useState<string | null>(null)
 
   const [fullName, setFullName] = useState("")
@@ -117,6 +130,8 @@ export function EmployeesPage() {
   const [departmentId, setDepartmentId] = useState("")
   const [employmentType, setEmploymentType] = useState<CreateStaffAccountInput["employmentType"]>("FULL_TIME")
   const [joiningDate, setJoiningDate] = useState(todayIso())
+  const [reportingManagerId, setReportingManagerId] = useState<string>("")
+  const [shiftId, setShiftId] = useState<string>("")
 
   const employeesQuery = useQuery({
     queryKey: ["employees"],
@@ -135,6 +150,19 @@ export function EmployeesPage() {
     queryFn: () => listSalaryStructures(accessToken!),
     enabled: sessionStatus === "authenticated" && !!accessToken,
   })
+
+  const shiftsQuery = useQuery({
+    queryKey: ["shifts"],
+    queryFn: () => listShifts(accessToken!),
+    enabled: sessionStatus === "authenticated" && !!accessToken,
+  })
+
+  // Reporting managers come from the employee list already loaded — no second
+  // endpoint for a subset of rows we have.
+  const managers = useMemo(
+    () => (employeesQuery.data ?? []).filter((e) => e.work.designation && e.id !== undefined),
+    [employeesQuery.data]
+  )
 
   const assignMutation = useMutation({
     mutationFn: (salaryStructureId: string | null) =>
@@ -169,6 +197,8 @@ export function EmployeesPage() {
     setDepartmentId("")
     setEmploymentType("FULL_TIME")
     setJoiningDate(todayIso())
+    setReportingManagerId("")
+    setShiftId("")
     setFormError(null)
   }
 
@@ -184,7 +214,17 @@ export function EmployeesPage() {
       setFormError("All fields are required.")
       return
     }
-    createMutation.mutate({ fullName, email, role, designation, departmentId, employmentType, joiningDate })
+    createMutation.mutate({
+      fullName,
+      email,
+      role,
+      designation,
+      departmentId,
+      employmentType,
+      joiningDate,
+      ...(reportingManagerId ? { reportingManagerId } : {}),
+      ...(shiftId ? { shiftId } : {}),
+    })
   }
 
   const stats = useMemo(() => computeStats(employeesQuery.data ?? []), [employeesQuery.data])
@@ -295,6 +335,45 @@ export function EmployeesPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="mb-1.5 text-xs font-bold">Reporting manager (optional)</Label>
+              <Select value={reportingManagerId} onValueChange={(v) => setReportingManagerId(v ?? "")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string | null) =>
+                      managers.find((m) => m.id === v)?.work.fullName ?? "No manager"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {managers.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.work.fullName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1.5 text-xs font-bold">Shift</Label>
+              <Select value={shiftId} onValueChange={(v) => setShiftId(v ?? "")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string | null) => shiftsQuery.data?.find((s) => s.id === v)?.name ?? "General"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(shiftsQuery.data ?? []).map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} · {s.startTime}–{s.endTime}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Stated rather than left to a silent fallback: an unassigned shift is
+                  judged against General's window, which is wrong for night staff. */}
+              <p className="mt-1 text-[12px] text-[#7A8698]">
+                Leave unset to use the General shift.
+              </p>
             </div>
             <div>
               <Label className="mb-1.5 text-xs font-bold">Employment type</Label>

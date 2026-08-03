@@ -122,7 +122,9 @@ export function SettlementPage() {
   const settlements = settlementsQuery.data ?? []
   const settledIds = new Set(settlements.map((s) => s.employeeId))
   const awaiting = (employeesQuery.data ?? []).filter(
-    (e) => (e.employmentStatus === "RESIGNED" || e.employmentStatus === "TERMINATED") && !settledIds.has(e.id)
+    (e) =>
+      (e.employment?.employmentStatus === "RESIGNED" || e.employment?.employmentStatus === "TERMINATED") &&
+      !settledIds.has(e.id)
   )
 
   const rows: TableCell[][] = settlements.map((s) => [
@@ -180,8 +182,8 @@ export function SettlementPage() {
                 {awaiting.map((employee) => (
                   <li key={employee.id} className="flex items-center justify-between gap-3">
                     <div className="text-[13px]">
-                      <span className="font-semibold">{employee.fullName}</span>{" "}
-                      <span className="text-[#A5AFBE]">{employee.employeeCode}</span>
+                      <span className="font-semibold">{employee.work.fullName}</span>{" "}
+                      <span className="text-[#A5AFBE]">{employee.employment?.employeeCode}</span>
                     </div>
                     {isFinance ? (
                       <Button

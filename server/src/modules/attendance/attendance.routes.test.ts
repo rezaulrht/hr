@@ -5,6 +5,7 @@ vi.mock("./attendance.service", () => ({
   getToday: vi.fn(),
   getMyAttendance: vi.fn(),
   getEmployeeAttendance: vi.fn(),
+  listShifts: vi.fn(),
 }))
 
 import app from "../../app"
@@ -74,6 +75,23 @@ describe("GET /api/attendance/me", () => {
       .get("/api/attendance/me?from=01-08-2026")
       .set("Authorization", auth("EMPLOYEE"))
     expect(res.status).toBe(400)
+  })
+})
+
+describe("GET /api/attendance/shifts", () => {
+  it("returns 401 with no Authorization header", async () => {
+    expect((await request(app).get("/api/attendance/shifts")).status).toBe(401)
+  })
+
+  it("returns 403 for an EMPLOYEE, who does not pick shifts for anyone", async () => {
+    const res = await request(app).get("/api/attendance/shifts").set("Authorization", auth("EMPLOYEE"))
+    expect(res.status).toBe(403)
+  })
+
+  it.each<TestRole>(["HR_ADMIN", "SUPER_ADMIN"])("returns 200 for %s", async (role) => {
+    vi.mocked(service.listShifts).mockResolvedValue([])
+    const res = await request(app).get("/api/attendance/shifts").set("Authorization", auth(role))
+    expect(res.status).toBe(200)
   })
 })
 

@@ -5,11 +5,34 @@ import type {
   DocumentItem,
   DocumentType,
   Employee,
+  EmployeeView,
+  MyProfileResponse,
   SignedDocumentUrl,
+  UpdateEmployeeInput,
 } from "./types"
 
-export function listEmployees(accessToken: string): Promise<Employee[]> {
-  return apiFetch<Employee[]>("/api/employees", { accessToken })
+export function listEmployees(accessToken: string): Promise<EmployeeView[]> {
+  return apiFetch<EmployeeView[]>("/api/employees", { accessToken })
+}
+
+export function getEmployee(accessToken: string, id: string): Promise<EmployeeView> {
+  return apiFetch<EmployeeView>(`/api/employees/${id}`, { accessToken })
+}
+
+export function getMyProfile(accessToken: string): Promise<MyProfileResponse> {
+  return apiFetch<MyProfileResponse>("/api/employees/me", { accessToken })
+}
+
+export function updateEmployee(
+  accessToken: string,
+  id: string,
+  input: UpdateEmployeeInput
+): Promise<EmployeeView> {
+  return apiFetch<EmployeeView>(`/api/employees/${id}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
 }
 
 /**
