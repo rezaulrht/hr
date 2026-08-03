@@ -44,6 +44,37 @@ interface ExitedArgs {
   actorUserId: string
 }
 
+interface BankChangedArgs {
+  employeeId: string
+  fullName: string
+  /** Field NAMES only. An account number does not belong in a feed entry. */
+  changedFields: string[]
+  actorUserId: string
+}
+
+/**
+ * The one profile edit that reaches the activity feed.
+ *
+ * Nobody needs `employee.phone_changed` in a dashboard. Bank details are
+ * different: that edit redirects money, and it should be visible to HR without
+ * anyone going looking for it.
+ */
+export function employeeBankChangedEvent(args: BankChangedArgs): EventInput {
+  return {
+    type: "employee.bank_changed",
+    severity: "WARNING",
+    actorUserId: args.actorUserId,
+    entity: "EMPLOYEE",
+    entityId: args.employeeId,
+    subjectEmployeeId: args.employeeId,
+    targetRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+    title: `Bank details changed for ${args.fullName}`,
+    meta: args.changedFields.join(", "),
+    href: "/employees",
+    payload: { changedFields: args.changedFields },
+  }
+}
+
 export function employeeExitedEvent(args: ExitedArgs): EventInput {
   return {
     type: "employee.exited",

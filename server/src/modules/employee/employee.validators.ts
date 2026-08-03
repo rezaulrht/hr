@@ -35,3 +35,53 @@ export const documentTypeSchema = z.enum([
   "RESIGNATION",
   "OTHER",
 ])
+
+/**
+ * Every field optional, and every nullable field distinguishes absence from
+ * clearing: `undefined` means "leave it alone", `null` means "clear it".
+ *
+ * Same explicit distinction `setSalaryStructureSchema` documents, applied to
+ * every nullable column — a PATCH cannot otherwise express "this person no
+ * longer has a recorded blood group".
+ */
+const nullableText = (max: number) => z.string().trim().min(1).max(max).nullable().optional()
+
+export const updateEmployeeSchema = z
+  .object({
+    // Self-editable
+    phone: nullableText(32),
+    presentAddress: nullableText(500),
+    emergencyContact: nullableText(300),
+    maritalStatus: nullableText(40),
+    bloodGroup: nullableText(10),
+    // HR-only
+    fullName: z.string().trim().min(1).max(200).optional(),
+    dateOfBirth: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date")
+      .nullable()
+      .optional(),
+    gender: nullableText(40),
+    nationalId: nullableText(50),
+    permanentAddress: nullableText(500),
+    designation: z.string().trim().min(1).max(200).optional(),
+    departmentId: z.string().min(1).optional(),
+    reportingManagerId: z.string().min(1).nullable().optional(),
+    employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"]).optional(),
+    joiningDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date")
+      .optional(),
+    officeLocation: nullableText(200),
+    shiftId: z.string().min(1).nullable().optional(),
+    deviceUserId: nullableText(50),
+    bankAccountNumber: nullableText(50),
+    bankName: nullableText(200),
+    bankRoutingNumber: nullableText(20),
+  })
+  // An empty body is always a client bug, never a no-op success.
+  .refine((body) => Object.keys(body).length > 0, {
+    message: "No fields to update",
+  })
+
+export type UpdateEmployeeBody = z.infer<typeof updateEmployeeSchema>
