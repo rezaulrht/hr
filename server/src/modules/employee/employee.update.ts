@@ -24,7 +24,10 @@ import {
   visibilityTierFor,
   writableFieldsFor,
 } from "./employee.access"
+import type { EmployeeWithRelations, Tier } from "./employee.access"
+import { computeBlockers } from "./employee.blockers"
 import { employeeBankChangedEvent } from "./employee.events"
+import { listDocuments } from "./employee.media"
 import { employeeIdForUser } from "./employee.service"
 import type { EmployeeView } from "./employee.types"
 import type { UpdateEmployeeBody } from "./employee.validators"
@@ -91,7 +94,7 @@ export async function updateEmployee(
   if (Object.keys(data).length === 0) {
     // Nothing changed. Return the current view rather than writing an audit
     // row that records no change.
-    return projectEmployee(existing, tier)
+    return projectEmployeeForTier(existing, tier, id)
   }
 
   const changedBankFields = BANK_FIELDS.filter((field) => field in data)
@@ -124,7 +127,28 @@ export async function updateEmployee(
     return row
   })
 
-  return projectEmployee(updated, tier)
+  return projectEmployeeForTier(updated, tier, id)
+}
+
+/**
+ * Matches `getEmployee`'s projection exactly: documents and blockers are
+ * SELF/FULL only, because a blocker names an operational gap that is HR's
+ * work queue, not information the other tiers act on. GET and PATCH must
+ * agree on this shape — a client that replaces its cached view with a PATCH
+ * response should not watch the document list disappear.
+ */
+async function projectEmployeeForTier(
+  employee: EmployeeWithRelations,
+  tier: Tier,
+  id: string
+): Promise<EmployeeView> {
+  if (tier !== "SELF" && tier !== "FULL") return projectEmployee(employee, tier)
+  const documents = await listDocuments(id)
+  const blockers = computeBlockers(
+    employee,
+    documents.map((d) => d.type)
+  )
+  return projectEmployee(employee, tier, documents, blockers)
 }
 
 async function assertReferencesExist(

@@ -12,6 +12,7 @@ vi.mock("../../config/prisma", () => ({
     employee: { findUnique: vi.fn() },
     department: { findUnique: vi.fn() },
     shift: { findUnique: vi.fn() },
+    document: { findMany: vi.fn() },
   },
 }))
 
@@ -68,6 +69,7 @@ function viewer(role: any, sub: string) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(prisma.employee.findUnique).mockResolvedValue(existing)
+  vi.mocked(prisma.document.findMany).mockResolvedValue([])
   txMock.employee.update.mockResolvedValue(existing)
 })
 
@@ -203,5 +205,35 @@ describe("updateEmployee audit and events", () => {
   it("does NOT emit an event on a phone change", async () => {
     await updateEmployee(viewer("EMPLOYEE", "u-1"), "emp-1", { phone: "+8801800000000" })
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe("updateEmployee response shape", () => {
+  // GET and PATCH must return the same projection for the same tier: a
+  // client that replaces its cached EmployeeView with a "returns the updated
+  // resource" PATCH response should not watch documents/blockers vanish.
+  it("includes documents and blockers on a SELF edit, matching getEmployee", async () => {
+    const view = await updateEmployee(viewer("EMPLOYEE", "u-1"), "emp-1", {
+      phone: "+8801800000000",
+    })
+    expect(view.documents).toBeDefined()
+    expect(view.blockers).toBeDefined()
+  })
+
+  it("includes documents and blockers on a FULL edit, matching getEmployee", async () => {
+    const view = await updateEmployee(viewer("HR_ADMIN", "u-hr"), "emp-1", {
+      bankRoutingNumber: "060270425",
+    })
+    expect(view.documents).toBeDefined()
+    expect(view.blockers).toBeDefined()
+  })
+
+  it("omits documents and blockers for a non-SELF/FULL tier, matching getEmployee", async () => {
+    // COLLEAGUE has no writable fields, so an empty body is the only body a
+    // COLLEAGUE-tier caller can submit without a 403 — this exercises the
+    // no-op return path at that tier.
+    const view = await updateEmployee(viewer("EMPLOYEE", "u-2"), "emp-1", {})
+    expect(view.documents).toBeUndefined()
+    expect(view.blockers).toBeUndefined()
   })
 })
