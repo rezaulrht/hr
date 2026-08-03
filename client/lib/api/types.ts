@@ -534,3 +534,29 @@ export interface DashboardPayload {
 // Payroll, expense and settlement types live in their own file; re-exported
 // here so importers see a single module.
 export * from "./payroll-types"
+
+// ── DOCUMENTS & AVATAR ────────────────────────
+// Hand-mirrored from server/src/modules/employee/employee.media.ts and the
+// Prisma DocumentType enum.
+
+export type DocumentType =
+  | "CONTRACT"
+  | "NID"
+  | "CERTIFICATE"
+  | "OFFER_LETTER"
+  | "RESIGNATION"
+  | "OTHER"
+
+export interface DocumentItem {
+  id: string
+  type: DocumentType
+  fileName: string
+  bytes: number
+  format: string
+  uploadedAt: string
+}
+
+export interface SignedDocumentUrl {
+  url: string
+  expiresAt: string
+}

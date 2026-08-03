@@ -32,11 +32,16 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const { accessToken, headers, ...rest } = options
 
+  // The browser sets Content-Type itself for a FormData body, including the
+  // multipart boundary. Setting it explicitly here would produce a request
+  // the server can't parse, since the boundary would be missing.
+  const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData
+
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...headers,
     },
