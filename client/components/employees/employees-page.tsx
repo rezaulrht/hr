@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { createStaffAccount, listEmployees, setSalaryStructure } from "@/lib/api/employees"
@@ -48,9 +50,25 @@ function formatJoiningDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
-function toRows(employees: EmployeeView[], onAssign: (employee: EmployeeView) => void): TableCell[][] {
+function toRows(
+  employees: EmployeeView[],
+  roleSegment: string,
+  onAssign: (employee: EmployeeView) => void
+): TableCell[][] {
   return employees.map((e) => [
-    { text: e.work.fullName, sub: e.work.email, weight: 600 },
+    {
+      node: (
+        <Link
+          href={`/${roleSegment}/employees/${e.id}`}
+          className="font-semibold underline-offset-2 hover:underline"
+        >
+          {e.work.fullName}
+          <span className="block text-[12px] font-normal text-[#7A8698] no-underline">
+            {e.work.email}
+          </span>
+        </Link>
+      ),
+    },
     { text: e.work.department.name },
     // A COLLEAGUE-tier row genuinely has no `employment` group. Rendering a
     // dash is the honest answer, not a crash and not a fabricated value.
@@ -63,13 +81,17 @@ function toRows(employees: EmployeeView[], onAssign: (employee: EmployeeView) =>
     e.employment
       ? { tag: STATUS_LABEL[e.employment.employmentStatus], tone: STATUS_TONE[e.employment.employmentStatus] }
       : { text: "—" },
-    {
-      node: e.payroll ? (
-        <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
-          {e.payroll.salaryStructure ? "Change" : "Assign"}
-        </button>
-      ) : null,
-    },
+    // FINANCE gets an empty editableFields, so the action disappears without
+    // this component learning anything about Finance.
+    e.editableFields.length > 0
+      ? {
+          node: (
+            <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
+              {e.payroll?.salaryStructure ? "Change" : "Assign"}
+            </button>
+          ),
+        }
+      : { text: "" },
   ])
 }
 
@@ -116,6 +138,10 @@ function todayIso(): string {
 export function EmployeesPage() {
   const { accessToken, status: sessionStatus } = useSession()
   const queryClient = useQueryClient()
+  const pathname = usePathname()
+  // "/hr/employees" → "hr". Derived rather than passed as a prop, so the four
+  // route wrappers stay identical one-liners.
+  const roleSegment = pathname.split("/")[1] ?? "hr"
 
   const [createOpen, setCreateOpen] = useState(false)
   const [result, setResult] = useState<CreateStaffAccountResult | null>(null)
@@ -238,11 +264,11 @@ export function EmployeesPage() {
   const stats = useMemo(() => computeStats(employeesQuery.data ?? []), [employeesQuery.data])
   const rows = useMemo(
     () =>
-      toRows(employeesQuery.data ?? [], (employee) => {
+      toRows(employeesQuery.data ?? [], roleSegment, (employee) => {
         setAssignError(null)
         setAssigning(employee)
       }),
-    [employeesQuery.data]
+    [employeesQuery.data, roleSegment]
   )
   const departments: Department[] = departmentsQuery.data ?? []
 
