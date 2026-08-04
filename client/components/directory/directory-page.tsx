@@ -76,30 +76,40 @@ export function DirectoryPage() {
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-4">
           {filtered.map((e) => (
-            <button
+            <div
               key={e.id}
-              type="button"
-              onClick={() => setSelected(e)}
-              className="flex items-center gap-3 rounded-md border border-[#E4E9EF] bg-white px-4 py-3.5 text-left hover:border-[#C6CCD3]"
+              className="flex flex-col gap-3 rounded-md border border-[#E4E9EF] bg-white px-4 py-3.5"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#EFF2F6]">
-                {e.work.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={e.work.avatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-[13px] font-bold text-[#55657A]">
-                    {initialsFrom(e.work.fullName)}
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-[13.5px] font-semibold">{e.work.fullName}</div>
-                <div className="truncate text-[12px] text-[#7A8698]">{e.work.designation}</div>
-                <div className="truncate text-[11.5px] text-[#A5AFBE]">
-                  {e.work.department.name}
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#EFF2F6]">
+                  {e.work.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={e.work.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-[13px] font-bold text-[#55657A]">
+                      {initialsFrom(e.work.fullName)}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-[13.5px] font-semibold">{e.work.fullName}</div>
+                  <div className="truncate text-[12px] text-[#7A8698]">{e.work.designation}</div>
+                  <div className="truncate text-[11.5px] text-[#A5AFBE]">
+                    {e.work.department.name}
+                  </div>
                 </div>
               </div>
-            </button>
+              {/* A named action rather than a card-sized hit area. It also gives
+                  the card one real focus target, which a whole-card button made
+                  awkward to describe to a screen reader. */}
+              <button
+                type="button"
+                onClick={() => setSelected(e)}
+                className="rounded-md border border-[#E4E9EF] px-2.5 py-1 text-[12.5px] font-semibold hover:border-[#C6CCD3]"
+              >
+                View details
+              </button>
+            </div>
           ))}
         </div>
       )}

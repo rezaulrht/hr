@@ -58,15 +58,10 @@ function toRows(
   return employees.map((e) => [
     {
       node: (
-        <Link
-          href={`/${roleSegment}/employees/${e.id}`}
-          className="font-semibold underline-offset-2 hover:underline"
-        >
-          {e.work.fullName}
-          <span className="block text-[12px] font-normal text-[#7A8698] no-underline">
-            {e.work.email}
-          </span>
-        </Link>
+        <div>
+          <div className="font-semibold">{e.work.fullName}</div>
+          <div className="text-[12px] text-[#7A8698]">{e.work.email}</div>
+        </div>
       ),
     },
     { text: e.work.department.name },
@@ -81,17 +76,28 @@ function toRows(
     e.employment
       ? { tag: STATUS_LABEL[e.employment.employmentStatus], tone: STATUS_TONE[e.employment.employmentStatus] }
       : { text: "—" },
-    // FINANCE gets an empty editableFields, so the action disappears without
-    // this component learning anything about Finance.
-    e.editableFields.length > 0
-      ? {
-          node: (
+    {
+      node: (
+        <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+          {/* A named action rather than a clickable name: "View profile" says
+              what happens, where an underlined name only hints at it. */}
+          <Link
+            href={`/${roleSegment}/employees/${e.id}`}
+            className="rounded-md border border-[#E4E9EF] px-2.5 py-1 text-[12.5px] font-semibold hover:border-[#C6CCD3]"
+          >
+            View profile
+          </Link>
+          {/* FINANCE gets an empty editableFields, so the salary action
+              disappears without this component learning anything about
+              Finance. */}
+          {e.editableFields.length > 0 ? (
             <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
               {e.payroll?.salaryStructure ? "Change" : "Assign"}
             </button>
-          ),
-        }
-      : { text: "" },
+          ) : null}
+        </div>
+      ),
+    },
   ])
 }
 
@@ -308,7 +314,7 @@ export function EmployeesPage() {
       ) : (
         <DataTable
           title="Directory"
-          cols="1.5fr 0.9fr 0.7fr 1fr 0.8fr 0.6fr"
+          cols="1.5fr 0.9fr 0.7fr 1fr 0.8fr 1fr"
           headers={["Employee", "Department", "Joined", "Salary structure", "Status", ""]}
           rows={rows}
           action={`${employeesQuery.data?.length ?? 0} employees`}
