@@ -5,6 +5,7 @@ import type {
   DocumentItem,
   DocumentType,
   Employee,
+  EmployeeInsights,
   EmployeeView,
   MyProfileResponse,
   SignedDocumentUrl,
@@ -21,6 +22,13 @@ export function getEmployee(accessToken: string, id: string): Promise<EmployeeVi
 
 export function getMyProfile(accessToken: string): Promise<MyProfileResponse> {
   return apiFetch<MyProfileResponse>("/api/employees/me", { accessToken })
+}
+
+export function getEmployeeInsights(
+  accessToken: string,
+  id: string
+): Promise<EmployeeInsights> {
+  return apiFetch<EmployeeInsights>(`/api/employees/${id}/insights`, { accessToken })
 }
 
 export function updateEmployee(
