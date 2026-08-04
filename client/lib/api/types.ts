@@ -734,18 +734,24 @@ export interface AssetHeldBy {
   acknowledgedAt: string | null
 }
 
+/**
+ * `listAssets` / `getAsset` send the Prisma `category` relation as-is —
+ * there is no server-side flattening to a bare `categoryName` string, so the
+ * client does not invent one either.
+ */
 export interface Asset {
   id: string
   assetTag: string
   name: string
   categoryId: string
-  categoryName: string
+  category: { id: string; code: string; name: string }
   serialNumber: string | null
   model: string | null
   status: AssetComputedStatus
   heldBy: AssetHeldBy | null
   location: string | null
-  departmentName: string | null
+  /** The owning cost centre, not the holder's. No `departmentName` — `listAssets` does not include the relation, only `getAsset` (as `AssetDetail.department`) does. */
+  departmentId: string | null
   /**
    * Absent — not null — for Manager and Employee. The server omits the field
    * rather than nulling it, so `"purchaseCost" in asset` is the honest test.
@@ -847,6 +853,24 @@ export interface AssetAttachment {
   format: string
   uploadedBy: string | null
   uploadedAt: string
+}
+
+/**
+ * What `getAsset` returns — `Asset` plus the relations only the single-asset
+ * read includes: the resolved `department`, and the full history the detail
+ * sheet's timeline is built from. `listAssets` returns bare `Asset` rows with
+ * none of this, which is why the two are separate types rather than one with
+ * optional fields.
+ */
+export interface AssetDetail extends Asset {
+  notes: string | null
+  purchaseDate: string | null
+  department: { id: string; name: string } | null
+  retiredAt: string | null
+  retirementNote: string | null
+  assignments: AssetAssignment[]
+  repairs: AssetRepair[]
+  attachments: AssetAttachment[]
 }
 
 export interface AssetImportIssue {

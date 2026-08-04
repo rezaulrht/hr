@@ -5,6 +5,7 @@ import type {
   AssetAttachmentKind,
   AssetAssignment,
   AssetCategory,
+  AssetDetail,
   AssetImportCommitResult,
   AssetImportPreview,
   AssetRepair,
@@ -38,8 +39,8 @@ export function listAssets(
   return apiFetch<Asset[]>(`/api/assets${qs ? `?${qs}` : ""}`, { accessToken })
 }
 
-export function getAsset(accessToken: string, id: string): Promise<Asset> {
-  return apiFetch<Asset>(`/api/assets/${id}`, { accessToken })
+export function getAsset(accessToken: string, id: string): Promise<AssetDetail> {
+  return apiFetch<AssetDetail>(`/api/assets/${id}`, { accessToken })
 }
 
 export function createAsset(accessToken: string, input: CreateAssetInput): Promise<Asset> {
