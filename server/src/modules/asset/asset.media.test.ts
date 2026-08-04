@@ -88,12 +88,37 @@ describe("uploadAssignmentAttachment", () => {
 
 describe("deleteAttachment", () => {
   it("removes the row and the Cloudinary blob", async () => {
-    tx.assetAttachment.findUnique.mockResolvedValue({ id: "att-1", publicId: "assets/ast-1/uuid", assetId: "ast-1" })
+    vi.mocked(prisma.assetAttachment.findUnique).mockResolvedValue({
+      id: "att-1",
+      publicId: "assets/ast-1/uuid",
+      assetId: "ast-1",
+    } as never)
     tx.assetAttachment.delete.mockResolvedValue({ id: "att-1" })
 
     await deleteAttachment("att-1", hr)
 
     expect(tx.assetAttachment.delete).toHaveBeenCalledWith({ where: { id: "att-1" } })
     expect(destroyAsset).toHaveBeenCalledWith("assets/ast-1/uuid")
+  })
+
+  it("destroys the Cloudinary blob before opening the transaction", async () => {
+    vi.mocked(prisma.assetAttachment.findUnique).mockResolvedValue({
+      id: "att-1",
+      publicId: "assets/ast-1/uuid",
+      assetId: "ast-1",
+    } as never)
+    tx.assetAttachment.delete.mockResolvedValue({ id: "att-1" })
+
+    // A hanging Cloudinary call must not pin a DB connection-pool slot: the
+    // transaction must not even be open yet when destroyAsset resolves.
+    tx.assetAttachment.delete.mockImplementation(() => {
+      expect(destroyAsset).toHaveBeenCalled()
+      return Promise.resolve({ id: "att-1" })
+    })
+
+    await deleteAttachment("att-1", hr)
+
+    expect(destroyAsset).toHaveBeenCalledWith("assets/ast-1/uuid")
+    expect(tx.assetAttachment.delete).toHaveBeenCalledWith({ where: { id: "att-1" } })
   })
 })

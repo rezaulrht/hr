@@ -176,16 +176,19 @@ export async function getAttachmentUrl(
 }
 
 export async function deleteAttachment(attachmentId: string, actor: AccessTokenPayload): Promise<void> {
+  const attachment = await prisma.assetAttachment.findUnique({ where: { id: attachmentId } })
+  if (!attachment) throw new AppError(404, "Attachment not found")
+
+  // Destroy the Cloudinary blob before the row is deleted, and before the
+  // transaction opens: the reverse order can orphan a blob nothing points
+  // at, while this order can at worst leave a row pointing at an
+  // already-destroyed asset, which the URL endpoint surfaces as a clean 404
+  // rather than an invisible leak. It also keeps the transaction to DB-only
+  // work, matching `employee.media.ts`'s `deleteDocument` — a slow or
+  // hanging Cloudinary call must not pin a connection-pool slot.
+  await destroyAsset(attachment.publicId)
+
   await prisma.$transaction(async (tx) => {
-    const attachment = await tx.assetAttachment.findUnique({ where: { id: attachmentId } })
-    if (!attachment) throw new AppError(404, "Attachment not found")
-
-    // Destroy the Cloudinary blob before the row is deleted: the reverse
-    // order can orphan a blob nothing points at, while this order can at
-    // worst leave a row pointing at an already-destroyed asset, which the
-    // URL endpoint surfaces as a clean 404 rather than an invisible leak.
-    await destroyAsset(attachment.publicId)
-
     await tx.assetAttachment.delete({ where: { id: attachmentId } })
 
     await writeAudit(tx, {
