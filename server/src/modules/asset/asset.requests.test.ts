@@ -22,12 +22,20 @@ vi.mock("./asset.assignments", () => ({ assignAsset: vi.fn() }))
 
 import prisma from "../../config/prisma"
 import { assignAsset } from "./asset.assignments"
-import { approveRequest, fulfilRequest, resolveApprover } from "./asset.requests"
+import {
+  approveRequest,
+  cancelRequest,
+  fulfilRequest,
+  listRequests,
+  rejectRequest,
+  resolveApprover,
+} from "./asset.requests"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
 
 const hr = { sub: "user-hr", role: "HR_ADMIN", email: "hr@demo.com", mustChangePassword: false } as never
 const mgr = { sub: "user-mgr", role: "REPORTING_MANAGER", email: "m@demo.com", mustChangePassword: false } as never
+const emp = { sub: "user-emp", role: "EMPLOYEE", email: "e@demo.com", mustChangePassword: false } as never
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -140,5 +148,86 @@ describe("fulfilRequest", () => {
       statusCode: 409,
     })
     expect(assignAsset).not.toHaveBeenCalled()
+  })
+})
+
+describe("rejectRequest", () => {
+  it("400s an empty note — a rejection nobody explained is one the requester cannot act on", async () => {
+    await expect(rejectRequest("req-1", { note: "" }, hr)).rejects.toMatchObject({
+      statusCode: 400,
+    })
+    expect(tx.assetRequest.update).not.toHaveBeenCalled()
+  })
+
+  it("400s a whitespace-only note", async () => {
+    await expect(rejectRequest("req-1", { note: "   " }, hr)).rejects.toMatchObject({
+      statusCode: 400,
+    })
+    expect(tx.assetRequest.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("cancelRequest", () => {
+  it("403s someone who is not the requester", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1",
+      employeeId: "emp-1",
+      status: "PENDING",
+    })
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-other" } as never)
+
+    await expect(cancelRequest("req-1", mgr)).rejects.toMatchObject({ statusCode: 403 })
+    expect(tx.assetRequest.update).not.toHaveBeenCalled()
+  })
+
+  it("409s when the request is not PENDING", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1",
+      employeeId: "emp-1",
+      status: "APPROVED",
+    })
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as never)
+
+    await expect(cancelRequest("req-1", hr)).rejects.toMatchObject({ statusCode: 409 })
+    expect(tx.assetRequest.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("listRequests scoping", () => {
+  it("an EMPLOYEE sees only their own", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as never)
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
+
+    await listRequests(emp)
+
+    expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { employeeId: "emp-1" } })
+    )
+  })
+
+  it("a REPORTING_MANAGER sees their own plus their direct reports'", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr" } as never)
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
+
+    await listRequests(mgr)
+
+    expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ employeeId: "emp-mgr" }, { employee: { reportingManagerId: "emp-mgr" } }],
+        },
+      })
+    )
+  })
+
+  it("HR / SUPER_ADMIN see all — no scoping filter and no employee lookup", async () => {
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
+
+    await listRequests(hr)
+
+    expect(prisma.employee.findUnique).not.toHaveBeenCalled()
+    expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} })
+    )
   })
 })
