@@ -7,6 +7,7 @@ import { getMyProfile } from "@/lib/api/employees"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
 import { AccountOnlyCard } from "@/components/profile/account-only-card"
+import { DocumentsCard } from "@/components/profile/documents-card"
 import { EditMyDetailsDialog } from "@/components/profile/edit-my-details-dialog"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
@@ -176,6 +177,14 @@ function StaffProfile({
               { label: "Account number", value: employee.payroll.bankAccountNumber },
               { label: "Routing number", value: employee.payroll.bankRoutingNumber },
             ]}
+          />
+        ) : null}
+
+        {employee.documents ? (
+          <DocumentsCard
+            employeeId={employee.id}
+            documents={employee.documents}
+            footnote="Documents are uploaded by HR."
           />
         ) : null}
 
