@@ -5,9 +5,9 @@ vi.mock("../../config/prisma", () => {
     settlement: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     expenseClaim: { updateMany: vi.fn(), findMany: vi.fn(async () => []) },
     idCounter: { upsert: vi.fn() },
-    payrollAudit: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
     // The event log, written in the same transaction. Distinct from
-    // payrollAudit: one row per user action rather than per record.
+    // auditLog: one row per user action rather than per record.
     event: { create: vi.fn() },
     employee: { update: vi.fn(), findUnique: vi.fn() },
   }
@@ -339,7 +339,7 @@ describe("overrideSettlement", () => {
     // one that shows its working and lets a human overrule it.
     vi.mocked(prisma.settlement.findUnique).mockResolvedValue(draft as never)
     await overrideSettlement("stl-1", "fin-1", { gratuity: 0, reason: "Forfeited under §23" })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           entity: "SETTLEMENT",

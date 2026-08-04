@@ -1,10 +1,10 @@
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
+import { writeAudit } from "../../utils/audit"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
 import { emitEvent } from "../event/event.emit"
-import { auditPayroll } from "../payroll/payroll.audit"
 import { EMPLOYEE_INCLUDE, projectEmployee, visibilityTierFor } from "./employee.access"
 import { computeBlockers } from "./employee.blockers"
 import { employeeExitedEvent, employeeJoinedEvent } from "./employee.events"
@@ -250,7 +250,7 @@ export async function setSalaryStructure(
       data: { salaryStructureId: body.salaryStructureId },
       include: { salaryStructure: true },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EMPLOYEE_SALARY_STRUCTURE",
       entityId: employeeId,
       action: "UPDATE",
@@ -313,7 +313,7 @@ export async function setExitDetails(
         employmentStatus,
       },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EMPLOYEE_EXIT",
       entityId: employeeId,
       action: "UPDATE",

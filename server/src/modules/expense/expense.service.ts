@@ -7,9 +7,9 @@ import { officeToday } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
+import { writeAudit } from "../../utils/audit"
 import { parseDateOnly } from "../../utils/dates"
 import { emitEvent } from "../event/event.emit"
-import { auditPayroll } from "../payroll/payroll.audit"
 import { expenseEvent } from "./expense.events"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { dec, toMoneyString } from "../payroll/payroll.money"
@@ -62,7 +62,7 @@ export async function createClaim(actor: AccessTokenPayload, body: CreateClaimBo
         receiptUrl: body.receiptUrl,
       },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EXPENSE_CLAIM",
       entityId: claim.id,
       action: "CREATE",
@@ -138,7 +138,7 @@ export async function approveClaim(id: string, actorUserId: string, body: Approv
         reviewNote: body.note,
       },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EXPENSE_CLAIM",
       entityId: id,
       action: "APPROVE",
@@ -180,7 +180,7 @@ export async function rejectClaim(id: string, actorUserId: string, body: RejectC
         reviewNote: body.note,
       },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EXPENSE_CLAIM",
       entityId: id,
       action: "REJECT",

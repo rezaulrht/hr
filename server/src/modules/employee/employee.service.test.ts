@@ -4,9 +4,9 @@ const txMock = {
   idCounter: { upsert: vi.fn() },
   user: { create: vi.fn() },
   employee: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
-  payrollAudit: { create: vi.fn() },
+  auditLog: { create: vi.fn() },
   // The event log, written in the same transaction. Distinct from
-  // payrollAudit: one row per user action rather than per record.
+  // auditLog: one row per user action rather than per record.
   event: { create: vi.fn() },
 }
 
@@ -227,7 +227,7 @@ describe("setSalaryStructure", () => {
       expect.objectContaining({ data: { salaryStructureId: "s1" } })
     )
     // Names, not uuids — an audit row a human can read without a join.
-    expect(txMock.payrollAudit.create).toHaveBeenCalledWith(
+    expect(txMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           entity: "EMPLOYEE_SALARY_STRUCTURE",
@@ -250,7 +250,7 @@ describe("setSalaryStructure", () => {
     expect(txMock.employee.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { salaryStructureId: null } })
     )
-    expect(txMock.payrollAudit.create).toHaveBeenCalledWith(
+    expect(txMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ after: { salaryStructure: null } }),
       })

@@ -2,7 +2,7 @@
  * Writing to the event log.
  *
  * `emitEvent` takes a transaction client and never the global `prisma`,
- * matching `auditPayroll` and `auditAttendance` — it is called inside the
+ * matching `writeAudit` and `auditAttendance` — it is called inside the
  * same transaction as the change it records, so an announcement can never
  * outlive a rolled-back write.
  *

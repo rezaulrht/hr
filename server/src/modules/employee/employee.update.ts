@@ -14,8 +14,8 @@
 
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
+import { writeAudit } from "../../utils/audit"
 import { emitEvent } from "../event/event.emit"
-import { auditPayroll } from "../payroll/payroll.audit"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import type { Prisma } from "../../generated/prisma/client"
 import {
@@ -105,7 +105,7 @@ export async function updateEmployee(
       data,
       include: EMPLOYEE_INCLUDE,
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EMPLOYEE_PROFILE",
       entityId: id,
       action: "UPDATE",

@@ -642,19 +642,27 @@ model PayrollAdjustment {
   @@index([year, month, payslipId])
 }
 
-// Source spec §7 asks for this by name, settlement included. Polymorphic
-// entity + entityId rather than eight typed tables, because the read pattern
-// is always "what happened to this thing" or "what happened this month" and
-// neither wants a join. Written inside the same transaction as the change,
-// matching AttendanceAudit.
-model PayrollAudit {
+// The shared change log. Polymorphic `entity` + `entityId` rather than one
+// typed audit table per module, because the read pattern is always "what
+// happened to this thing" — and it already audits employee documents,
+// profiles and exits alongside payroll, which is why it is no longer named
+// after payroll.
+//
+// AttendanceAudit deliberately stays separate: it has a real FK to
+// Attendance with onDelete: Cascade, which a polymorphic table cannot
+// express, and folding it in would trade an enforced constraint for a string.
+model AuditLog {
   // "PAYROLL_RUN" | "PAYSLIP" | "SALARY_STRUCTURE" | "ADJUSTMENT"
   //   | "EXPENSE_CLAIM" | "SETTLEMENT" | "EXCHANGE_RATE" | "EMPLOYEE_EXIT"
-  //   | "EMPLOYEE_SALARY_STRUCTURE"
+  //   | "EMPLOYEE_SALARY_STRUCTURE" | "EMPLOYEE_DOCUMENT" | "EMPLOYEE_PROFILE"
+  //   | "ASSET" | "ASSET_CATEGORY" | "ASSET_ASSIGNMENT" | "ASSET_REQUEST"
+  //   | "ASSET_REPAIR"
   id        String   @id @default(uuid())
   entity    String
   entityId  String
-  // CREATE | PROCESS | SUBMIT | APPROVE | REJECT | DISBURSE | PAY | UPDATE | DELETE
+  // CREATE | PROCESS | SUBMIT | APPROVE | REJECT | DISBURSE | PAY | UPDATE
+  //   | DELETE | ASSIGN | ACKNOWLEDGE | RETURN | SEND_REPAIR | RECEIVE_REPAIR
+  //   | RETIRE | MARK_LOST | FULFIL | IMPORT
   action    String
   changedBy String?
   changedAt DateTime @default(now())
@@ -825,7 +833,7 @@ enum AnnouncementAudience {
 // ── EVENT LOG ─────────────────────────────────
 
 // One row per user action, feeding every activity feed and — later — the
-// notification system. Deliberately *not* the audit log: `PayrollAudit` and
+// notification system. Deliberately *not* the audit log: `AuditLog` and
 // `AttendanceAudit` write one row per record, so bulk-approving a fortnight
 // for sixteen people is 160 audit rows and exactly one event. Both are
 // correct; they answer different questions.
@@ -839,7 +847,7 @@ model Event {
   id String @id @default(uuid())
 
   // Machine key: "leave.approved". A String with a TS union in front of it,
-  // not an enum — matching PayrollAudit.entity, which took the same decision
+  // not an enum — matching AuditLog.entity, which took the same decision
   // for the same reason. A new event type is a deploy, not a migration.
   type     String
   severity EventSeverity @default(INFO)
@@ -847,7 +855,7 @@ model Event {
   // Who did it. Null means the system did.
   actorUserId String?
 
-  // What it is about, polymorphic exactly as PayrollAudit is.
+  // What it is about, polymorphic exactly as AuditLog is.
   entity   String
   entityId String
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const txMock = {
   employee: { update: vi.fn() },
-  payrollAudit: { create: vi.fn() },
+  auditLog: { create: vi.fn() },
   event: { create: vi.fn() },
 }
 
@@ -175,7 +175,7 @@ describe("updateEmployee audit and events", () => {
       phone: "+8801800000000",
       bloodGroup: "O+", // unchanged
     })
-    const [{ data }] = txMock.payrollAudit.create.mock.calls[0]
+    const [{ data }] = txMock.auditLog.create.mock.calls[0]
     expect(data.entity).toBe("EMPLOYEE_PROFILE")
     expect(data.before).toEqual({ phone: "+8801700000000" })
     expect(data.after).toEqual({ phone: "+8801800000000" })
@@ -183,7 +183,7 @@ describe("updateEmployee audit and events", () => {
 
   it("writes no audit row when nothing actually changed", async () => {
     await updateEmployee(viewer("EMPLOYEE", "u-1"), "emp-1", { bloodGroup: "O+" })
-    expect(txMock.payrollAudit.create).not.toHaveBeenCalled()
+    expect(txMock.auditLog.create).not.toHaveBeenCalled()
   })
 
   it("emits employee.bank_changed on a bank edit", async () => {
