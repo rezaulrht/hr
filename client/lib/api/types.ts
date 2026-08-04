@@ -477,11 +477,12 @@ export interface DashboardStat {
   failed?: boolean
 }
 
-export interface ChartBar {
-  label: string
-  display: string
-  height: number
-}
+// `ChartBar` already exists at components/dashboard/types.ts:67 as
+// `{ label, display, height }` and is what ChartCard consumes. Re-exported
+// rather than redeclared, so there is one definition and the insights
+// payload cannot drift from what the chart component accepts.
+export type { ChartBar } from "@/components/dashboard/types"
+import type { ChartBar } from "@/components/dashboard/types"
 
 export interface DashboardTableCell {
   text?: string
@@ -669,4 +670,31 @@ export interface UpdateEmployeeInput {
   bankAccountNumber?: string | null
   bankName?: string | null
   bankRoutingNumber?: string | null
+}
+
+// ── EMPLOYEE INSIGHTS ─────────────────────────
+// Hand-mirrored from server/src/modules/employee/employee.insights.ts. Every
+// group is optional because the server projects it by tier: FINANCE gets
+// `money` only, MANAGER gets `personal` (and `team` when the subject has
+// subordinates), FULL gets all three, and every other tier 403s outright.
+
+export interface EmployeeInsights {
+  /** The shared axis, e.g. ["Mar","Apr","May","Jun","Jul","Aug"]. */
+  months: string[]
+  /** FULL and MANAGER. */
+  personal?: {
+    attendanceRate: ChartBar[]
+    lateArrivals: ChartBar[]
+    leaveDaysTaken: ChartBar[]
+  }
+  /** FULL and FINANCE. */
+  money?: {
+    netPay: ChartBar[]
+    expenseClaims: ChartBar[]
+  }
+  /** FULL and MANAGER, and only when the subject has subordinates. */
+  team?: {
+    teamSize: ChartBar[]
+    leaveDecisions: ChartBar[]
+  }
 }

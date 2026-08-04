@@ -5,7 +5,9 @@ import type {
   DocumentItem,
   DocumentType,
   Employee,
+  EmployeeInsights,
   EmployeeView,
+  ExitReason,
   MyProfileResponse,
   SignedDocumentUrl,
   UpdateEmployeeInput,
@@ -21,6 +23,13 @@ export function getEmployee(accessToken: string, id: string): Promise<EmployeeVi
 
 export function getMyProfile(accessToken: string): Promise<MyProfileResponse> {
   return apiFetch<MyProfileResponse>("/api/employees/me", { accessToken })
+}
+
+export function getEmployeeInsights(
+  accessToken: string,
+  id: string
+): Promise<EmployeeInsights> {
+  return apiFetch<EmployeeInsights>(`/api/employees/${id}/insights`, { accessToken })
 }
 
 export function updateEmployee(
@@ -48,6 +57,24 @@ export function setSalaryStructure(
     method: "PATCH",
     accessToken,
     body: JSON.stringify({ salaryStructureId }),
+  })
+}
+
+/**
+ * HR-only, and deliberately separate from `PATCH /:id`: it asserts the month
+ * is not locked, refuses once a settlement is approved, and derives
+ * `employmentStatus` from the reason. Routing this through the general edit
+ * would duplicate or bypass that logic.
+ */
+export function setExitDetails(
+  accessToken: string,
+  id: string,
+  body: { lastWorkingDay: string; exitReason: ExitReason; exitNote?: string }
+): Promise<void> {
+  return apiFetch<void>(`/api/employees/${id}/exit`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(body),
   })
 }
 

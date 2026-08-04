@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { team } from "@/components/manager/data"
+import { ManagerTeamPage } from "@/components/manager/team-page"
 
-export default function TeamPage() {
-  return <SubpagePage data={team} />
+export default function Page() {
+  return <ManagerTeamPage />
 }

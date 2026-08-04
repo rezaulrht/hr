@@ -37,6 +37,19 @@ export function getMyLeaveBalances(accessToken: string): Promise<LeaveBalanceIte
   return apiFetch<LeaveBalanceItem[]>("/api/leave/balances/me", { accessToken })
 }
 
+/**
+ * Somebody else's leave balances, for the employee detail page's MANAGER/FULL
+ * tiers. 403s for every other tier (see `getBalancesFor` in
+ * leave.service.ts) — the caller treats that the same as "no data", not an
+ * error.
+ */
+export function getLeaveBalancesFor(
+  accessToken: string,
+  employeeId: string
+): Promise<LeaveBalanceItem[]> {
+  return apiFetch<LeaveBalanceItem[]>(`/api/leave/balances/${employeeId}`, { accessToken })
+}
+
 export function applyForLeave(
   accessToken: string,
   input: ApplyLeaveInput

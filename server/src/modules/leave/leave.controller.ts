@@ -6,6 +6,7 @@ import {
   applyForLeave,
   approveLeaveRequest,
   cancelLeaveRequest,
+  getBalancesFor,
   getHalfDayWindow,
   getMyBalances,
   getTeamStatus,
@@ -27,6 +28,18 @@ export async function listLeaveTypesHandler(_req: Request, res: Response, next: 
 export async function getMyBalancesHandler(req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await getMyBalances(req.user!.sub))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getBalancesForHandler(
+  req: Request<{ employeeId: string }>,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await getBalancesFor(req.user!, req.params.employeeId))
   } catch (err) {
     return next(err)
   }

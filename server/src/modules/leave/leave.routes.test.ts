@@ -4,6 +4,7 @@ import request from "supertest"
 vi.mock("./leave.service", () => ({
   listLeaveTypes: vi.fn(),
   getMyBalances: vi.fn(),
+  getBalancesFor: vi.fn(),
   listLeaveRequests: vi.fn(),
   getTeamStatus: vi.fn(),
   applyForLeave: vi.fn(),
@@ -98,6 +99,30 @@ describe("GET /api/leave/balances/me", () => {
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
     expect(res.status).toBe(200)
     expect(res.body[0].balance).toBe(5)
+  })
+})
+
+describe("GET /api/leave/balances/:employeeId", () => {
+  it("returns 401 unauthenticated", async () => {
+    const res = await request(app).get("/api/leave/balances/emp-1")
+    expect(res.status).toBe(401)
+  })
+
+  it("still routes /balances/me to the me handler", async () => {
+    vi.mocked(leaveService.getMyBalances).mockResolvedValue([])
+    const res = await request(app)
+      .get("/api/leave/balances/me")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(200)
+    expect(leaveService.getBalancesFor).not.toHaveBeenCalled()
+  })
+
+  it("returns 200 for an authorised caller", async () => {
+    vi.mocked(leaveService.getBalancesFor).mockResolvedValue([])
+    const res = await request(app)
+      .get("/api/leave/balances/emp-1")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(200)
   })
 })
 

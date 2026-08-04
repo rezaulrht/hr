@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { createStaffAccount, listEmployees, setSalaryStructure } from "@/lib/api/employees"
@@ -48,9 +50,20 @@ function formatJoiningDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
-function toRows(employees: EmployeeView[], onAssign: (employee: EmployeeView) => void): TableCell[][] {
+function toRows(
+  employees: EmployeeView[],
+  roleSegment: string,
+  onAssign: (employee: EmployeeView) => void
+): TableCell[][] {
   return employees.map((e) => [
-    { text: e.work.fullName, sub: e.work.email, weight: 600 },
+    {
+      node: (
+        <div>
+          <div className="font-semibold">{e.work.fullName}</div>
+          <div className="text-[12px] text-[#7A8698]">{e.work.email}</div>
+        </div>
+      ),
+    },
     { text: e.work.department.name },
     // A COLLEAGUE-tier row genuinely has no `employment` group. Rendering a
     // dash is the honest answer, not a crash and not a fabricated value.
@@ -64,11 +77,26 @@ function toRows(employees: EmployeeView[], onAssign: (employee: EmployeeView) =>
       ? { tag: STATUS_LABEL[e.employment.employmentStatus], tone: STATUS_TONE[e.employment.employmentStatus] }
       : { text: "—" },
     {
-      node: e.payroll ? (
-        <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
-          {e.payroll.salaryStructure ? "Change" : "Assign"}
-        </button>
-      ) : null,
+      node: (
+        <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+          {/* A named action rather than a clickable name: "View profile" says
+              what happens, where an underlined name only hints at it. */}
+          <Link
+            href={`/${roleSegment}/employees/${e.id}`}
+            className="rounded-md border border-[#E4E9EF] px-2.5 py-1 text-[12.5px] font-semibold hover:border-[#C6CCD3]"
+          >
+            View profile
+          </Link>
+          {/* FINANCE gets an empty editableFields, so the salary action
+              disappears without this component learning anything about
+              Finance. */}
+          {e.editableFields.length > 0 ? (
+            <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
+              {e.payroll?.salaryStructure ? "Change" : "Assign"}
+            </button>
+          ) : null}
+        </div>
+      ),
     },
   ])
 }
@@ -116,6 +144,10 @@ function todayIso(): string {
 export function EmployeesPage() {
   const { accessToken, status: sessionStatus } = useSession()
   const queryClient = useQueryClient()
+  const pathname = usePathname()
+  // "/hr/employees" → "hr". Derived rather than passed as a prop, so the four
+  // route wrappers stay identical one-liners.
+  const roleSegment = pathname.split("/")[1] ?? "hr"
 
   const [createOpen, setCreateOpen] = useState(false)
   const [result, setResult] = useState<CreateStaffAccountResult | null>(null)
@@ -238,11 +270,11 @@ export function EmployeesPage() {
   const stats = useMemo(() => computeStats(employeesQuery.data ?? []), [employeesQuery.data])
   const rows = useMemo(
     () =>
-      toRows(employeesQuery.data ?? [], (employee) => {
+      toRows(employeesQuery.data ?? [], roleSegment, (employee) => {
         setAssignError(null)
         setAssigning(employee)
       }),
-    [employeesQuery.data]
+    [employeesQuery.data, roleSegment]
   )
   const departments: Department[] = departmentsQuery.data ?? []
 
@@ -282,7 +314,7 @@ export function EmployeesPage() {
       ) : (
         <DataTable
           title="Directory"
-          cols="1.5fr 0.9fr 0.7fr 1fr 0.8fr 0.6fr"
+          cols="1.5fr 0.9fr 0.7fr 1fr 0.8fr 1fr"
           headers={["Employee", "Department", "Joined", "Salary structure", "Status", ""]}
           rows={rows}
           action={`${employeesQuery.data?.length ?? 0} employees`}

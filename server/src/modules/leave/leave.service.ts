@@ -7,6 +7,8 @@ import { recomputePunchFlags } from "../attendance/attendance.recompute"
 import { shiftMidpoint } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
+import { visibilityTierFor } from "../employee/employee.access"
+import { employeeIdForUser } from "../employee/employee.service"
 import {
   computeEarnedAccrual,
   completedServiceMonths,
@@ -259,6 +261,30 @@ export async function getHalfDayWindow(
 
 export async function getMyBalances(userId: string): Promise<LeaveBalanceItem[]> {
   const employee = await requireEmployeeForUser(userId)
+  return getBalancesForEmployee(employee, new Date().getUTCFullYear())
+}
+
+/**
+ * Somebody else's balances, for the manager view on the employee detail page.
+ *
+ * The authorisation is the same relationship `visibilityTierFor` already
+ * computes, imported rather than restated — a second copy of "is this my
+ * direct report" is a second copy that can disagree.
+ *
+ * FINANCE is deliberately excluded even though it is an elevated tier: leave
+ * balances are people data, and Finance's tier exists for money.
+ */
+export async function getBalancesFor(
+  viewer: AccessTokenPayload,
+  employeeId: string
+): Promise<LeaveBalanceItem[]> {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } })
+  if (!employee) throw new AppError(404, "Employee not found")
+
+  const tier = visibilityTierFor(viewer, employee, await employeeIdForUser(viewer.sub))
+  if (tier !== "FULL" && tier !== "MANAGER" && tier !== "SELF") {
+    throw new AppError(403, "You do not have access to this employee's leave balances")
+  }
   return getBalancesForEmployee(employee, new Date().getUTCFullYear())
 }
 
