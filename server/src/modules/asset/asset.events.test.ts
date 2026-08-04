@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { assetAssignedEvent, assetImportedEvent, assetRequestEvent } from "./asset.events"
+import {
+  assetAcknowledgedEvent,
+  assetAssignedEvent,
+  assetImportedEvent,
+  assetLifecycleEvent,
+  assetRequestEvent,
+  assetReturnedEvent,
+} from "./asset.events"
 
 describe("assetAssignedEvent", () => {
   it("addresses the holder and lets emitEvent resolve their manager", () => {
@@ -66,6 +73,90 @@ describe("assetRequestEvent", () => {
 
     expect(event.severity).toBe("WARNING")
     expect(event.meta).toContain("Already has two")
+  })
+})
+
+describe("assetReturnedEvent", () => {
+  it("reports WARNING when the asset comes back damaged", () => {
+    const event = assetReturnedEvent({
+      assetId: "ast-1",
+      assetTag: "BS-AST-00042",
+      employeeId: "emp-1",
+      conditionIn: "DAMAGED",
+      actorUserId: "user-hr",
+    })
+
+    expect(event.severity).toBe("WARNING")
+    expect(event.subjectEmployeeId).toBe("emp-1")
+  })
+
+  it("reports SUCCESS when the asset comes back in good condition", () => {
+    const event = assetReturnedEvent({
+      assetId: "ast-1",
+      assetTag: "BS-AST-00042",
+      employeeId: "emp-1",
+      conditionIn: "GOOD",
+      actorUserId: "user-hr",
+    })
+
+    expect(event.severity).toBe("SUCCESS")
+    expect(event.subjectEmployeeId).toBe("emp-1")
+  })
+})
+
+describe("assetLifecycleEvent", () => {
+  it("suppresses the manager audience when an asset is retired", () => {
+    const event = assetLifecycleEvent({
+      stage: "retired",
+      assetId: "ast-1",
+      assetTag: "BS-AST-00042",
+      assetName: "ThinkPad X1",
+      note: "End of life",
+      actorUserId: "user-hr",
+    })
+
+    expect(event.type).toBe("asset.retired")
+    expect(event.severity).toBe("INFO")
+    // Explicit null, not undefined: retiring an asset is a decision about a
+    // thing, not about a person, so emitEvent must not resolve a manager.
+    expect(event.managerEmployeeId).toBeNull()
+    expect(event.subjectEmployeeId).toBeUndefined()
+    expect(event.targetRoles).toContain("HR_ADMIN")
+    expect(event.targetRoles).toContain("FINANCE_OFFICER")
+  })
+
+  it("suppresses the manager audience when an asset is marked lost", () => {
+    const event = assetLifecycleEvent({
+      stage: "marked_lost",
+      assetId: "ast-1",
+      assetTag: "BS-AST-00042",
+      assetName: "ThinkPad X1",
+      note: "Not found after audit",
+      actorUserId: "user-hr",
+    })
+
+    expect(event.type).toBe("asset.marked_lost")
+    expect(event.severity).toBe("WARNING")
+    expect(event.managerEmployeeId).toBeNull()
+    expect(event.subjectEmployeeId).toBeUndefined()
+    expect(event.targetRoles).toContain("HR_ADMIN")
+    expect(event.targetRoles).toContain("FINANCE_OFFICER")
+  })
+})
+
+describe("assetAcknowledgedEvent", () => {
+  it("addresses the employee who acknowledged receipt", () => {
+    const event = assetAcknowledgedEvent({
+      assetId: "ast-1",
+      assetTag: "BS-AST-00042",
+      employeeId: "emp-1",
+      actorUserId: "emp-1",
+    })
+
+    expect(event.type).toBe("asset.acknowledged")
+    expect(event.entity).toBe("ASSET_ASSIGNMENT")
+    expect(event.subjectEmployeeId).toBe("emp-1")
+    expect(event.targetRoles).toContain("HR_ADMIN")
   })
 })
 
