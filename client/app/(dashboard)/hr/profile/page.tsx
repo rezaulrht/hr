@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { profile } from "@/components/hr/data"
+import { MyProfilePage } from "@/components/profile/my-profile-page"
 
 export default function ProfilePage() {
-  return <SubpagePage data={profile} />
+  return <MyProfilePage />
 }

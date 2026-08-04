@@ -38,25 +38,3 @@ export const team: SubpageData = {
     [{ text: "Sam Okafor", sub: "EMP-0640", weight: 600 }, { text: "PM Intern" }, { text: "98.0%" }, { tag: "In office", tone: "green" }],
   ],
 }
-
-export const profile: SubpageData = {
-  kicker: "Administration",
-  title: "My Profile",
-  sub: "Personal details, documents, and access",
-  cta: "Edit profile",
-  stats: [
-    { label: "Employee ID", value: "MGR-0155", sub: "Product Â· Reporting Manager" },
-    { label: "Tenure", value: "3.9 yrs", sub: "Joined Aug 2022" },
-    { label: "Manager", value: "Noah Bennett", sub: "Super Admin" },
-  ],
-  tableTitle: "Documents & records",
-  cols: "1.6fr 1.1fr 0.9fr 0.9fr",
-  headers: ["Document", "Category", "Updated", "Status"],
-  rows: [
-    [{ text: "Employment contract", sub: "PDF Â· signed", weight: 600 }, { text: "Contract" }, { text: "Aug 2022" }, { tag: "Current", tone: "green" }],
-    [{ text: "Tax withholding form", sub: "W-4", weight: 600 }, { text: "Tax" }, { text: "Jan 2026" }, { tag: "Current", tone: "green" }],
-    [{ text: "Direct deposit details", sub: "â€¢â€¢â€¢â€¢ 2264", weight: 600 }, { text: "Banking" }, { text: "Jan 2026" }, { tag: "Verified", tone: "green" }],
-    [{ text: "Emergency contact", weight: 600 }, { text: "Personal" }, { text: "Aug 2022" }, { tag: "Review due", tone: "yellow" }],
-    [{ text: "Benefits enrollment", sub: "Health + dental", weight: 600 }, { text: "Benefits" }, { text: "Nov 2025" }, { tag: "Enrolled", tone: "green" }],
-  ],
-}
