@@ -111,6 +111,26 @@ function StaffProfile({
         }
       />
 
+      {/* Only blockers this person can actually resolve themselves. A blocker
+          is shown if and only if the field it names is one the server said
+          this caller may write — with the write matrix as it stands that is
+          at most emergencyContact, and every other blocker is HR's work.
+          Showing an employee a "payroll cannot process you" warning they are
+          powerless to act on produces a support ticket and no fix. */}
+      {(employee.blockers ?? [])
+        .filter((blocker) => employee.editableFields.includes(blocker.field))
+        .map((blocker) => (
+          <div
+            key={blocker.field}
+            className="mb-4 flex items-center justify-between gap-3 rounded-md border border-[#E4E9EF] bg-[#F9FAFC] px-5 py-3.5"
+          >
+            <span className="text-[13px]">{blocker.blocks}</span>
+            <Button type="button" variant="outline" onClick={() => setEditOpen(true)}>
+              Add
+            </Button>
+          </div>
+        ))}
+
       <div className="grid grid-cols-[repeat(auto-fit,minmax(310px,1fr))] gap-4">
         {employee.personal ? (
           <ProfileCard
