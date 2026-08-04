@@ -10,6 +10,7 @@ import {
   deleteDocumentHandler,
   getDocumentUrlHandler,
   getEmployeeHandler,
+  getEmployeeInsightsHandler,
   getMyProfileHandler,
   listDocumentsHandler,
   listEmployeesHandler,
@@ -34,6 +35,11 @@ router.get("/:id", requireAuth, getEmployeeHandler)
 // No `requireRole`: the permitted field set depends on the relationship
 // between caller and subject, not on role alone. See employee.access.ts.
 router.patch("/:id", requireAuth, updateEmployeeHandler)
+
+// Separate from GET /:id on purpose: the detail payload is read on the cheap
+// paths too (the directory dialog, the list), and computing five series on
+// every read would make the common case pay for the rare one.
+router.get("/:id/insights", requireAuth, getEmployeeInsightsHandler)
 
 router.post(
   "/staff",

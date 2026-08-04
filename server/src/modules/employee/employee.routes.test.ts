@@ -27,11 +27,16 @@ vi.mock("./employee.update", () => ({
   updateEmployee: vi.fn(),
 }))
 
+vi.mock("./employee.insights", () => ({
+  getEmployeeInsights: vi.fn(),
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import * as employeeService from "./employee.service"
 import * as employeeMedia from "./employee.media"
 import * as employeeUpdate from "./employee.update"
+import * as insights from "./employee.insights"
 import prismaForRoutes from "../../config/prisma"
 
 function tokenFor(role: "HR_ADMIN" | "EMPLOYEE" | "FINANCE_OFFICER" | "SUPER_ADMIN", sub = "actor-1") {
@@ -423,5 +428,33 @@ describe("avatar routes", () => {
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE", "u-1")}`)
     expect(res.status).toBe(200)
     expect(res.body.avatarUrl).toBeNull()
+  })
+})
+
+describe("GET /api/employees/:id/insights", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("returns 401 unauthenticated", async () => {
+    const res = await request(app).get("/api/employees/emp-1/insights")
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 200 for HR", async () => {
+    vi.mocked(insights.getEmployeeInsights).mockResolvedValue({ months: [] } as any)
+    const res = await request(app)
+      .get("/api/employees/emp-1/insights")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+    expect(res.status).toBe(200)
+  })
+
+  it("surfaces the service's 403 for an unauthorised tier", async () => {
+    const { AppError } = await import("../../middleware/errorHandler")
+    vi.mocked(insights.getEmployeeInsights).mockRejectedValue(
+      new AppError(403, "Insights are not available for this employee")
+    )
+    const res = await request(app)
+      .get("/api/employees/emp-1/insights")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(403)
   })
 })

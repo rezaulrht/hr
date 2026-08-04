@@ -22,6 +22,7 @@ import {
   setSalaryStructure,
 } from "./employee.service"
 import { updateEmployee } from "./employee.update"
+import { getEmployeeInsights } from "./employee.insights"
 import { visibilityTierFor } from "./employee.access"
 import {
   createStaffAccountSchema,
@@ -71,6 +72,18 @@ export async function getEmployeeHandler(req: RequestWithId, res: Response, next
 export async function getMyProfileHandler(req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await getMyProfile(req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function getEmployeeInsightsHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    return res.status(200).json(await getEmployeeInsights(req.user!, req.params.id))
   } catch (err) {
     return next(err)
   }
