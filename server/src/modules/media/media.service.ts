@@ -24,6 +24,19 @@ export function documentPublicId(employeeId: string): string {
 }
 
 /**
+ * Condition photos are stored under the **asset's** folder, not the
+ * assignment's: an assignment is a moment and an asset is the thing, so
+ * grouping by asset keeps every photograph of one laptop together.
+ */
+export function assetFolderPrefix(assetId: string): string {
+  return `assets/${assetId}`
+}
+
+export function assetPublicId(assetId: string): string {
+  return `${assetFolderPrefix(assetId)}/${randomUUID()}`
+}
+
+/**
  * Streams an in-memory buffer to Cloudinary.
  *
  * `public_id` carries the full path and **no `folder` option is passed**.

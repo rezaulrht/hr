@@ -73,3 +73,6 @@ function withErrorTranslation(handler: RequestHandler, limits: MediaLimits): Req
 
 export const avatarUpload = withErrorTranslation(build(AVATAR_LIMITS), AVATAR_LIMITS)
 export const documentUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
+// An asset photo is the same size class as a scanned contract, and a second
+// limit constant is a second thing to keep in step.
+export const assetUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
