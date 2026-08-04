@@ -7,6 +7,7 @@ import { getMyProfile } from "@/lib/api/employees"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
 import { AccountOnlyCard } from "@/components/profile/account-only-card"
+import { EditMyDetailsDialog } from "@/components/profile/edit-my-details-dialog"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
 import { Button } from "@/components/ui/button"
@@ -191,6 +192,13 @@ function StaffProfile({
           />
         ) : null}
       </div>
+
+      <EditMyDetailsDialog
+        employee={employee}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSaved={onRefresh}
+      />
     </>
   )
 }
