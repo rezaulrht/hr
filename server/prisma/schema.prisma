@@ -127,6 +127,9 @@ model Employee {
   payslips      Payslip[]
   adjustments   PayrollAdjustment[]
   settlements   Settlement[]
+
+  assetAssignments AssetAssignment[]
+  assetRequests    AssetRequest[]
 }
 
 enum ExitReason {
@@ -159,6 +162,7 @@ model Department {
   name          String         @unique
   employees     Employee[]
   announcements Announcement[]
+  assets        Asset[]
 }
 
 enum DocumentType {
@@ -896,4 +900,217 @@ enum EventSeverity {
   SUCCESS
   WARNING
   ERROR
+}
+
+// ── ASSETS ────────────────────────────────────
+
+model AssetCategory {
+  id     String  @id @default(uuid())
+  // Stable machine key (LAPTOP, MONITOR, PHONE, FURNITURE, VEHICLE, LICENCE).
+  // Rules key off this, never off `name`.
+  code   String  @unique
+  name   String  @unique
+
+  // A laptop has a serial; a chair does not. Enforced at create rather than
+  // being a nullable field everyone forgets.
+  requiresSerial   Boolean @default(true)
+  // Issued and never expected back — a mouse, a keyboard, a headset. Excluded
+  // from the exit checklist.
+  isConsumable     Boolean @default(false)
+  // Straight-line life. Unused in phase 1; the book-value report is phase 2.
+  // The column exists now so the importer can carry it and there is no second
+  // migration to backfill it later.
+  usefulLifeMonths Int?
+
+  assets   Asset[]
+  requests AssetRequest[]
+}
+
+model Asset {
+  id           String        @id @default(uuid())
+  // Human-facing tag from IdCounter with a new key "AST" — the mechanism
+  // already issuing employee codes. "BS-AST-00123".
+  assetTag     String        @unique
+  categoryId   String
+  category     AssetCategory @relation(fields: [categoryId], references: [id])
+  name         String
+  // Unique when present. Two assets cannot share a serial, but many rows
+  // legitimately have none (furniture, licences) and Postgres permits
+  // multiple nulls under a unique constraint.
+  serialNumber String?       @unique
+  model        String?
+  notes        String?
+
+  // ── acquisition ──
+  purchaseDate   DateTime?
+  purchaseCost   Decimal?  @db.Decimal(14, 2)
+  // Payroll's Currency enum. Imported hardware is priced in USD, and a second
+  // currency enum would be a second thing to keep in step.
+  currency       Currency  @default(BDT)
+  vendor         String?
+  warrantyExpiry DateTime?
+
+  // ── where it belongs, as distinct from who is holding it ──
+  // The owning cost centre. NOT the holder's department — a laptop bought by
+  // Engineering can be lent to Sales without changing which budget owns it.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  // Where it physically sits when nobody has it. "Store room B, shelf 3".
+  location     String?
+
+  // ── lifecycle: only the irreversible decisions are stored ──
+  lifecycle      AssetLifecycle @default(IN_SERVICE)
+  retiredAt      DateTime?
+  retiredBy      String?        // User id
+  retirementNote String?
+
+  assignments AssetAssignment[]
+  repairs     AssetRepair[]
+  requests    AssetRequest[]
+  attachments AssetAttachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([lifecycle])
+}
+
+enum AssetLifecycle {
+  IN_SERVICE
+  LOST
+  RETIRED
+}
+
+enum AssetCondition {
+  NEW
+  GOOD
+  FAIR
+  DAMAGED
+}
+
+model AssetAssignment {
+  id         String   @id @default(uuid())
+  assetId    String
+  asset      Asset    @relation(fields: [assetId], references: [id])
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  assignedAt   DateTime
+  assignedBy   String          // User id — who handed it over
+  conditionOut AssetCondition
+  issueNote    String?
+  // The employee's own confirmation. Null means HR says they have it and the
+  // employee has not said so.
+  acknowledgedAt DateTime?
+
+  returnedAt   DateTime?
+  returnedTo   String?         // User id — who received it back
+  conditionIn  AssetCondition?
+  returnNote   String?
+
+  attachments AssetAttachment[]
+
+  @@index([assetId, assignedAt])
+  @@index([employeeId, returnedAt])
+}
+
+model AssetAttachment {
+  id           String           @id @default(uuid())
+  // Exactly one of these is set — an asset-level file (photo, invoice,
+  // warranty) or a handover-level one (condition photos). Prisma cannot
+  // express that, so the migration hand-writes a CHECK constraint alongside
+  // the partial unique index it is already hand-writing:
+  //   CHECK (("assetId" IS NULL) <> ("assignmentId" IS NULL))
+  // A service guard alone would leave the invariant true only for as long as
+  // every future caller remembers it.
+  assetId      String?
+  asset        Asset?           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignmentId String?
+  assignment   AssetAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  kind AssetAttachmentKind
+
+  // Cloudinary asset ID, not a URL — delivery URLs are signed per request and
+  // expire, so a stored URL would be a dead link. Same reasoning as Document.
+  publicId   String  @unique
+  fileName   String
+  bytes      Int
+  format     String
+  uploadedBy String?
+  uploadedAt DateTime @default(now())
+
+  @@index([assetId, uploadedAt])
+  @@index([assignmentId, uploadedAt])
+}
+
+enum AssetAttachmentKind {
+  PHOTO
+  INVOICE
+  WARRANTY
+  CONDITION_OUT
+  CONDITION_IN
+}
+
+model AssetRequest {
+  id          String        @id @default(uuid())
+  employeeId  String
+  employee    Employee      @relation(fields: [employeeId], references: [id])
+  // A category, not a specific asset — you request "a monitor", not
+  // BS-AST-00042. Which unit is HR's call at fulfilment.
+  categoryId  String
+  category    AssetCategory @relation(fields: [categoryId], references: [id])
+  reason      String
+  status      AssetRequestStatus @default(PENDING)
+
+  decidedBy    String?   // User id
+  decidedAt    DateTime?
+  decisionNote String?   // required on reject, matching leave and attendance
+
+  fulfilledAt      DateTime?
+  fulfilledBy      String?
+  fulfilledAssetId String?
+  fulfilledAsset   Asset?    @relation(fields: [fulfilledAssetId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([employeeId, createdAt])
+}
+
+// PENDING/APPROVED/REJECTED/CANCELLED mirror LeaveStatus deliberately — the
+// same workflow shape should not need a second vocabulary. FULFILLED is the
+// one addition, because an approved request that nothing was issued against
+// is not finished.
+enum AssetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  FULFILLED
+}
+
+model AssetRepair {
+  id       String   @id @default(uuid())
+  assetId  String
+  asset    Asset    @relation(fields: [assetId], references: [id])
+
+  sentAt       DateTime
+  sentBy       String    // User id
+  vendor       String?
+  fault        String
+  expectedBack DateTime?
+  isWarranty   Boolean   @default(false)
+
+  returnedAt DateTime?
+  // Expense, not capitalised. Never enters the depreciation base.
+  cost       Decimal?  @db.Decimal(14, 2)
+  currency   Currency  @default(BDT)
+  outcome    String?
+  // A repair that comes back unrepairable is how an asset reaches RETIRED or
+  // LOST, but the transition is a separate explicit act.
+  conditionAfter AssetCondition?
+
+  @@index([assetId, sentAt])
+  @@index([returnedAt])
 }

@@ -269,6 +269,35 @@ async function seedAnnouncements(hrUserId: string, managerUserId: string) {
   }
 }
 
+// Asset categories. A table rather than an enum because HR will add
+// "docking station" and no code branches on the name — the same rule
+// Department and LeaveType follow.
+const ASSET_CATEGORIES = [
+  { code: "LAPTOP", name: "Laptop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36 },
+  { code: "DESKTOP", name: "Desktop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 48 },
+  { code: "MONITOR", name: "Monitor", requiresSerial: true, isConsumable: false, usefulLifeMonths: 60 },
+  { code: "PHONE", name: "Mobile phone", requiresSerial: true, isConsumable: false, usefulLifeMonths: 24 },
+  // A chair has no serial and a headset is never chased. Both still get a
+  // row and a tag, because knowing you issued 40 headsets last year is
+  // exactly what this register is for.
+  { code: "FURNITURE", name: "Furniture", requiresSerial: false, isConsumable: false, usefulLifeMonths: 120 },
+  { code: "PERIPHERAL", name: "Peripheral", requiresSerial: false, isConsumable: true, usefulLifeMonths: null },
+  { code: "VEHICLE", name: "Vehicle", requiresSerial: true, isConsumable: false, usefulLifeMonths: 120 },
+  // A licence cannot be physically returned and has no serial. One register
+  // row is all it gets this phase.
+  { code: "LICENCE", name: "Software licence", requiresSerial: false, isConsumable: false, usefulLifeMonths: 12 },
+]
+
+async function seedAssetCategories() {
+  for (const category of ASSET_CATEGORIES) {
+    await prisma.assetCategory.upsert({
+      where: { code: category.code },
+      update: {},
+      create: category,
+    })
+  }
+}
+
 async function main() {
   const superAdmin = await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   const hrAdmin = await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
@@ -278,6 +307,8 @@ async function main() {
   for (const name of departments) {
     await prisma.department.upsert({ where: { name }, update: {}, create: { name } })
   }
+
+  await seedAssetCategories()
 
   // The standing shift every employee falls back to when shiftId is null.
   // 09:00-18:00 with the 1h lunch/break inside the span, so a full day is
