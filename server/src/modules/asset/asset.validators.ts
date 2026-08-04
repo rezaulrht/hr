@@ -39,3 +39,5 @@ export const updateCategorySchema = createCategorySchema.partial().omit({ code: 
 
 export type CreateAssetInput = z.infer<typeof createAssetSchema>
 export type UpdateAssetInput = z.infer<typeof updateAssetSchema>
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>

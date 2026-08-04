@@ -12,7 +12,7 @@ vi.mock("../../config/prisma", () => {
   }
   return {
     default: {
-      asset: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
+      asset: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
       assetCategory: { findMany: vi.fn(), findUnique: vi.fn() },
       employee: { findUnique: vi.fn(), findMany: vi.fn() },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -22,11 +22,12 @@ vi.mock("../../config/prisma", () => {
 })
 
 import prisma from "../../config/prisma"
-import { createAsset, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
+import { createAsset, getAsset, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
 
 const hr = { sub: "user-hr", role: "HR_ADMIN", email: "hr@demo.com", mustChangePassword: false } as never
+const staff = { sub: "user-1", role: "EMPLOYEE", email: "e@demo.com", mustChangePassword: false } as never
 
 const laptopCategory = {
   id: "cat-1",
@@ -134,5 +135,39 @@ describe("markAssetLost", () => {
 
     expect(tx.asset.update).toHaveBeenCalledOnce()
     expect(tx.assetAssignment.count).not.toHaveBeenCalled()
+  })
+})
+
+describe("getAsset", () => {
+  it("404s — not 403s — for an id outside the caller's scope", async () => {
+    // The scope is applied inside the query, so an out-of-scope id and a
+    // non-existent id are indistinguishable to the caller. That is the point:
+    // an employee probing ids must learn nothing about what exists.
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as never)
+    vi.mocked(prisma.asset.findFirst).mockResolvedValue(null as never)
+
+    await expect(getAsset("ast-someone-elses", staff)).rejects.toMatchObject({
+      statusCode: 404,
+    })
+  })
+
+  it("scopes the lookup rather than filtering after the fetch", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as never)
+    vi.mocked(prisma.asset.findFirst).mockResolvedValue(null as never)
+
+    await expect(getAsset("ast-1", staff)).rejects.toMatchObject({ statusCode: 404 })
+
+    // Fetching first and filtering afterwards would leak existence through
+    // timing and through anything that logged the row.
+    expect(prisma.asset.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            { id: "ast-1" },
+            { assignments: { some: { employeeId: { in: ["emp-1"] }, returnedAt: null } } },
+          ],
+        },
+      })
+    )
   })
 })

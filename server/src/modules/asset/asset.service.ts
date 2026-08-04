@@ -19,15 +19,13 @@ import { computeAssetStatus } from "./asset.status"
 import type { HeldBy } from "./asset.types"
 import type {
   CreateAssetInput,
+  CreateCategoryInput,
   UpdateAssetInput,
-  createCategorySchema,
-  lifecycleSchema,
-  updateCategorySchema,
+  UpdateCategoryInput,
 } from "./asset.validators"
+import { lifecycleSchema } from "./asset.validators"
 
 type LifecycleInput = z.infer<typeof lifecycleSchema>
-type CreateCategoryInput = z.infer<typeof createCategorySchema>
-type UpdateCategoryInput = z.infer<typeof updateCategorySchema>
 
 /**
  * "BS-AST-00042", from the same IdCounter mechanism issuing employee codes.
@@ -100,8 +98,11 @@ export async function retireAsset(
   return prisma.$transaction(async (tx) => {
     const asset = await tx.asset.findUnique({ where: { id } })
     if (!asset) throw new AppError(404, "Asset not found")
-    if (asset.lifecycle !== "IN_SERVICE") {
+    if (asset.lifecycle === "RETIRED") {
       throw new AppError(409, "This asset is already retired")
+    }
+    if (asset.lifecycle === "LOST") {
+      throw new AppError(409, "This asset has already been marked lost")
     }
 
     const openAssignments = await tx.assetAssignment.count({
