@@ -52,6 +52,7 @@ export type AuditAction =
   | "MARK_LOST"
   | "FULFIL"
   | "IMPORT"
+  | "CANCEL"
 
 export interface AuditEntry {
   entity: AuditEntity

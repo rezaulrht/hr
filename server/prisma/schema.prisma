@@ -666,7 +666,7 @@ model AuditLog {
   entityId  String
   // CREATE | PROCESS | SUBMIT | APPROVE | REJECT | DISBURSE | PAY | UPDATE
   //   | DELETE | ASSIGN | ACKNOWLEDGE | RETURN | SEND_REPAIR | RECEIVE_REPAIR
-  //   | RETIRE | MARK_LOST | FULFIL | IMPORT
+  //   | RETIRE | MARK_LOST | FULFIL | IMPORT | CANCEL
   action    String
   changedBy String?
   changedAt DateTime @default(now())
