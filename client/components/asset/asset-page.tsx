@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table"
 import { AssetDetail } from "@/components/asset/asset-detail"
 import { AssignDialog } from "@/components/asset/assign-dialog"
+import { ImportWizard } from "@/components/asset/import-wizard"
 import { RepairDialog } from "@/components/asset/repair-dialog"
 import { RequestDialog } from "@/components/asset/request-dialog"
 import { ReturnDialog } from "@/components/asset/return-dialog"
@@ -651,9 +652,7 @@ export function AssetPage() {
             </TabsContent>
 
             <TabsContent value="import" className="pt-3">
-              <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                The bulk importer is coming in a future update.
-              </div>
+              <ImportWizard onImported={invalidateAssets} />
             </TabsContent>
           </Tabs>
         </div>
