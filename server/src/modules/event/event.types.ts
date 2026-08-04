@@ -43,6 +43,22 @@ export type EventType =
   | "employee.joined"
   | "employee.exited"
   | "employee.bank_changed"
+  | "asset.assigned"
+  | "asset.acknowledged"
+  | "asset.returned"
+  | "asset.request.submitted"
+  | "asset.request.approved"
+  | "asset.request.rejected"
+  | "asset.retired"
+  | "asset.marked_lost"
+  | "asset.imported"
+  // Fulfilment emits nothing of its own: it creates an assignment, which
+  // already emits asset.assigned with the request id in the payload. Two
+  // events for one action would put the same fact in the feed twice.
+  //
+  // Repairs emit nothing at all. Events are for people who need telling, and
+  // nobody needs telling that a monitor went to the vendor. Repairs are
+  // covered by AuditLog and by the open-repairs list.
 
 /**
  * A transaction client, and *only* a transaction client.
