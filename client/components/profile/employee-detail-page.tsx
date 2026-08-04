@@ -2,16 +2,22 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getEmployee } from "@/lib/api/employees"
+import { getEmployee, setSalaryStructure } from "@/lib/api/employees"
+import { listSalaryStructures } from "@/lib/api/payroll"
+import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
+import { SalaryStructureDialog } from "@/components/employees/salary-structure-dialog"
+import { CARD_FIELDS, EditCardDialog } from "@/components/profile/edit-card-dialog"
+import { ExitDetailsDialog } from "@/components/profile/exit-details-dialog"
 import { DocumentsCard } from "@/components/profile/documents-card"
 import { LeaveBalanceCard } from "@/components/profile/leave-balance-card"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
 import { ProfileInsights } from "@/components/profile/profile-insights"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
 const EMPLOYMENT_TYPE_LABEL: Record<string, string> = {
@@ -43,6 +49,9 @@ export function EmployeeDetailPage({
   const { accessToken, status: sessionStatus } = useSession()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<string | null>(null)
+  const [exitOpen, setExitOpen] = useState(false)
+  const [assigningStructure, setAssigningStructure] = useState(false)
+  const [assignError, setAssignError] = useState<string | null>(null)
 
   const employeeQuery = useQuery({
     queryKey: ["employee", employeeId],
@@ -50,10 +59,34 @@ export function EmployeeDetailPage({
     enabled: sessionStatus === "authenticated" && !!accessToken,
   })
 
+  // Fetched only once the dialog is actually opened — the caller who may see
+  // this page without ever assigning a structure shouldn't pay for the list.
+  const structuresQuery = useQuery({
+    queryKey: ["salary-structures"],
+    queryFn: () => listSalaryStructures(accessToken!),
+    enabled: assigningStructure && sessionStatus === "authenticated" && !!accessToken,
+  })
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["employee", employeeId] })
     queryClient.invalidateQueries({ queryKey: ["employees"] })
   }
+
+  // `employeeId` rather than `employee.id`: this mutation is declared
+  // unconditionally, before the loading/error early returns below, so the
+  // employee record itself may not exist yet.
+  const assignMutation = useMutation({
+    mutationFn: (salaryStructureId: string | null) =>
+      setSalaryStructure(accessToken!, employeeId, salaryStructureId),
+    onSuccess: () => {
+      setAssigningStructure(false)
+      setAssignError(null)
+      refresh()
+    },
+    onError: (err) => {
+      setAssignError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
+  })
 
   if (sessionStatus === "loading" || employeeQuery.isPending) {
     return (
@@ -78,6 +111,20 @@ export function EmployeeDetailPage({
   const employee: EmployeeView = employeeQuery.data
   const canEdit = employee.editableFields.length > 0
 
+  // A card shows an Edit control if and only if it contains at least one
+  // field this caller may write. No role check — editableFields comes from
+  // the server's writableFieldsFor.
+  const editAction = (card: string) =>
+    (CARD_FIELDS[card] ?? []).some((f) => employee.editableFields.includes(f.key)) ? (
+      <button
+        type="button"
+        className="text-[12.5px] font-semibold underline"
+        onClick={() => setEditing(card)}
+      >
+        Edit
+      </button>
+    ) : null
+
   return (
     <>
       <div className="pt-7 pb-4">
@@ -90,6 +137,20 @@ export function EmployeeDetailPage({
         employee={employee}
         avatarEditable={canEdit}
         onAvatarChanged={refresh}
+        action={
+          canEdit ? (
+            <>
+              <Button type="button" variant="outline" onClick={() => setAssigningStructure(true)}>
+                Assign salary structure
+              </Button>
+              {employee.exit === null ? (
+                <Button type="button" variant="outline" onClick={() => setExitOpen(true)}>
+                  Record exit
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
       />
 
       {/* FULL only — blockers arrive for SELF and FULL, and this page is never
@@ -114,6 +175,7 @@ export function EmployeeDetailPage({
         {employee.personal ? (
           <ProfileCard
             title="Personal"
+            action={editAction("Personal")}
             rows={[
               { label: "Date of birth", value: formatDateValue(employee.personal.dateOfBirth) },
               { label: "Gender", value: employee.personal.gender },
@@ -127,6 +189,7 @@ export function EmployeeDetailPage({
         {employee.contact ? (
           <ProfileCard
             title="Contact"
+            action={editAction("Contact")}
             rows={[
               { label: "Phone", value: employee.work.phone },
               { label: "Present address", value: employee.contact.presentAddress },
@@ -139,6 +202,7 @@ export function EmployeeDetailPage({
         {employee.employment ? (
           <ProfileCard
             title="Employment"
+            action={editAction("Employment")}
             rows={[
               { label: "Employee code", value: employee.employment.employeeCode },
               {
@@ -159,6 +223,7 @@ export function EmployeeDetailPage({
         {employee.payroll ? (
           <ProfileCard
             title="Payroll"
+            action={editAction("Payroll")}
             rows={[
               { label: "Salary structure", value: employee.payroll.salaryStructure?.name ?? null },
               { label: "Bank", value: employee.payroll.bankName },
@@ -184,9 +249,41 @@ export function EmployeeDetailPage({
         <LeaveBalanceCard employeeId={employeeId} />
 
         {employee.documents ? (
-          <DocumentsCard employeeId={employee.id} documents={employee.documents} />
+          <DocumentsCard
+            employeeId={employee.id}
+            documents={employee.documents}
+            canManage={canEdit}
+            onChanged={refresh}
+          />
         ) : null}
       </div>
+
+      {editing ? (
+        <EditCardDialog
+          employee={employee}
+          title={editing}
+          fields={CARD_FIELDS[editing] ?? []}
+          open
+          onOpenChange={(open) => !open && setEditing(null)}
+          onSaved={refresh}
+        />
+      ) : null}
+
+      <ExitDetailsDialog
+        employee={employee}
+        open={exitOpen}
+        onOpenChange={setExitOpen}
+        onSaved={refresh}
+      />
+
+      <SalaryStructureDialog
+        employee={assigningStructure ? employee : null}
+        structures={structuresQuery.data ?? []}
+        pending={assignMutation.isPending}
+        error={assignError}
+        onOpenChange={(open) => !open && setAssigningStructure(false)}
+        onSubmit={(salaryStructureId) => assignMutation.mutate(salaryStructureId)}
+      />
     </>
   )
 }

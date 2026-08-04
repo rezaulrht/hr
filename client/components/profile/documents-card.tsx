@@ -2,10 +2,12 @@
 
 import { useState } from "react"
 
-import { getDocumentUrl } from "@/lib/api/employees"
+import { deleteDocument, getDocumentUrl, uploadDocument } from "@/lib/api/employees"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { DocumentItem, DocumentType } from "@/lib/api/types"
+import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
+import { Label } from "@/components/ui/label"
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   CONTRACT: "Contract",
@@ -15,6 +17,11 @@ const TYPE_LABEL: Record<DocumentType, string> = {
   RESIGNATION: "Resignation",
   OTHER: "Other",
 }
+
+const DOCUMENT_TYPES = Object.keys(TYPE_LABEL) as DocumentType[]
+
+/** The two slots preflight and settlement care about; every other type is optional. */
+const REQUIRED_TYPES = ["CONTRACT", "NID"] as const
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -26,14 +33,24 @@ export function DocumentsCard({
   employeeId,
   documents,
   footnote,
+  canManage = false,
+  onChanged,
 }: {
   employeeId: string
   documents: DocumentItem[]
   footnote?: string
+  /**
+   * Upload and delete render if and only if this is true. My Profile passes
+   * neither this nor `onChanged`, so it keeps the card read-only — the
+   * component takes no role, only what its caller hands it.
+   */
+  canManage?: boolean
+  onChanged?: () => void
 }) {
   const { accessToken } = useSession()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [uploadType, setUploadType] = useState<DocumentType>("CONTRACT")
 
   /**
    * The URL is fetched on click, never on render.
@@ -55,10 +72,65 @@ export function DocumentsCard({
     }
   }
 
+  // No try/catch: FileUpload already catches whatever this throws and
+  // renders the message itself.
+  async function upload(file: File) {
+    setError(null)
+    await uploadDocument(accessToken!, employeeId, file, uploadType)
+    onChanged?.()
+  }
+
+  async function remove(doc: DocumentItem) {
+    if (!window.confirm(`Delete ${doc.fileName}? This cannot be undone.`)) return
+    setError(null)
+    setBusyId(doc.id)
+    try {
+      await deleteDocument(accessToken!, employeeId, doc.id)
+      onChanged?.()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete that file.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const missingRequired = REQUIRED_TYPES.filter(
+    (type) => !documents.some((d) => d.type === type)
+  )
+
   return (
     <div className="flex flex-col rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
       <div className="mb-4 text-[15px] font-bold">Documents</div>
-      {documents.length === 0 ? (
+
+      {canManage ? (
+        <div className="mb-4 flex flex-wrap items-end gap-2.5 border-b border-[#EFF2F6] pb-4">
+          <div>
+            <Label htmlFor="uploadType" className="mb-1.5 text-xs font-bold">
+              Type
+            </Label>
+            <select
+              id="uploadType"
+              className="h-9 rounded-md border border-[#E4E9EF] px-3 text-[13px]"
+              value={uploadType}
+              onChange={(e) => setUploadType(e.target.value as DocumentType)}
+            >
+              {DOCUMENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {TYPE_LABEL[type]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <FileUpload
+            accept={DOCUMENT_ACCEPT}
+            maxBytes={DOCUMENT_MAX_BYTES}
+            label="Upload document"
+            onSelect={upload}
+          />
+        </div>
+      ) : null}
+
+      {documents.length === 0 && !canManage ? (
         <p className="text-[13px] text-[#A5AFBE]">No documents on file.</p>
       ) : (
         <ul className="space-y-2.5">
@@ -70,16 +142,38 @@ export function DocumentsCard({
                   {doc.fileName} · {formatBytes(doc.bytes)}
                 </div>
               </div>
-              <button
-                type="button"
-                className="shrink-0 text-[12.5px] font-semibold underline disabled:opacity-50"
-                disabled={busyId === doc.id}
-                onClick={() => void download(doc.id)}
-              >
-                {busyId === doc.id ? "Opening…" : "Download"}
-              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                <button
+                  type="button"
+                  className="text-[12.5px] font-semibold underline disabled:opacity-50"
+                  disabled={busyId === doc.id}
+                  onClick={() => void download(doc.id)}
+                >
+                  {busyId === doc.id ? "Opening…" : "Download"}
+                </button>
+                {canManage ? (
+                  <button
+                    type="button"
+                    className="text-[12.5px] font-semibold text-[#B03A3A] underline disabled:opacity-50"
+                    disabled={busyId === doc.id}
+                    onClick={() => void remove(doc)}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
             </li>
           ))}
+          {canManage
+            ? missingRequired.map((type) => (
+                // An empty slot is a prompt; an absent row is invisible.
+                <li key={type} className="flex items-center justify-between gap-3">
+                  <div className="text-[13.5px] font-semibold text-[#A5AFBE]">
+                    {TYPE_LABEL[type]} — not on file
+                  </div>
+                </li>
+              ))
+            : null}
         </ul>
       )}
       {error ? <p className="mt-3 text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
