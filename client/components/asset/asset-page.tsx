@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table"
 import { AssetDetail } from "@/components/asset/asset-detail"
 import { AssignDialog } from "@/components/asset/assign-dialog"
+import { CreateAssetDialog } from "@/components/asset/create-asset-dialog"
 import { ImportWizard } from "@/components/asset/import-wizard"
 import { RepairDialog } from "@/components/asset/repair-dialog"
 import { RequestDialog } from "@/components/asset/request-dialog"
@@ -459,6 +460,7 @@ export function AssetPage() {
   const [returnTarget, setReturnTarget] = useState<string | null>(null)
   const [repairTarget, setRepairTarget] = useState<string | null>(null)
   const [requestOpen, setRequestOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const categoriesQuery = useQuery({
     queryKey: ["asset-categories"],
@@ -577,8 +579,7 @@ export function AssetPage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <RegisterFilters filters={filters} onChange={setFilters} categories={categories} />
-            {/* No create-asset flow yet — that lands with the import wizard. */}
-            <Button type="button" disabled title="Coming soon">
+            <Button type="button" onClick={() => setCreateOpen(true)}>
               Add asset
             </Button>
           </div>
@@ -791,6 +792,12 @@ export function AssetPage() {
         onMarkLost={manage ? (id) => setDisposal({ kind: "lost", assetId: id }) : undefined}
         onAcknowledge={staff ? (assignmentId) => acknowledgeMutation.mutate(assignmentId) : undefined}
         acknowledgePending={acknowledgeMutation.isPending}
+      />
+
+      <CreateAssetDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSuccess={invalidateAssets}
       />
 
       <AssignDialog
