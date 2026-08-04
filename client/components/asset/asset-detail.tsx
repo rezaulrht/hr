@@ -1,61 +1,17 @@
 "use client"
 
-import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
-import { getAsset, getAttachmentUrl } from "@/lib/api/assets"
-import { ApiError } from "@/lib/api/client"
+import { getAsset } from "@/lib/api/assets"
 import { useSession } from "@/lib/auth/session-context"
-import type { AssetAttachment, AssetDetail as AssetDetailPayload } from "@/lib/api/types"
+import type { AssetDetail as AssetDetailPayload } from "@/lib/api/types"
 import { formatMoney } from "@/lib/money"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AttachmentGallery } from "@/components/asset/attachment-gallery"
 import { CONDITION_LABEL, formatAssetDate, STATUS_LABEL, STATUS_TONE } from "@/components/asset/asset-shared"
-
-/**
- * Fetches a signed URL on click and opens it — never prefetched, never
- * cached in state. The url expires five minutes after it is issued, the
- * same rule the profile documents card follows.
- */
-function AttachmentThumb({
-  attachment,
-  accessToken,
-}: {
-  attachment: AssetAttachment
-  accessToken: string
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function open() {
-    setBusy(true)
-    setError(null)
-    try {
-      const { url } = await getAttachmentUrl(accessToken, attachment.id)
-      window.open(url, "_blank", "noopener,noreferrer")
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not open that file.")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-col items-start gap-1">
-      <button
-        type="button"
-        onClick={() => void open()}
-        disabled={busy}
-        className="rounded-md border border-dashed px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
-      >
-        {busy ? "Opening…" : attachment.fileName}
-      </button>
-      {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
-    </div>
-  )
-}
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -235,11 +191,7 @@ export function AssetDetail({
                   <div className="mb-1.5 text-xs font-bold text-muted-foreground uppercase">
                     Photos &amp; documents
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {assetAttachments.map((a) => (
-                      <AttachmentThumb key={a.id} attachment={a} accessToken={accessToken!} />
-                    ))}
-                  </div>
+                  <AttachmentGallery attachments={assetAttachments} accessToken={accessToken!} />
                 </div>
               ) : null}
 
@@ -285,16 +237,14 @@ export function AssetDetail({
                               Returned: {entry.assignment.returnNote}
                             </div>
                           ) : null}
-                          {asset.attachments.filter((att) => att.assignmentId === entry.assignment.id).length >
-                          0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {asset.attachments
-                                .filter((att) => att.assignmentId === entry.assignment.id)
-                                .map((att) => (
-                                  <AttachmentThumb key={att.id} attachment={att} accessToken={accessToken!} />
-                                ))}
-                            </div>
-                          ) : null}
+                          <div className="mt-2">
+                            <AttachmentGallery
+                              attachments={asset.attachments.filter(
+                                (att) => att.assignmentId === entry.assignment.id
+                              )}
+                              accessToken={accessToken!}
+                            />
+                          </div>
                         </li>
                       ) : (
                         <li key={`r-${entry.repair.id}`} className="rounded-md border p-3">

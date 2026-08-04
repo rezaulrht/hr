@@ -43,6 +43,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { AssetDetail } from "@/components/asset/asset-detail"
+import { AssignDialog } from "@/components/asset/assign-dialog"
+import { RepairDialog } from "@/components/asset/repair-dialog"
+import { RequestDialog } from "@/components/asset/request-dialog"
+import { ReturnDialog } from "@/components/asset/return-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
 import {
   canDispose,
@@ -450,6 +454,10 @@ export function AssetPage() {
   const [disposal, setDisposal] = useState<{ kind: "retire" | "lost"; assetId: string } | null>(null)
   const [rejecting, setRejecting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [assignTarget, setAssignTarget] = useState<string | null>(null)
+  const [returnTarget, setReturnTarget] = useState<string | null>(null)
+  const [repairTarget, setRepairTarget] = useState<string | null>(null)
+  const [requestOpen, setRequestOpen] = useState(false)
 
   const categoriesQuery = useQuery({
     queryKey: ["asset-categories"],
@@ -671,7 +679,12 @@ export function AssetPage() {
       {isManagerRole ? (
         <div className="space-y-6">
           <section>
-            <SectionTitle>What I&apos;m holding</SectionTitle>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-[15px] font-bold">What I&apos;m holding</div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setRequestOpen(true)}>
+                Request an asset
+              </Button>
+            </div>
             {holdingsQuery.isPending ? (
               <Skeleton className="h-32 w-full" />
             ) : holdingsQuery.isError ? (
@@ -726,7 +739,12 @@ export function AssetPage() {
       {role === "EMPLOYEE" ? (
         <div className="space-y-6">
           <section>
-            <SectionTitle>What I&apos;m holding</SectionTitle>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-[15px] font-bold">What I&apos;m holding</div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setRequestOpen(true)}>
+                Request an asset
+              </Button>
+            </div>
             {holdingsQuery.isPending ? (
               <Skeleton className="h-32 w-full" />
             ) : holdingsQuery.isError ? (
@@ -763,6 +781,11 @@ export function AssetPage() {
         assetId={selectedAssetId}
         open={!!selectedAssetId}
         onOpenChange={(next) => !next && setSelectedAssetId(null)}
+        // Assign/return/repair are HR / Super Admin only on the server —
+        // Finance and managers view the same sheet with none of these.
+        onAssign={manage ? (id) => setAssignTarget(id) : undefined}
+        onReturn={manage ? (id) => setReturnTarget(id) : undefined}
+        onSendRepair={manage ? (id) => setRepairTarget(id) : undefined}
         onRetire={dispose ? (id) => setDisposal({ kind: "retire", assetId: id }) : undefined}
         // Mark-lost is HR/Super Admin only on the server — Finance can retire
         // but not accuse an asset of being lost.
@@ -770,6 +793,35 @@ export function AssetPage() {
         onAcknowledge={staff ? (assignmentId) => acknowledgeMutation.mutate(assignmentId) : undefined}
         acknowledgePending={acknowledgeMutation.isPending}
       />
+
+      <AssignDialog
+        assetId={assignTarget}
+        open={!!assignTarget}
+        onOpenChange={(next) => !next && setAssignTarget(null)}
+        onSuccess={invalidateAssets}
+      />
+
+      <ReturnDialog
+        assetId={returnTarget}
+        open={!!returnTarget}
+        onOpenChange={(next) => !next && setReturnTarget(null)}
+        onSuccess={invalidateAssets}
+      />
+
+      <RepairDialog
+        assetId={repairTarget}
+        open={!!repairTarget}
+        onOpenChange={(next) => !next && setRepairTarget(null)}
+        onSuccess={invalidateAssets}
+      />
+
+      {staff ? (
+        <RequestDialog
+          open={requestOpen}
+          onOpenChange={setRequestOpen}
+          onSuccess={() => queryClient.invalidateQueries({ queryKey: ["assets", "requests"] })}
+        />
+      ) : null}
 
       {dispose ? (
         <DecisionDialog
