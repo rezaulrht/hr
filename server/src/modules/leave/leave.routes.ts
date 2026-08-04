@@ -7,6 +7,7 @@ import {
   applyForLeaveHandler,
   approveLeaveRequestHandler,
   cancelLeaveRequestHandler,
+  getBalancesForHandler,
   getHalfDayWindowHandler,
   getMyBalancesHandler,
   getTeamStatusHandler,
@@ -30,6 +31,9 @@ router.get("/types", requireAuth, listLeaveTypesHandler)
 // caller's own shift window and nothing else.
 router.get("/half-day-window", requireAuth, requireRole(...STAFF_ROLES), getHalfDayWindowHandler)
 router.get("/balances/me", requireAuth, requireRole(...STAFF_ROLES), getMyBalancesHandler)
+// No requireRole: access depends on the relationship between caller and
+// subject, resolved through employee.access.ts.
+router.get("/balances/:employeeId", requireAuth, getBalancesForHandler)
 router.get("/requests", requireAuth, listLeaveRequestsHandler)
 router.get("/team-status", requireAuth, requireRole(Role.REPORTING_MANAGER), getTeamStatusHandler)
 router.post("/requests", requireAuth, requireRole(...STAFF_ROLES), applyForLeaveHandler)

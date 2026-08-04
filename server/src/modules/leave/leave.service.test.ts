@@ -1257,3 +1257,60 @@ describe("punch-flag recompute on leave decisions", () => {
     expect(prisma.attendance.findMany).toHaveBeenCalled()
   })
 })
+
+import { getBalancesFor } from "./leave.service"
+
+function viewer(role: any, sub: string) {
+  return { sub, role, email: "v@b.com", mustChangePassword: false }
+}
+
+describe("getBalancesFor", () => {
+  const subject = { id: "emp-1", userId: "u-1", reportingManagerId: "emp-mgr" }
+
+  it("404s an unknown employee", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+    await expect(getBalancesFor(viewer("HR_ADMIN", "u-hr"), "nope")).rejects.toThrowError(
+      "Employee not found"
+    )
+  })
+
+  it("allows HR", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(subject as any)
+    await expect(getBalancesFor(viewer("HR_ADMIN", "u-hr"), "emp-1")).resolves.toBeDefined()
+  })
+
+  it("allows the subject's OWN manager", async () => {
+    vi.mocked(prisma.employee.findUnique)
+      .mockResolvedValueOnce(subject as any)
+      .mockResolvedValueOnce({ id: "emp-mgr" } as any)
+    await expect(
+      getBalancesFor(viewer("REPORTING_MANAGER", "u-mgr"), "emp-1")
+    ).resolves.toBeDefined()
+  })
+
+  it("refuses a DIFFERENT manager", async () => {
+    // A manager is not a manager of everybody.
+    vi.mocked(prisma.employee.findUnique)
+      .mockResolvedValueOnce(subject as any)
+      .mockResolvedValueOnce({ id: "emp-other" } as any)
+    await expect(
+      getBalancesFor(viewer("REPORTING_MANAGER", "u-mgr"), "emp-1")
+    ).rejects.toThrowError("You do not have access to this employee's leave balances")
+  })
+
+  it("refuses an unrelated employee", async () => {
+    vi.mocked(prisma.employee.findUnique)
+      .mockResolvedValueOnce(subject as any)
+      .mockResolvedValueOnce({ id: "emp-x" } as any)
+    await expect(getBalancesFor(viewer("EMPLOYEE", "u-x"), "emp-1")).rejects.toThrowError(
+      "You do not have access"
+    )
+  })
+
+  it("refuses Finance", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue(subject as any)
+    await expect(getBalancesFor(viewer("FINANCE_OFFICER", "u-f"), "emp-1")).rejects.toThrowError(
+      "You do not have access"
+    )
+  })
+})
