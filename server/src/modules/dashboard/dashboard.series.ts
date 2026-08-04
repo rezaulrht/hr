@@ -13,7 +13,7 @@ import { officeToday } from "../attendance/attendance.time"
 import { bdt } from "./dashboard.format"
 import type { ChartBar } from "./dashboard.types"
 
-const MONTH_LABELS = [
+export const MONTH_LABELS = [
   "Jan",
   "Feb",
   "Mar",
@@ -59,8 +59,12 @@ export function lastMonths(count: number, today = officeToday()): MonthKey[] {
   return out
 }
 
-/** Scales to 0–100 with the largest value as 100. All-zero stays all-zero. */
-function scale(values: number[]): number[] {
+/**
+ * Scales to 0–100 with the largest value as 100. All-zero stays all-zero.
+ *
+ * Exported for `employee.insights.ts`, which draws the same kind of bars.
+ */
+export function scale(values: number[]): number[] {
   const max = Math.max(...values)
   if (max <= 0) return values.map(() => 0)
   return values.map((v) => Math.round((v / max) * 100))
