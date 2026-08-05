@@ -5,6 +5,7 @@
 
 import {
   RiBarChartLine,
+  RiBillLine,
   RiCalendarEventLine,
   RiComputerLine,
   RiContactsBook2Line,
@@ -32,6 +33,7 @@ export const icons = {
   RiSettingsLine,
   RiContactsBook2Line,
   RiComputerLine,
+  RiBillLine,
 } satisfies Record<string, RemixiconComponentType>
 
 export type IconName = keyof typeof icons
