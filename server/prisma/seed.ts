@@ -298,6 +298,29 @@ async function seedAssetCategories() {
   }
 }
 
+// Cost categories. A table rather than an enum because Finance will add
+// "gas bill" and no code branches on the name.
+const costCategories = [
+  { code: "RENT", name: "Office rent" },
+  { code: "ELECTRICITY", name: "Electricity" },
+  { code: "WATER", name: "Water" },
+  { code: "INTERNET", name: "Internet" },
+  { code: "CLEANING", name: "Cleaning" },
+  { code: "SECURITY", name: "Security" },
+  { code: "MAINTENANCE", name: "Maintenance" },
+  { code: "OTHER", name: "Other" },
+]
+
+async function seedCostCategories() {
+  for (const category of costCategories) {
+    await prisma.costCategory.upsert({
+      where: { code: category.code },
+      update: {},
+      create: category,
+    })
+  }
+}
+
 async function main() {
   const superAdmin = await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   const hrAdmin = await seedAdminUser("hr@demo.com", Role.HR_ADMIN)
@@ -309,6 +332,7 @@ async function main() {
   }
 
   await seedAssetCategories()
+  await seedCostCategories()
 
   // The standing shift every employee falls back to when shiftId is null.
   // 09:00-18:00 with the 1h lunch/break inside the span, so a full day is

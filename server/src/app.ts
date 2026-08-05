@@ -11,6 +11,7 @@ import assetRoutes from "./modules/asset/asset.routes"
 import attendanceRoutes from "./modules/attendance/attendance.routes"
 import authRoutes from "./modules/auth/auth.routes"
 import userRoutes from "./modules/auth/user.routes"
+import costRoutes from "./modules/cost/cost.routes"
 import dashboardRoutes from "./modules/dashboard/dashboard.routes"
 import departmentRoutes from "./modules/department/department.routes"
 import eventRoutes from "./modules/event/event.routes"
@@ -48,6 +49,7 @@ app.use("/api/expenses", expenseRoutes)
 app.use("/api/settlements", settlementRoutes)
 app.use("/api/announcements", announcementRoutes)
 app.use("/api/assets", assetRoutes)
+app.use("/api/costs", costRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/dashboard", dashboardRoutes)
 

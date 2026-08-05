@@ -272,11 +272,11 @@ model LeaveBalance {
 }
 
 model LeaveRequest {
-  id           String      @id @default(uuid())
+  id           String       @id @default(uuid())
   employeeId   String
-  employee     Employee    @relation(fields: [employeeId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
   leaveTypeId  String
-  leaveType    LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  leaveType    LeaveType    @relation(fields: [leaveTypeId], references: [id])
   startDate    DateTime
   endDate      DateTime
   // Which half of the boundary dates the leave actually covers. A whole-day
@@ -291,13 +291,13 @@ model LeaveRequest {
   startSession LeaveSession @default(FIRST_HALF)
   endSession   LeaveSession @default(SECOND_HALF)
   reason       String?
-  status       LeaveStatus @default(PENDING)
+  status       LeaveStatus  @default(PENDING)
   approvedBy   String?
   // Set on any terminal transition (approve/reject/cancel/revert), so a
   // decision can be audited — createdAt alone can't tell you when.
   decidedAt    DateTime?
   decisionNote String?
-  createdAt    DateTime    @default(now())
+  createdAt    DateTime     @default(now())
 }
 
 enum LeaveStatus {
@@ -864,13 +864,13 @@ model Event {
   entityId String
 
   // ── audience, resolved at emit ──
-  subjectEmployeeId String?
+  subjectEmployeeId    String?
   // The subject's manager, frozen at emit rather than joined at read: the
   // read becomes an indexed equality instead of a subquery, and the person
   // notified stays whoever was their manager when it happened.
-  managerEmployeeId String?
-  targetRoles       Role[]
-  companyWide       Boolean @default(false)
+  managerEmployeeId    String?
+  targetRoles          Role[]
+  companyWide          Boolean @default(false)
   // A whole department, which a department-scoped announcement needs. A
   // plain id rather than a relation, for the same reason nothing else here
   // is one: the event must outlive the row. Storing the audience as a rule
@@ -878,9 +878,9 @@ model Event {
   audienceDepartmentId String?
 
   // ── presentation, frozen at emit ──
-  title String
-  meta  String?
-  href  String?
+  title   String
+  meta    String?
+  href    String?
   // The facts behind the rendered strings, kept alongside rather than
   // instead: an email template needs more than a feed line, and a
   // notification must not have to parse `title` back apart.
@@ -905,11 +905,11 @@ enum EventSeverity {
 // ── ASSETS ────────────────────────────────────
 
 model AssetCategory {
-  id     String  @id @default(uuid())
+  id   String @id @default(uuid())
   // Stable machine key (LAPTOP, MONITOR, PHONE, FURNITURE, VEHICLE, LICENCE).
   // Rules key off this, never off `name`.
-  code   String  @unique
-  name   String  @unique
+  code String @unique
+  name String @unique
 
   // A laptop has a serial; a chair does not. Enforced at create rather than
   // being a nullable field everyone forgets.
@@ -961,7 +961,7 @@ model Asset {
   // ── lifecycle: only the irreversible decisions are stored ──
   lifecycle      AssetLifecycle @default(IN_SERVICE)
   retiredAt      DateTime?
-  retiredBy      String?        // User id
+  retiredBy      String? // User id
   retirementNote String?
 
   assignments AssetAssignment[]
@@ -996,18 +996,18 @@ model AssetAssignment {
   employeeId String
   employee   Employee @relation(fields: [employeeId], references: [id])
 
-  assignedAt   DateTime
-  assignedBy   String          // User id — who handed it over
-  conditionOut AssetCondition
-  issueNote    String?
+  assignedAt     DateTime
+  assignedBy     String // User id — who handed it over
+  conditionOut   AssetCondition
+  issueNote      String?
   // The employee's own confirmation. Null means HR says they have it and the
   // employee has not said so.
   acknowledgedAt DateTime?
 
-  returnedAt   DateTime?
-  returnedTo   String?         // User id — who received it back
-  conditionIn  AssetCondition?
-  returnNote   String?
+  returnedAt  DateTime?
+  returnedTo  String? // User id — who received it back
+  conditionIn AssetCondition?
+  returnNote  String?
 
   attachments AssetAttachment[]
 
@@ -1033,7 +1033,7 @@ model AssetAttachment {
 
   // Cloudinary asset ID, not a URL — delivery URLs are signed per request and
   // expire, so a stored URL would be a dead link. Same reasoning as Document.
-  publicId   String  @unique
+  publicId   String   @unique
   fileName   String
   bytes      Int
   format     String
@@ -1053,19 +1053,19 @@ enum AssetAttachmentKind {
 }
 
 model AssetRequest {
-  id          String        @id @default(uuid())
-  employeeId  String
-  employee    Employee      @relation(fields: [employeeId], references: [id])
+  id         String             @id @default(uuid())
+  employeeId String
+  employee   Employee           @relation(fields: [employeeId], references: [id])
   // A category, not a specific asset — you request "a monitor", not
   // BS-AST-00042. Which unit is HR's call at fulfilment.
-  categoryId  String
-  category    AssetCategory @relation(fields: [categoryId], references: [id])
-  reason      String
-  status      AssetRequestStatus @default(PENDING)
+  categoryId String
+  category   AssetCategory      @relation(fields: [categoryId], references: [id])
+  reason     String
+  status     AssetRequestStatus @default(PENDING)
 
-  decidedBy    String?   // User id
+  decidedBy    String? // User id
   decidedAt    DateTime?
-  decisionNote String?   // required on reject, matching leave and attendance
+  decisionNote String? // required on reject, matching leave and attendance
 
   fulfilledAt      DateTime?
   fulfilledBy      String?
@@ -1091,26 +1091,139 @@ enum AssetRequestStatus {
 }
 
 model AssetRepair {
-  id       String   @id @default(uuid())
-  assetId  String
-  asset    Asset    @relation(fields: [assetId], references: [id])
+  id      String @id @default(uuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id])
 
   sentAt       DateTime
-  sentBy       String    // User id
+  sentBy       String // User id
   vendor       String?
   fault        String
   expectedBack DateTime?
   isWarranty   Boolean   @default(false)
 
-  returnedAt DateTime?
+  returnedAt     DateTime?
   // Expense, not capitalised. Never enters the depreciation base.
-  cost       Decimal?  @db.Decimal(14, 2)
-  currency   Currency  @default(BDT)
-  outcome    String?
+  cost           Decimal?        @db.Decimal(14, 2)
+  currency       Currency        @default(BDT)
+  outcome        String?
   // A repair that comes back unrepairable is how an asset reaches RETIRED or
   // LOST, but the transition is a separate explicit act.
   conditionAfter AssetCondition?
 
   @@index([assetId, sentAt])
   @@index([returnedAt])
+}
+
+model CostCategory {
+  id   String @id @default(uuid())
+  // Stable machine key. Rules key off this, never off `name`.
+  code String @unique
+  name String @unique
+
+  costs       OperatingCost[]
+  commitments CostCommitment[]
+}
+
+model CostCommitment {
+  id         String       @id @default(uuid())
+  categoryId String
+  category   CostCategory @relation(fields: [categoryId], references: [id])
+
+  // "Office rent — Banani", "Rahima (cleaning)".
+  label String
+  // The landlord, the provider, the person. A string: vendor management as
+  // an entity is a different module, and this needs a name on a payment.
+  payee String
+
+  // Nullable on purpose. Rent and wifi are fixed; electricity and water are
+  // not, and a fixed figure on a variable bill is a number that is wrong
+  // eleven months a year.
+  amount   Decimal? @db.Decimal(14, 2)
+  currency Currency @default(BDT)
+  // Day of month, 1-31. Nullable — not everything has one.
+  dueDay   Int?
+
+  startedOn DateTime
+  // Null means still running. A commitment is never deleted: it ended, and
+  // the bills it explains still exist.
+  endedOn   DateTime?
+  notes     String?
+
+  costs OperatingCost[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+}
+
+model OperatingCost {
+  id           String          @id @default(uuid())
+  categoryId   String
+  category     CostCategory    @relation(fields: [categoryId], references: [id])
+  commitmentId String?
+  commitment   CostCommitment? @relation(fields: [commitmentId], references: [id])
+
+  label String
+  payee String
+
+  // The month this bill is FOR, deliberately distinct from when it was paid.
+  // July's electricity paid in August is a July cost; conflating the two
+  // makes every monthly total wrong at the boundaries. Same distinction
+  // ExpenseClaim already draws between expenseDate and the claim date.
+  periodMonth Int
+  periodYear  Int
+
+  amount   Decimal   @db.Decimal(14, 2)
+  currency Currency  @default(BDT)
+  dueDate  DateTime?
+
+  status     CostStatus @default(PENDING)
+  paidAt     DateTime?
+  paidBy     String? // User id
+  // Cheque number, bank reference, bKash transaction id. A payment nobody
+  // can trace back to a bank statement is a payment nobody can verify.
+  paymentRef String?
+
+  notes       String?
+  attachments CostAttachment[]
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One January rent, not two. Only binds commitment-linked bills, since
+  // Postgres permits many nulls under a unique constraint — which is the
+  // right scope: ad-hoc one-off costs have no period to collide on.
+  @@unique([commitmentId, periodYear, periodMonth])
+  @@index([periodYear, periodMonth])
+  @@index([status])
+  @@index([categoryId])
+}
+
+// Two values, because those are the only two facts. "Overdue" is derived
+// from dueDate on read (Decision 5) — the same derive-don't-store rule the
+// asset module is built on.
+enum CostStatus {
+  PENDING
+  PAID
+}
+
+model CostAttachment {
+  id     String        @id @default(uuid())
+  costId String
+  cost   OperatingCost @relation(fields: [costId], references: [id], onDelete: Cascade)
+
+  // Cloudinary asset ID, not a URL — delivery URLs are signed per request
+  // and expire, so a stored URL would be a dead link. Same as Document and
+  // AssetAttachment.
+  publicId   String   @unique
+  fileName   String
+  bytes      Int
+  format     String
+  uploadedBy String?
+  uploadedAt DateTime @default(now())
+
+  @@index([costId, uploadedAt])
 }

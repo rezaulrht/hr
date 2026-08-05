@@ -968,3 +968,192 @@ export interface RejectAssetRequestInput {
 export interface FulfilAssetRequestInput {
   assetId: string
 }
+
+// ── OPERATING COSTS ───────────────────────────
+// Hand-mirrored from server/src/modules/cost/*.ts and the Prisma
+// CostCategory/CostCommitment/OperatingCost/CostAttachment models. Money is a
+// string everywhere here — Prisma.Decimal serializes to its string form,
+// never a number. `isOverdue` is a derived field computed server-side on
+// every read (cost.derive.ts) — there is no stored overdue status, and this
+// client never recomputes one.
+
+export type CostStatus = "PENDING" | "PAID"
+
+export interface CostCategory {
+  id: string
+  code: string
+  name: string
+}
+
+/**
+ * `category` is populated by `listCostCommitments` (which includes the
+ * relation) and absent from `createCostCommitment`/`updateCostCommitment`,
+ * which return the raw row.
+ */
+export interface CostCommitment {
+  id: string
+  categoryId: string
+  category?: CostCategory
+  label: string
+  payee: string
+  /** Null on purpose — rent and wifi are fixed, electricity and water are not. */
+  amount: string | null
+  currency: Currency
+  dueDay: number | null
+  startedOn: string
+  /** Null means still running. A commitment is ended, never deleted. */
+  endedOn: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CostAttachment {
+  id: string
+  costId: string
+  publicId: string
+  fileName: string
+  bytes: number
+  format: string
+  uploadedBy: string | null
+  uploadedAt: string
+}
+
+/**
+ * `category` and `commitment` are populated by `listCosts`/`getCost`, which
+ * include both relations. `attachments` is populated by `getCost` only.
+ * `isOverdue`: PENDING and past its `dueDate` — computed by the server on
+ * every read, rendered as-is here, never recomputed.
+ */
+export interface CostBill {
+  id: string
+  categoryId: string
+  category: CostCategory
+  commitmentId: string | null
+  commitment: CostCommitment | null
+  label: string
+  payee: string
+  /** The month this bill is FOR, distinct from when it was paid. */
+  periodMonth: number
+  periodYear: number
+  amount: string
+  currency: Currency
+  dueDate: string | null
+  status: CostStatus
+  paidAt: string | null
+  paidBy: string | null
+  paymentRef: string | null
+  notes: string | null
+  createdBy: string | null
+  createdAt: string
+  updatedAt: string
+  isOverdue: boolean
+  attachments?: CostAttachment[]
+}
+
+export interface CostCategoryTotal {
+  categoryId: string
+  categoryName: string
+  /** Two currencies under one category are two rows, never one. */
+  currency: Currency
+  total: string
+  paid: string
+  outstanding: string
+  billCount: number
+}
+
+export interface CostCurrencyTotal {
+  currency: Currency
+  total: string
+  paid: string
+  outstanding: string
+}
+
+export interface CostSummary {
+  categories: CostCategoryTotal[]
+  /**
+   * One entry per currency present in the month — almost always just BDT.
+   * Never a single scalar: adding a USD hosting bill to BDT rent produces a
+   * figure that is not money in either currency, and this is the headline
+   * number on the screen. Empty for a month with no bills.
+   */
+  totals: CostCurrencyTotal[]
+  overdueCount: number
+}
+
+export interface CreateCostCategoryInput {
+  code: string
+  name: string
+}
+
+export type UpdateCostCategoryInput = Partial<Omit<CreateCostCategoryInput, "code">>
+
+export interface CreateCommitmentInput {
+  categoryId: string
+  label: string
+  payee: string
+  amount?: number
+  currency?: Currency
+  dueDay?: number
+  startedOn: string
+  notes?: string
+}
+
+export interface UpdateCommitmentInput {
+  label?: string
+  payee?: string
+  amount?: number | null
+  currency?: Currency
+  dueDay?: number | null
+  notes?: string
+  /** Ends the commitment. Never a delete — the bills it explains still exist. */
+  endedOn?: string | null
+}
+
+export interface CreateCostInput {
+  categoryId: string
+  commitmentId?: string
+  label: string
+  payee: string
+  periodMonth: number
+  periodYear: number
+  amount: number
+  currency?: Currency
+  dueDate?: string
+  notes?: string
+}
+
+// The period a bill is FOR and the commitment it is linked to are set once,
+// at creation — changing either after the fact is a different bill, not an
+// edit of this one, so neither appears here.
+export interface UpdateCostInput {
+  categoryId?: string
+  label?: string
+  payee?: string
+  amount?: number
+  currency?: Currency
+  dueDate?: string | null
+  notes?: string
+}
+
+export interface PayCostInput {
+  paidAt?: string
+  paymentRef?: string
+}
+
+export interface CostImportIssue {
+  rowNumber: number
+  column: string | null
+  message: string
+}
+
+export interface CostImportPreview {
+  rows: unknown[]
+  issues: CostImportIssue[]
+  summary: Record<string, number>
+}
+
+export interface CostImportCommitResult {
+  costCount: number
+  paidCount: number
+}
