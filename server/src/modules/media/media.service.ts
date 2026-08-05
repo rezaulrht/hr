@@ -23,6 +23,15 @@ export function documentPublicId(employeeId: string): string {
   return `${documentFolderPrefix(employeeId)}${randomUUID()}`
 }
 
+export function costFolderPrefix(costId: string): string {
+  return `hr/costs/${costId}/`
+}
+
+/** Random, because two receipts for the same bill are two files. */
+export function costPublicId(costId: string): string {
+  return `${costFolderPrefix(costId)}${randomUUID()}`
+}
+
 /**
  * Condition photos are stored under the **asset's** folder, not the
  * assignment's: an assignment is a moment and an asset is the thing, so
