@@ -12,8 +12,9 @@
  * `asset.status.ts` / `payroll.calc.ts` precedent.
  */
 
+import type { Currency } from "../../generated/prisma/client"
 import { dec, sum, toMoneyString, type MoneyInput } from "../payroll/payroll.money"
-import type { BillLike, CategoryTotal, CostSummary } from "./cost.types"
+import type { BillLike, CategoryTotal, CostSummary, CurrencyTotal } from "./cost.types"
 
 /** The only fields `isOverdue` actually judges — not the whole bill. */
 export type OverdueInput = Pick<BillLike, "status" | "dueDate">
@@ -39,24 +40,38 @@ const paidOf = (rows: BillLike[]) => totalOf(rows.filter((row) => row.status ===
  * separately handle "zero" as a special case.
  */
 export function summariseCosts(bills: BillLike[], asOf: Date): CostSummary {
-  const byCategory = new Map<string, { categoryName: string; rows: BillLike[] }>()
+  // Keyed by category AND currency. Summing a USD hosting bill into a BDT
+  // rent total produces a figure that is not money in either currency, and
+  // it is the headline number on the screen — so the split is structural
+  // rather than something the caller is trusted to remember.
+  const byBucket = new Map<
+    string,
+    { categoryId: string; categoryName: string; currency: Currency; rows: BillLike[] }
+  >()
 
   for (const bill of bills) {
-    const bucket = byCategory.get(bill.categoryId)
+    const key = `${bill.categoryId}::${bill.currency}`
+    const bucket = byBucket.get(key)
     if (bucket) {
       bucket.rows.push(bill)
     } else {
-      byCategory.set(bill.categoryId, { categoryName: bill.categoryName, rows: [bill] })
+      byBucket.set(key, {
+        categoryId: bill.categoryId,
+        categoryName: bill.categoryName,
+        currency: bill.currency,
+        rows: [bill],
+      })
     }
   }
 
-  const categories: CategoryTotal[] = Array.from(byCategory.entries()).map(
-    ([categoryId, { categoryName, rows }]) => {
+  const categories: CategoryTotal[] = Array.from(byBucket.values()).map(
+    ({ categoryId, categoryName, currency, rows }) => {
       const total = totalOf(rows)
       const paid = paidOf(rows)
       return {
         categoryId,
         categoryName,
+        currency,
         total: toMoneyString(total),
         paid: toMoneyString(paid),
         outstanding: toMoneyString(total.minus(paid)),
@@ -65,14 +80,22 @@ export function summariseCosts(bills: BillLike[], asOf: Date): CostSummary {
     }
   )
 
-  const total = totalOf(bills)
-  const paid = paidOf(bills)
+  const currencies = Array.from(new Set(bills.map((bill) => bill.currency)))
+  const totals: CurrencyTotal[] = currencies.map((currency) => {
+    const rows = bills.filter((bill) => bill.currency === currency)
+    const total = totalOf(rows)
+    const paid = paidOf(rows)
+    return {
+      currency,
+      total: toMoneyString(total),
+      paid: toMoneyString(paid),
+      outstanding: toMoneyString(total.minus(paid)),
+    }
+  })
 
   return {
     categories,
-    total: toMoneyString(total),
-    paid: toMoneyString(paid),
-    outstanding: toMoneyString(total.minus(paid)),
+    totals,
     overdueCount: bills.filter((bill) => isOverdue(bill, asOf)).length,
   }
 }

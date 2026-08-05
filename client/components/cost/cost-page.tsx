@@ -46,19 +46,6 @@ function shiftPeriod({ year, month }: Period, delta: number): Period {
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
 }
 
-/**
- * Sums across whatever currencies happen to fall in the month — the server's
- * `summariseCosts` does not convert or split by currency (`cost.summary.ts`
- * carries no `currency` field at all), so a mixed BDT/USD month is one
- * combined figure, never mislabelled with a single currency symbol.
- */
-function formatAmount(value: string): string {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value))
-}
-
 function LoadError({ label, onRetry }: { label: string; onRetry: () => void }) {
   return (
     <div className="rounded-md border p-4 text-sm text-destructive">
@@ -368,28 +355,50 @@ export function CostPage() {
             <LoadError label="the monthly summary" onRetry={() => summaryQuery.refetch()} />
           ) : summaryQuery.data ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <MiniStat label="Total" value={formatAmount(summaryQuery.data.total)} sub={monthName(period.month)} />
-                <MiniStat label="Paid" value={formatAmount(summaryQuery.data.paid)} sub="settled this month" />
-                <MiniStat
-                  label="Outstanding"
-                  value={formatAmount(summaryQuery.data.outstanding)}
-                  sub="not yet paid"
-                />
-                <MiniStat
-                  label="Overdue"
-                  value={String(summaryQuery.data.overdueCount)}
-                  sub={summaryQuery.data.overdueCount === 1 ? "bill" : "bills"}
-                />
-              </div>
+              {/* One row of stats per currency. Almost always just BDT — but a
+                  USD bill gets its own line rather than being folded into the
+                  BDT figure, because the sum of two currencies is not money. */}
+              {summaryQuery.data.totals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No costs recorded for {monthName(period.month)}.
+                </p>
+              ) : (
+                summaryQuery.data.totals.map((t) => (
+                  <div key={t.currency} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <MiniStat
+                      label={`Total (${t.currency})`}
+                      value={formatMoney(t.total, t.currency)}
+                      sub={monthName(period.month)}
+                    />
+                    <MiniStat
+                      label="Paid"
+                      value={formatMoney(t.paid, t.currency)}
+                      sub="settled this month"
+                    />
+                    <MiniStat
+                      label="Outstanding"
+                      value={formatMoney(t.outstanding, t.currency)}
+                      sub="not yet paid"
+                    />
+                    <MiniStat
+                      label="Overdue"
+                      value={String(summaryQuery.data.overdueCount)}
+                      sub={summaryQuery.data.overdueCount === 1 ? "bill" : "bills"}
+                    />
+                  </div>
+                ))
+              )}
               {summaryQuery.data.categories.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {summaryQuery.data.categories.map((c) => (
+                    // Keyed on category AND currency: one category can now
+                    // legitimately produce two rows, and categoryId alone
+                    // would collide.
                     <MiniStat
-                      key={c.categoryId}
+                      key={`${c.categoryId}-${c.currency}`}
                       label={c.categoryName}
-                      value={formatAmount(c.total)}
-                      sub={`${c.billCount} bill${c.billCount === 1 ? "" : "s"} · ${formatAmount(c.outstanding)} due`}
+                      value={formatMoney(c.total, c.currency)}
+                      sub={`${c.billCount} bill${c.billCount === 1 ? "" : "s"} · ${formatMoney(c.outstanding, c.currency)} due`}
                     />
                   ))}
                 </div>

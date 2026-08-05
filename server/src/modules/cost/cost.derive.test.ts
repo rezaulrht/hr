@@ -39,9 +39,9 @@ describe("summariseCosts", () => {
   it("groups by category and splits paid from outstanding", () => {
     const s = summariseCosts(rows, asOf)
 
-    expect(s.total).toBe("31000.50")
-    expect(s.paid).toBe("25000.00")
-    expect(s.outstanding).toBe("6000.50")
+    expect(s.totals).toEqual([
+      { currency: "BDT", total: "31000.50", paid: "25000.00", outstanding: "6000.50" },
+    ])
     expect(s.categories).toHaveLength(2)
     const electricity = s.categories.find((c) => c.categoryId === "c2")!
     expect(electricity.total).toBe("6000.50")
@@ -52,11 +52,42 @@ describe("summariseCosts", () => {
     expect(summariseCosts(rows, asOf).overdueCount).toBe(1)
   })
 
-  it("returns zeroes rather than an empty shape for a month with no bills", () => {
-    // A month with no bills is a real answer. Returning null would make
-    // every caller handle a case that means "zero".
+  it("NEVER adds two currencies into one figure", () => {
+    // The bug this guards: BDT 25,000 rent + USD 50 hosting summed to
+    // "25050.00", a number that is not money in either currency — and it is
+    // the headline figure on the screen.
+    const mixed = [
+      ...rows,
+      { status: "PAID", dueDate: null, amount: "50.00", currency: "USD", categoryId: "c3", categoryName: "Internet" },
+    ] as never[]
+
+    const s = summariseCosts(mixed, asOf)
+
+    expect(s.totals).toHaveLength(2)
+    expect(s.totals.find((t) => t.currency === "BDT")!.total).toBe("31000.50")
+    expect(s.totals.find((t) => t.currency === "USD")!.total).toBe("50.00")
+    expect(s.totals.every((t) => t.total !== "31050.50")).toBe(true)
+  })
+
+  it("splits one category into two rows when it holds two currencies", () => {
+    const mixed = [
+      { status: "PAID", dueDate: null, amount: "1200.00", currency: "BDT", categoryId: "c3", categoryName: "Internet" },
+      { status: "PAID", dueDate: null, amount: "50.00", currency: "USD", categoryId: "c3", categoryName: "Internet" },
+    ] as never[]
+
+    const s = summariseCosts(mixed, asOf)
+
+    expect(s.categories).toHaveLength(2)
+    expect(s.categories.map((c) => c.currency).sort()).toEqual(["BDT", "USD"])
+  })
+
+  it("returns empty totals rather than a fabricated zero for a month with no bills", () => {
+    // A month with no bills has no currency, so there is no figure to
+    // report. A hard-coded "0.00 BDT" would be inventing a currency the
+    // month never had.
     const s = summariseCosts([], asOf)
-    expect(s.total).toBe("0.00")
+    expect(s.totals).toEqual([])
     expect(s.categories).toEqual([])
+    expect(s.overdueCount).toBe(0)
   })
 })

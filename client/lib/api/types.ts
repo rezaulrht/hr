@@ -1054,17 +1054,30 @@ export interface CostBill {
 export interface CostCategoryTotal {
   categoryId: string
   categoryName: string
+  /** Two currencies under one category are two rows, never one. */
+  currency: Currency
   total: string
   paid: string
   outstanding: string
   billCount: number
 }
 
-export interface CostSummary {
-  categories: CostCategoryTotal[]
+export interface CostCurrencyTotal {
+  currency: Currency
   total: string
   paid: string
   outstanding: string
+}
+
+export interface CostSummary {
+  categories: CostCategoryTotal[]
+  /**
+   * One entry per currency present in the month — almost always just BDT.
+   * Never a single scalar: adding a USD hosting bill to BDT rent produces a
+   * figure that is not money in either currency, and this is the headline
+   * number on the screen. Empty for a month with no bills.
+   */
+  totals: CostCurrencyTotal[]
   overdueCount: number
 }
 
