@@ -32,6 +32,9 @@ export type AuditEntity =
   | "ASSET_ASSIGNMENT"
   | "ASSET_REQUEST"
   | "ASSET_REPAIR"
+  | "COST"
+  | "COST_COMMITMENT"
+  | "COST_CATEGORY"
 
 export type AuditAction =
   | "CREATE"
