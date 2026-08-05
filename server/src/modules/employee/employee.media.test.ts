@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const txMock = {
   document: { create: vi.fn(), delete: vi.fn() },
   employee: { update: vi.fn() },
-  payrollAudit: { create: vi.fn() },
+  auditLog: { create: vi.fn() },
 }
 
 vi.mock("../../config/prisma", () => ({
@@ -135,7 +135,7 @@ describe("uploadDocument", () => {
 
     await uploadDocument("emp-1", "u-hr", { buffer: Buffer.from("x"), originalname: "nid.pdf" }, "NID")
 
-    expect(txMock.payrollAudit.create).toHaveBeenCalledWith({
+    expect(txMock.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         entity: "EMPLOYEE_DOCUMENT",
         entityId: "doc-1",

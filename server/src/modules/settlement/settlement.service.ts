@@ -12,9 +12,9 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import type { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { writeAudit } from "../../utils/audit"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
-import { auditPayroll } from "../payroll/payroll.audit"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "../payroll/payroll.money"
 import { toComponentInputs } from "../payroll/payroll.preflight"
@@ -87,7 +87,7 @@ export async function overrideSettlement(
       },
       include: SETTLEMENT_INCLUDE,
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,
       action: "UPDATE",
@@ -284,7 +284,7 @@ export async function calculateSettlement(employeeId: string, actorUserId: strin
       })
     }
 
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: settlement.id,
       action: "CREATE",
@@ -341,7 +341,7 @@ export async function approveSettlement(id: string, actorUserId: string) {
       data: { status: "APPROVED", approvedBy: actorUserId, approvedAt: new Date() },
       include: SETTLEMENT_INCLUDE,
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,
       action: "APPROVE",
@@ -375,7 +375,7 @@ export async function rejectSettlement(id: string, actorUserId: string, body: Se
       data: { rejectionNote: body.note },
       include: SETTLEMENT_INCLUDE,
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,
       action: "REJECT",
@@ -404,7 +404,7 @@ export async function paySettlement(id: string, actorUserId: string) {
       include: SETTLEMENT_INCLUDE,
     })
     await sweepClaimsReimbursed(tx, { settlementId: id, status: "APPROVED" }, actorUserId)
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,
       action: "PAY",

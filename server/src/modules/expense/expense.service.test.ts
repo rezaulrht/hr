@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     expenseClaim: { create: vi.fn(), update: vi.fn() },
-    payrollAudit: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
     // The event log, written in the same transaction. Distinct from
-    // payrollAudit: one row per user action rather than per record.
+    // auditLog: one row per user action rather than per record.
     event: { create: vi.fn() },
     employee: { findUnique: vi.fn() },
   }
@@ -108,7 +108,7 @@ describe("createClaim", () => {
     // The rate is frozen at approval, not at submission — an unapproved
     // claim has no agreed value.
     expect(claim).not.toHaveProperty("fxRateToBdt")
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ entity: "EXPENSE_CLAIM", action: "CREATE" }) })
     )
   })

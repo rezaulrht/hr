@@ -4,7 +4,7 @@ import request from "supertest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     payrollAdjustment: { create: vi.fn(), delete: vi.fn() },
-    payrollAudit: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
   }
   return {
     default: {
@@ -113,7 +113,7 @@ describe("createAdjustment", () => {
 
   it("records the reason on the audit row", async () => {
     await createAdjustment("hr-1", validBody)
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           entity: "ADJUSTMENT",
@@ -166,7 +166,7 @@ describe("deleteAdjustment", () => {
       payslipId: null,
     } as never)
     await expect(deleteAdjustment("adj-1", "hr-1")).resolves.toEqual({ id: "adj-1" })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "DELETE" }) })
     )
   })

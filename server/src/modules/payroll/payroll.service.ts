@@ -10,10 +10,10 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import prisma from "../../config/prisma"
 import type { Currency, PayrollStatus, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { writeAudit } from "../../utils/audit"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
-import { auditPayroll } from "./payroll.audit"
 import { payrollRunEvent, payslipPublishedEvent } from "./payroll.events"
 import { computePayslip } from "./payroll.calc"
 import { resolveRateOrThrow } from "./payroll.fx"
@@ -76,7 +76,7 @@ export async function createExchangeRate(actorUserId: string, body: ExchangeRate
           createdBy: actorUserId,
         },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "EXCHANGE_RATE",
         entityId: rate.id,
         action: "CREATE",
@@ -115,7 +115,7 @@ export async function updateExchangeRate(
           effectiveFrom: asUtcMidnight(body.effectiveFrom),
         },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "EXCHANGE_RATE",
         entityId: id,
         action: "UPDATE",
@@ -185,7 +185,7 @@ export async function createSalaryStructure(actorUserId: string, body: SalaryStr
         },
         include: { components: true },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "SALARY_STRUCTURE",
         entityId: structure.id,
         action: "CREATE",
@@ -247,7 +247,7 @@ export async function updateSalaryStructure(
         },
         include: { components: true },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "SALARY_STRUCTURE",
         entityId: id,
         action: "UPDATE",
@@ -300,7 +300,7 @@ export async function deleteSalaryStructure(id: string, actorUserId: string) {
     // back out of `before` is the point of writing it.
     await tx.salaryComponent.deleteMany({ where: { salaryStructureId: id } })
     await tx.salaryStructure.delete({ where: { id } })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "SALARY_STRUCTURE",
       entityId: id,
       action: "DELETE",
@@ -390,7 +390,7 @@ export async function createRun(actorUserId: string, body: CreateRunBody) {
       const run = await tx.payrollRun.create({
         data: { month: body.month, year: body.year, notes: body.notes },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "PAYROLL_RUN",
         entityId: run.id,
         action: "CREATE",
@@ -626,7 +626,7 @@ export async function processRun(id: string, actorUserId: string) {
       data: { fxRateToBdt: usdRate, processedBy: actorUserId, processedAt: new Date() },
     })
 
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
       action: "PROCESS",
@@ -664,7 +664,7 @@ export async function submitRun(id: string, actorUserId: string) {
       where: { id },
       data: { status: "SUBMITTED", submittedBy: actorUserId, submittedAt: new Date() },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
       action: "SUBMIT",
@@ -703,7 +703,7 @@ export async function approveRun(id: string, actorUserId: string) {
       where: { id },
       data: { status: "APPROVED", approvedBy: actorUserId, approvedAt: new Date() },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
       action: "APPROVE",
@@ -758,7 +758,7 @@ export async function rejectRun(id: string, actorUserId: string, body: RejectRun
       where: { id },
       data: { status: "DRAFT", rejectionNote: body.note },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
       action: "REJECT",
@@ -809,7 +809,7 @@ export async function disburseRun(id: string, actorUserId: string) {
       { payslip: { payrollRunId: id }, status: "APPROVED" },
       actorUserId
     )
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
       action: "DISBURSE",
@@ -936,7 +936,7 @@ export async function createAdjustment(actorUserId: string, body: AdjustmentBody
         createdBy: actorUserId,
       },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "ADJUSTMENT",
       entityId: adjustment.id,
       action: "CREATE",
@@ -973,7 +973,7 @@ export async function deleteAdjustment(id: string, actorUserId: string) {
 
   return prisma.$transaction(async (tx) => {
     await tx.payrollAdjustment.delete({ where: { id } })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "ADJUSTMENT",
       entityId: id,
       action: "DELETE",

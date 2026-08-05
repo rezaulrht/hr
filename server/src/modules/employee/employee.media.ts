@@ -1,6 +1,6 @@
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
-import { auditPayroll } from "../payroll/payroll.audit"
+import { writeAudit } from "../../utils/audit"
 import {
   avatarPublicId,
   destroyAsset,
@@ -101,7 +101,7 @@ export async function uploadDocument(
           uploadedBy: actorUserId,
         },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "EMPLOYEE_DOCUMENT",
         entityId: created.id,
         action: "CREATE",
@@ -154,7 +154,7 @@ export async function deleteDocument(
 
   await prisma.$transaction(async (tx) => {
     await tx.document.delete({ where: { id: documentId } })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EMPLOYEE_DOCUMENT",
       entityId: documentId,
       action: "DELETE",
@@ -186,7 +186,7 @@ export async function uploadAvatar(
         data: { profilePicture: packAvatar(asset.publicId, asset.version) },
         select: { profilePicture: true },
       })
-      await auditPayroll(tx, {
+      await writeAudit(tx, {
         entity: "EMPLOYEE_PROFILE",
         entityId: employeeId,
         action: "UPDATE",
@@ -224,7 +224,7 @@ export async function clearAvatar(
       data: { profilePicture: null },
       select: { profilePicture: true },
     })
-    await auditPayroll(tx, {
+    await writeAudit(tx, {
       entity: "EMPLOYEE_PROFILE",
       entityId: employeeId,
       action: "UPDATE",

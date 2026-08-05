@@ -2,7 +2,7 @@
  * The event log's public shapes.
  *
  * An event is **one row per user action**, which is what separates it from
- * `PayrollAudit` and `AttendanceAudit` — those write one row per *record*.
+ * `AuditLog` and `AttendanceAudit` — those write one row per *record*.
  * Bulk-approving a fortnight of attendance for sixteen people is 160 audit
  * rows and exactly one event. Both are right; a feed built on the audit
  * tables would be 160 lines nobody reads, and an audit trail built on events
@@ -13,7 +13,7 @@ import type { EventSeverity, Prisma, Role } from "../../generated/prisma/client"
 
 /**
  * Every event this system can emit. A TS union in front of a `String`
- * column, matching `PayrollAudit.entity` — a new event type should be a
+ * column, matching `AuditLog.entity` — a new event type should be a
  * deploy, not a migration, and the union still makes a typo a compile error.
  */
 export type EventType =
@@ -43,6 +43,22 @@ export type EventType =
   | "employee.joined"
   | "employee.exited"
   | "employee.bank_changed"
+  | "asset.assigned"
+  | "asset.acknowledged"
+  | "asset.returned"
+  | "asset.request.submitted"
+  | "asset.request.approved"
+  | "asset.request.rejected"
+  | "asset.retired"
+  | "asset.marked_lost"
+  | "asset.imported"
+  // Fulfilment emits nothing of its own: it creates an assignment, which
+  // already emits asset.assigned with the request id in the payload. Two
+  // events for one action would put the same fact in the feed twice.
+  //
+  // Repairs emit nothing at all. Events are for people who need telling, and
+  // nobody needs telling that a monitor went to the vendor. Repairs are
+  // covered by AuditLog and by the open-repairs list.
 
 /**
  * A transaction client, and *only* a transaction client.
@@ -65,7 +81,7 @@ interface EventBase {
   severity?: EventSeverity
   /** Null means the system did it rather than a person. */
   actorUserId?: string | null
-  /** Polymorphic, exactly as `PayrollAudit` is. */
+  /** Polymorphic, exactly as `AuditLog` is. */
   entity: string
   entityId: string
   /**

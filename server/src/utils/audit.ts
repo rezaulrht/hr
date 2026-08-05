@@ -1,18 +1,21 @@
 /**
- * The payroll change log.
+ * The shared change log.
  *
- * Source spec §7 asks for this by name, settlement included. Polymorphic
- * `entity` + `entityId` rather than eight typed audit tables, because the read
- * pattern is always "what happened to this thing" or "what happened this
- * month", and neither wants a join.
+ * Polymorphic `entity` + `entityId` rather than one typed audit table per
+ * module, because the read pattern is always "what happened to this thing"
+ * or "what happened this month", and neither wants a join.
  *
  * Called inside the same transaction as the change it records — a write that
  * succeeds without its audit row is a bug, matching `attendance.audit.ts`.
+ *
+ * Distinct from the event log: this is one row per *record*, `emitEvent` is
+ * one row per *user action*. Bulk-approving a fortnight for sixteen people is
+ * 160 audit rows and one event.
  */
 
-import type { Prisma } from "../../generated/prisma/client"
+import type { Prisma } from "../generated/prisma/client"
 
-export type PayrollAuditEntity =
+export type AuditEntity =
   | "PAYROLL_RUN"
   | "PAYSLIP"
   | "SALARY_STRUCTURE"
@@ -24,8 +27,13 @@ export type PayrollAuditEntity =
   | "EMPLOYEE_SALARY_STRUCTURE"
   | "EMPLOYEE_DOCUMENT"
   | "EMPLOYEE_PROFILE"
+  | "ASSET"
+  | "ASSET_CATEGORY"
+  | "ASSET_ASSIGNMENT"
+  | "ASSET_REQUEST"
+  | "ASSET_REPAIR"
 
-export type PayrollAuditAction =
+export type AuditAction =
   | "CREATE"
   | "PROCESS"
   | "SUBMIT"
@@ -35,11 +43,21 @@ export type PayrollAuditAction =
   | "PAY"
   | "UPDATE"
   | "DELETE"
+  | "ASSIGN"
+  | "ACKNOWLEDGE"
+  | "RETURN"
+  | "SEND_REPAIR"
+  | "RECEIVE_REPAIR"
+  | "RETIRE"
+  | "MARK_LOST"
+  | "FULFIL"
+  | "IMPORT"
+  | "CANCEL"
 
-export interface PayrollAuditEntry {
-  entity: PayrollAuditEntity
+export interface AuditEntry {
+  entity: AuditEntity
   entityId: string
-  action: PayrollAuditAction
+  action: AuditAction
   changedBy?: string | null
   /** Only the fields that changed, not whole snapshots. */
   before?: Prisma.InputJsonValue
@@ -47,8 +65,8 @@ export interface PayrollAuditEntry {
   note?: string | null
 }
 
-export function auditPayroll(tx: Prisma.TransactionClient, entry: PayrollAuditEntry) {
-  return tx.payrollAudit.create({
+export function writeAudit(tx: Prisma.TransactionClient, entry: AuditEntry) {
+  return tx.auditLog.create({
     data: {
       entity: entry.entity,
       entityId: entry.entityId,
@@ -61,12 +79,12 @@ export function auditPayroll(tx: Prisma.TransactionClient, entry: PayrollAuditEn
   })
 }
 
-export function listPayrollAudits(
-  entity: PayrollAuditEntity,
+export function listAudits(
+  entity: AuditEntity,
   entityId: string,
   tx: Prisma.TransactionClient
 ) {
-  return tx.payrollAudit.findMany({
+  return tx.auditLog.findMany({
     where: { entity, entityId },
     orderBy: { changedAt: "asc" },
   })

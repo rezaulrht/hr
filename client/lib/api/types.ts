@@ -698,3 +698,273 @@ export interface EmployeeInsights {
     leaveDecisions: ChartBar[]
   }
 }
+
+// ── ASSETS ────────────────────────────────────
+// Hand-mirrored from server/src/modules/asset/*.ts and the Prisma Asset*
+// models. Money is a string everywhere here — Prisma.Decimal serializes to
+// its string form, never a number.
+
+export type AssetComputedStatus =
+  | "RETIRED"
+  | "LOST"
+  | "IN_REPAIR"
+  | "ASSIGNED"
+  | "AVAILABLE"
+
+export type AssetCondition = "NEW" | "GOOD" | "FAIR" | "DAMAGED"
+
+export type AssetLifecycle = "IN_SERVICE" | "LOST" | "RETIRED"
+
+export type AssetAttachmentKind =
+  | "PHOTO"
+  | "INVOICE"
+  | "WARRANTY"
+  | "CONDITION_OUT"
+  | "CONDITION_IN"
+
+export type AssetRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FULFILLED"
+
+export interface AssetHeldBy {
+  assignmentId: string
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  assignedAt: string
+  conditionOut: AssetCondition
+  acknowledgedAt: string | null
+}
+
+/**
+ * `listAssets` / `getAsset` send the Prisma `category` relation as-is —
+ * there is no server-side flattening to a bare `categoryName` string, so the
+ * client does not invent one either.
+ */
+export interface Asset {
+  id: string
+  assetTag: string
+  name: string
+  categoryId: string
+  category: { id: string; code: string; name: string }
+  serialNumber: string | null
+  model: string | null
+  status: AssetComputedStatus
+  heldBy: AssetHeldBy | null
+  location: string | null
+  /** The owning cost centre, not the holder's. No `departmentName` — `listAssets` does not include the relation, only `getAsset` (as `AssetDetail.department`) does. */
+  departmentId: string | null
+  /**
+   * Absent — not null — for Manager and Employee. The server omits the field
+   * rather than nulling it, so `"purchaseCost" in asset` is the honest test.
+   */
+  purchaseCost?: string
+  vendor?: string
+  currency: Currency
+  warrantyExpiry: string | null
+}
+
+export interface AssetCategory {
+  id: string
+  code: string
+  name: string
+  requiresSerial: boolean
+  isConsumable: boolean
+  usefulLifeMonths: number | null
+}
+
+/**
+ * Raw AssetAssignment row. `asset` / `employee` are populated on the reads
+ * that include them (`getMyHoldings`, `listUnacknowledged`) and absent on the
+ * write endpoints (`assignAsset`, `returnAsset`, `acknowledgeAssignment`).
+ */
+export interface AssetAssignment {
+  id: string
+  assetId: string
+  employeeId: string
+  assignedAt: string
+  assignedBy: string
+  conditionOut: AssetCondition
+  issueNote: string | null
+  acknowledgedAt: string | null
+  returnedAt: string | null
+  returnedTo: string | null
+  conditionIn: AssetCondition | null
+  returnNote: string | null
+  asset?: {
+    id: string
+    assetTag: string
+    name: string
+    category: { id: string; name: string }
+  }
+  employee?: { id: string; fullName: string; employeeCode: string }
+}
+
+/**
+ * Raw AssetRequest row. `category` / `employee` are populated by
+ * `listAssetRequests`, absent on the write endpoints.
+ */
+export interface AssetRequest {
+  id: string
+  employeeId: string
+  categoryId: string
+  reason: string
+  status: AssetRequestStatus
+  decidedBy: string | null
+  decidedAt: string | null
+  decisionNote: string | null
+  fulfilledAt: string | null
+  fulfilledBy: string | null
+  fulfilledAssetId: string | null
+  createdAt: string
+  category?: { id: string; name: string }
+  employee?: { id: string; fullName: string; employeeCode: string }
+}
+
+/** Raw AssetRepair row. `asset` is populated by `listRepairs` only. */
+export interface AssetRepair {
+  id: string
+  assetId: string
+  sentAt: string
+  sentBy: string
+  vendor: string | null
+  fault: string
+  expectedBack: string | null
+  isWarranty: boolean
+  returnedAt: string | null
+  cost: string | null
+  currency: Currency
+  outcome: string | null
+  conditionAfter: AssetCondition | null
+  asset?: {
+    id: string
+    assetTag: string
+    name: string
+    category: { id: string; name: string }
+  }
+}
+
+export interface AssetAttachment {
+  id: string
+  assetId: string | null
+  assignmentId: string | null
+  kind: AssetAttachmentKind
+  publicId: string
+  fileName: string
+  bytes: number
+  format: string
+  uploadedBy: string | null
+  uploadedAt: string
+}
+
+/**
+ * What `getAsset` returns — `Asset` plus the relations only the single-asset
+ * read includes: the resolved `department`, and the full history the detail
+ * sheet's timeline is built from. `listAssets` returns bare `Asset` rows with
+ * none of this, which is why the two are separate types rather than one with
+ * optional fields.
+ */
+export interface AssetDetail extends Asset {
+  notes: string | null
+  purchaseDate: string | null
+  department: { id: string; name: string } | null
+  retiredAt: string | null
+  retirementNote: string | null
+  assignments: AssetAssignment[]
+  repairs: AssetRepair[]
+  attachments: AssetAttachment[]
+}
+
+export interface AssetImportIssue {
+  rowNumber: number
+  column: string | null
+  message: string
+}
+
+export interface AssetImportPreview {
+  rows: unknown[]
+  issues: AssetImportIssue[]
+  summary: Record<string, number>
+}
+
+export interface AssetImportCommitResult {
+  assetCount: number
+  assignmentCount: number
+}
+
+export interface CreateAssetInput {
+  categoryId: string
+  name: string
+  assetTag?: string
+  serialNumber?: string
+  model?: string
+  notes?: string
+  purchaseDate?: string
+  purchaseCost?: number
+  currency?: Currency
+  vendor?: string
+  warrantyExpiry?: string
+  departmentId?: string
+  location?: string
+}
+
+export type UpdateAssetInput = Partial<CreateAssetInput>
+
+/**
+ * Required on retire and mark-lost. Retiring an asset is a write-off and
+ * marking one lost is an accusation; neither should be possible without a
+ * sentence saying why.
+ */
+export interface AssetLifecycleInput {
+  note: string
+}
+
+export interface CreateAssetCategoryInput {
+  code: string
+  name: string
+  requiresSerial?: boolean
+  isConsumable?: boolean
+  usefulLifeMonths?: number | null
+}
+
+export type UpdateAssetCategoryInput = Partial<Omit<CreateAssetCategoryInput, "code">>
+
+export interface AssignAssetInput {
+  employeeId: string
+  conditionOut: AssetCondition
+  issueNote?: string
+}
+
+export interface ReturnAssetInput {
+  conditionIn: AssetCondition
+  returnNote?: string
+}
+
+export interface SendAssetRepairInput {
+  fault: string
+  vendor?: string
+  expectedBack?: string
+  isWarranty?: boolean
+}
+
+export interface ReceiveAssetRepairInput {
+  cost?: number
+  currency?: Currency
+  outcome?: string
+  conditionAfter?: AssetCondition
+}
+
+export interface SubmitAssetRequestInput {
+  categoryId: string
+  reason: string
+}
+
+export interface ApproveAssetRequestInput {
+  note?: string
+}
+
+export interface RejectAssetRequestInput {
+  note: string
+}
+
+export interface FulfilAssetRequestInput {
+  assetId: string
+}

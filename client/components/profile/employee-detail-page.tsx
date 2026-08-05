@@ -14,6 +14,7 @@ import { CARD_FIELDS, EditCardDialog } from "@/components/profile/edit-card-dial
 import { ExitDetailsDialog } from "@/components/profile/exit-details-dialog"
 import { DocumentsCard } from "@/components/profile/documents-card"
 import { LeaveBalanceCard } from "@/components/profile/leave-balance-card"
+import { HoldingsCard } from "@/components/asset/holdings-card"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
 import { ProfileInsights } from "@/components/profile/profile-insights"
@@ -247,6 +248,11 @@ export function EmployeeDetailPage({
         {/* Fetched separately: it comes from the leave module, not the employee
             payload, and a slow leave query should not delay the field cards. */}
         <LeaveBalanceCard employeeId={employeeId} />
+
+        {/* Also fetched separately, from the asset module. Always rendered,
+            never hidden behind a permission check — an empty state saying so
+            is exactly what the exit conversation needs to see. */}
+        <HoldingsCard employeeId={employeeId} />
 
         {employee.documents ? (
           <DocumentsCard

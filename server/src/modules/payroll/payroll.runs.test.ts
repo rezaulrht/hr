@@ -9,9 +9,9 @@ vi.mock("../../config/prisma", () => {
     payrollAdjustment: { findMany: vi.fn(), updateMany: vi.fn() },
     expenseClaim: { findMany: vi.fn(), updateMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
-    payrollAudit: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
     // The event log, written in the same transaction. Distinct from
-    // payrollAudit: one row per user action rather than per record.
+    // auditLog: one row per user action rather than per record.
     event: { create: vi.fn() },
     employee: { findUnique: vi.fn() },
   }
@@ -165,7 +165,7 @@ describe("createRun", () => {
   it("creates a past month and writes an audit row", async () => {
     tx.payrollRun.create.mockResolvedValue({ id: "run-1", month: 7, year: 2026 })
     await createRun("user-finance", { month: 7, year: 2026 })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ entity: "PAYROLL_RUN", action: "CREATE" }) })
     )
   })
@@ -608,7 +608,7 @@ describe("rejectRun", () => {
     tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "DRAFT", rejectionNote: "Needs a fix" })
     const result = await rejectRun("run-1", "admin-1", { note: "Needs a fix" })
     expect(result).toMatchObject({ status: "DRAFT", rejectionNote: "Needs a fix" })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "REJECT", note: "Needs a fix" }) })
     )
   })

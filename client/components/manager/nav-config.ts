@@ -8,6 +8,7 @@ export const navGroups: NavGroup[] = [
       { label: "Team", href: "/manager/team", icon: "RiTeamLine" },
       { label: "Attendance", href: "/manager/attendance", icon: "RiTimeLine" },
       { label: "Leave", href: "/manager/leave", icon: "RiCalendarEventLine" },
+      { label: "Assets", href: "/manager/assets", icon: "RiComputerLine" },
     ],
   },
   {

@@ -5,7 +5,7 @@ vi.mock("../../config/prisma", () => {
     exchangeRate: { create: vi.fn(), update: vi.fn() },
     salaryStructure: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     salaryComponent: { deleteMany: vi.fn() },
-    payrollAudit: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
   }
   return {
     default: {
@@ -126,7 +126,7 @@ describe("createExchangeRate", () => {
       rate: 122.5,
       effectiveFrom: "2026-01-01",
     })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ entity: "EXCHANGE_RATE", action: "CREATE" }),
       })
@@ -177,7 +177,7 @@ describe("updateExchangeRate", () => {
       rate: 122.5,
       effectiveFrom: "2026-01-01",
     })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           action: "UPDATE",
@@ -205,7 +205,7 @@ describe("createSalaryStructure", () => {
         }),
       })
     )
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ entity: "SALARY_STRUCTURE", action: "CREATE" }),
       })
@@ -269,7 +269,7 @@ describe("updateSalaryStructure", () => {
     expect(tx.salaryComponent.deleteMany).toHaveBeenCalledWith({
       where: { salaryStructureId: "struct-1" },
     })
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "UPDATE" }) })
     )
   })
@@ -334,7 +334,7 @@ describe("deleteSalaryStructure", () => {
 
     await deleteSalaryStructure("struct-1", "user-finance")
 
-    expect(tx.payrollAudit.create).toHaveBeenCalledWith(
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           entity: "SALARY_STRUCTURE",
