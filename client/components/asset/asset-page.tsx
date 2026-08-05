@@ -831,7 +831,10 @@ export function AssetPage() {
 
       {dispose ? (
         <DecisionDialog
-          key={disposal ? `${disposal.kind}-${disposal.assetId}` : "none"}
+          // Remounts per target so the note field never carries over from the
+          // last asset. The idle key is namespaced because the reject dialog
+          // below is a sibling — HR sees both, and a shared "none" collides.
+          key={disposal ? `${disposal.kind}-${disposal.assetId}` : "disposal-idle"}
           open={!!disposal}
           onOpenChange={(next) => !next && setDisposal(null)}
           title={disposal?.kind === "retire" ? "Retire this asset" : "Mark this asset lost"}
@@ -848,7 +851,7 @@ export function AssetPage() {
 
       {manage || isManagerRole ? (
         <DecisionDialog
-          key={rejecting ? `reject-${rejecting}` : "none"}
+          key={rejecting ? `reject-${rejecting}` : "reject-idle"}
           open={!!rejecting}
           onOpenChange={(next) => !next && setRejecting(null)}
           title="Reject this request"
