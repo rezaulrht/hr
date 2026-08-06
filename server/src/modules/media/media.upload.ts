@@ -2,10 +2,10 @@
  * Multer middleware for the two upload kinds.
  *
  * Memory storage rather than disk: `diskStorage` would cap memory but writes
- * temp files to an ephemeral filesystem — the limitation already documented on
- * `PAYSLIP_STORAGE_DIR` — and adds cleanup that must survive a crashed
- * request. At a 15 MB ceiling with one file per request, holding the buffer is
- * the simpler correct choice.
+ * temp files to an ephemeral filesystem — the same limitation documented on
+ * `payroll.storage.ts`'s switch to Cloudinary — and adds cleanup that must
+ * survive a crashed request. At a 15 MB ceiling with one file per request,
+ * holding the buffer is the simpler correct choice.
  */
 
 import multer, { MulterError } from "multer"

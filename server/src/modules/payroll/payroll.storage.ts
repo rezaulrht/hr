@@ -1,17 +1,24 @@
 /**
  * The storage seam.
  *
- * One file, so replacing local disk with S3 or Supabase Storage is a file
- * rather than a refactor. Local disk is a deliberate prototype choice with a
- * known ceiling: it does not survive a restart on an ephemeral filesystem,
- * and it does not work across replicas.
+ * One file, so the backing store is replaceable without touching the payslip
+ * renderer. Cloudinary, reached through the same `media.service` helpers the
+ * document vault uses — deliberately not local disk, which does not survive a
+ * dyno restart and is not shared across replicas.
+ *
+ * Uploads inherit `type: "authenticated"` from `uploadBuffer`, which matters
+ * more here than for a headshot: a payslip is salary data, and a default
+ * Cloudinary upload is a permanently public CDN URL. `storageKey`'s hash makes
+ * an id hard to guess, but unguessable is not access-controlled.
  */
 
 import { createHash } from "node:crypto"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
 
-import { env } from "../../config/env"
+import { isMediaConfigured } from "../media/media.provider"
+import { signedDocumentUrl, uploadBuffer } from "../media/media.service"
+
+/** Everything this module stores lives under one Cloudinary folder. */
+const FOLDER = "hr/payslips/"
 
 /**
  * A stored document's key. Deliberately not a raw filename from user input —
@@ -23,22 +30,43 @@ export function storageKey(kind: "payslip" | "settlement", documentNo: string): 
   return `${kind}-${safe}.pdf`
 }
 
-function resolvePath(key: string): string {
-  return path.join(env.PAYSLIP_STORAGE_DIR, key)
+/**
+ * Cloudinary carries the format separately from the public id, so the `.pdf`
+ * suffix `storageKey` produces is stripped rather than baked in — leaving it
+ * would deliver assets addressed as `…​.pdf.pdf`.
+ */
+export function publicIdFor(key: string): string {
+  return `${FOLDER}${key.replace(/\.pdf$/, "")}`
 }
 
-export async function putPdf(key: string, bytes: Uint8Array): Promise<string> {
-  await mkdir(env.PAYSLIP_STORAGE_DIR, { recursive: true })
-  const target = resolvePath(key)
-  await writeFile(target, bytes)
-  return target
+/**
+ * Caches the rendered bytes, best-effort.
+ *
+ * Returns `null` when nothing was stored. The caller already holds the bytes
+ * and is about to return them, so a storage failure must not become a failed
+ * download — that would turn an unconfigured Cloudinary (local dev, CI) into a
+ * broken payslip endpoint rather than a slower one.
+ */
+export async function putPdf(key: string, bytes: Uint8Array): Promise<string | null> {
+  if (!isMediaConfigured()) return null
+  try {
+    const asset = await uploadBuffer(Buffer.from(bytes), publicIdFor(key))
+    return asset.publicId
+  } catch (err) {
+    console.error("Failed to cache payslip PDF", key, err)
+    return null
+  }
 }
 
 export async function getPdf(key: string): Promise<Buffer | null> {
   try {
-    return await readFile(resolvePath(key))
+    const { url } = signedDocumentUrl(publicIdFor(key), "pdf")
+    const res = await fetch(url)
+    if (!res.ok) return null
+    return Buffer.from(await res.arrayBuffer())
   } catch {
-    // Absent or unreadable is the same answer to the caller: re-render it.
+    // Absent, unreachable or unconfigured are the same answer to the caller:
+    // re-render it. A miss costs a Puppeteer render, never a failure.
     return null
   }
 }

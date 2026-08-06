@@ -34,10 +34,6 @@ const envSchema = z.object({
   // second justifies refusing to boot.
   COMPANY_NAME: z.string().default("Byte Spate"),
   COMPANY_ADDRESS: z.string().default(""),
-  // Local disk, a deliberate prototype choice with a known ceiling: it does
-  // not survive a restart on an ephemeral filesystem and does not work across
-  // replicas. Isolated to payroll.storage.ts so swapping in S3 is one file.
-  PAYSLIP_STORAGE_DIR: z.string().default("./storage/payslips"),
   // Optional, following SMTP_HOST: an unconfigured integration degrades to a
   // clear 503 on upload rather than refusing to boot. Requiring them would
   // block every developer and every CI run on a Cloudinary account, for a
