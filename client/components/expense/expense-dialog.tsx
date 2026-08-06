@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 const CATEGORIES = ["Travel", "Accommodation", "Meals", "Equipment", "Training", "Other"]
@@ -49,7 +50,7 @@ export function ExpenseDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="exp-amount" className="mb-1.5 text-xs font-bold">
                 Amount
@@ -69,35 +70,35 @@ export function ExpenseDialog({
               </Label>
               {/* The main real USD case: someone travels and pays in dollars
                   while drawing a BDT salary. */}
-              <select
-                id="exp-currency"
-                className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value as Currency)}
-              >
-                <option value="BDT">BDT</option>
-                <option value="USD">USD</option>
-              </select>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="exp-currency" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BDT">BDT</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="exp-category" className="mb-1.5 text-xs font-bold">
                 Category
               </Label>
-              <select
-                id="exp-category"
-                className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <Select value={category} onValueChange={(v) => setCategory(v as string)}>
+                <SelectTrigger id="exp-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="exp-date" className="mb-1.5 text-xs font-bold">

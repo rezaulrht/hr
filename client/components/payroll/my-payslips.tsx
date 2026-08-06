@@ -10,6 +10,7 @@ import type { Payslip } from "@/lib/api/types"
 import { formatMoney, formatMonth } from "@/lib/money"
 import { DataTable } from "@/components/dashboard/data-table"
 import type { TableCell } from "@/components/dashboard/types"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { downloadBlob } from "@/components/payroll/payroll-shared"
 import { PayslipDetail } from "@/components/payroll/payslip-detail"
@@ -41,9 +42,9 @@ export function MyPayslips() {
     return (
       <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
         Failed to load your payslips.{" "}
-        <button className="font-semibold underline" onClick={() => payslipsQuery.refetch()}>
+        <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => payslipsQuery.refetch()}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   }
@@ -76,19 +77,19 @@ export function MyPayslips() {
     {
       node: (
         <div className="flex gap-2">
-          <button
-            className="text-[12.5px] font-semibold underline"
+          <Button
+            variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
             onClick={() => setSelected(p)}
           >
             View
-          </button>
-          <button
-            className="text-[12.5px] font-semibold underline disabled:opacity-50"
+          </Button>
+          <Button
+            variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline disabled:opacity-50"
             disabled={downloadMutation.isPending}
             onClick={() => downloadMutation.mutate(p)}
           >
             Download
-          </button>
+          </Button>
         </div>
       ),
     },

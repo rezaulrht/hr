@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { EXIT_REASON_EFFECT, EXIT_REASON_LABEL } from "@/components/payroll/payroll-shared"
 
@@ -70,18 +71,18 @@ export function ExitDialog({
             <Label htmlFor="exit-reason" className="mb-1.5 text-xs font-bold">
               Reason
             </Label>
-            <select
-              id="exit-reason"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-              value={exitReason}
-              onChange={(e) => setExitReason(e.target.value as ExitReason)}
-            >
-              {REASONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {EXIT_REASON_LABEL[reason]}
-                </option>
-              ))}
-            </select>
+            <Select value={exitReason} onValueChange={(v) => setExitReason(v as ExitReason)}>
+              <SelectTrigger id="exit-reason" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REASONS.map((reason) => (
+                  <SelectItem key={reason} value={reason}>
+                    {EXIT_REASON_LABEL[reason]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {/* What the reason will drive, so it reads as a money decision
                 rather than a filing category. */}
             <div className="mt-1.5 text-[11.5px] text-[#7A8698]">

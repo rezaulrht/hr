@@ -5,6 +5,7 @@ import { RiCloseLine } from "@remixicon/react"
 
 import { deleteAvatar, uploadAvatar } from "@/lib/api/employees"
 import { useSession } from "@/lib/auth/session-context"
+import { Button } from "@/components/ui/button"
 import { AVATAR_ACCEPT, AVATAR_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
 
 export function initialsFrom(name: string): string {
@@ -76,7 +77,7 @@ export function AvatarUpload({
             onChanged()
           }}
           render={({ open, pending }) => (
-            <button
+            <Button
               type="button"
               onClick={open}
               disabled={pending || removing}
@@ -87,11 +88,11 @@ export function AvatarUpload({
               <span className="absolute inset-0 hidden items-center justify-center bg-black/55 text-[11px] font-bold text-white group-hover:flex">
                 {pending ? "…" : "Change"}
               </span>
-            </button>
+            </Button>
           )}
         />
         {avatarUrl ? (
-          <button
+          <Button
             type="button"
             onClick={handleRemove}
             disabled={removing}
@@ -99,7 +100,7 @@ export function AvatarUpload({
           >
             <RiCloseLine className="size-3.5" />
             {removing ? "Removing…" : "Remove"}
-          </button>
+          </Button>
         ) : null}
       </div>
       {removeError ? (

@@ -14,10 +14,10 @@ export function PageHeader({
   cta?: string
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 pt-7 pb-5.5">
+    <div className="flex flex-wrap items-start justify-between gap-4 pt-5 pb-4 sm:items-end sm:pt-7 sm:pb-5.5">
       <div>
         <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">{kicker}</div>
-        <h1 className="font-heading mb-1 text-[23px] font-bold tracking-tight">{title}</h1>
+        <h1 className="font-heading mb-1 text-[20px] font-bold tracking-tight sm:text-[23px]">{title}</h1>
         <div className="text-[13px] text-[#7A8698]">{sub}</div>
       </div>
       {cta ? (

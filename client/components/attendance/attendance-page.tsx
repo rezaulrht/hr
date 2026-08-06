@@ -170,15 +170,15 @@ export function AttendancePage() {
       canAmend(day)
         ? {
             node: (
-              <button
-                className="text-[12px] font-bold text-[#17191C] underline"
+              <Button
+                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#17191C] underline"
                 onClick={() => {
                   setAmendError(null)
                   setAmending(day)
                 }}
               >
                 Fix this day
-              </button>
+              </Button>
             ),
           }
         : { text: "" },
@@ -290,7 +290,7 @@ export function AttendancePage() {
             </h2>
             <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
               {(["list", "calendar"] as const).map((mode) => (
-                <button
+                <Button
                   key={mode}
                   onClick={() => setView(mode)}
                   className={
@@ -300,7 +300,7 @@ export function AttendancePage() {
                   }
                 >
                   {mode}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

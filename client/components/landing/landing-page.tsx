@@ -51,7 +51,7 @@ export function LandingPage() {
             </div>
             <div className="font-heading text-[15px] font-bold">PeopleCore</div>
           </div>
-          <nav className="ml-3 flex gap-5.5">
+          <nav className="ml-3 hidden gap-5.5 sm:flex">
             {navLinks.map((link) => (
               <a key={link.label} href={link.href} className="text-[13.5px] font-semibold text-[#55657A]">
                 {link.label}
@@ -72,16 +72,16 @@ export function LandingPage() {
         </div>
       </header>
 
-      <section className="mx-auto grid w-full max-w-290 grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] items-center gap-14 px-7 pt-21 pb-18">
+      <section className="mx-auto grid w-full max-w-290 grid-cols-1 items-center gap-10 px-5.5 pt-14 pb-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:gap-14 lg:px-7 lg:pt-21 lg:pb-18">
         <div>
-          <h1 className="font-heading m-0 text-[58px] leading-[1.04] font-bold tracking-tighter text-balance">
+          <h1 className="font-heading m-0 text-[38px] leading-[1.04] font-bold tracking-tighter text-balance sm:text-[58px]">
             Payroll that closes itself.
           </h1>
           <p className="mt-5.5 max-w-120 text-[17px] leading-[1.65] text-[#55657A] text-pretty">
             From the moment your team checks in to the second payslips land — attendance, leave, expenses, and
             approvals flow into one payroll run. Nobody chases a spreadsheet again.
           </p>
-          <div className="mt-8 flex gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
             <Link
               href="/login"
               className="rounded bg-[#17191C] px-6.5 py-3.5 text-[14.5px] font-bold text-white hover:bg-[#33373D]"
@@ -162,13 +162,13 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="features" className="mx-auto w-full max-w-290 px-7 py-24">
+      <section id="features" className="mx-auto w-full max-w-290 px-5 py-15 sm:px-7 sm:py-24">
         <div className="mb-11 max-w-155">
-          <h2 className="font-heading m-0 text-4xl font-bold tracking-tighter text-balance">
+          <h2 className="font-heading m-0 text-[28px] font-bold tracking-tighter text-balance sm:text-4xl">
             One system between check-in and payslip
           </h2>
         </div>
-        <div className="grid grid-cols-[minmax(260px,0.9fr)_minmax(0,1.1fr)] items-start gap-10">
+        <div className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(260px,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
           <div className="flex flex-col gap-1">
             {features.map((f, i) => (
               <div
@@ -223,8 +223,11 @@ export function LandingPage() {
       </section>
 
       <section id="voices" className="border-b border-[#E7E9EC] bg-white">
-        <div className="mx-auto max-w-200 px-7 py-24 text-center">
-          <div className="min-h-27.5 text-2xl leading-[1.5] font-semibold tracking-tight text-balance">
+        <div className="mx-auto max-w-200 px-5 py-15 sm:px-7 sm:py-24 text-center">
+          {/* The height reservation stops the page jumping as quotes rotate.
+              At 19px a quote is taller than 110px anyway, so on a phone it
+              would only add dead space. */}
+          <div className="min-h-0 text-[19px] leading-[1.5] font-semibold tracking-tight text-balance sm:min-h-27.5 sm:text-2xl">
             &ldquo;{quote.text}&rdquo;
           </div>
           <div className="mt-5 text-[13px] text-[#55657A]">
@@ -241,8 +244,8 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-290 px-7 py-24 text-center">
-        <h2 className="font-heading m-0 text-[40px] font-bold tracking-tighter">
+      <section className="mx-auto w-full max-w-290 px-5 py-15 sm:px-7 sm:py-24 text-center">
+        <h2 className="font-heading m-0 text-[30px] font-bold tracking-tighter sm:text-[40px]">
           Close your next payroll in two days.
         </h2>
         <p className="mx-auto mt-4 max-w-110 text-[15px] leading-relaxed text-[#55657A]">

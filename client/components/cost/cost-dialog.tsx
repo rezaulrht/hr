@@ -104,7 +104,7 @@ function BillForm({
           ) : null}
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label className="mb-1.5 text-xs font-bold">Category</Label>
             <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")} disabled={!canManage}>
@@ -137,7 +137,7 @@ function BillForm({
           <Input id="cost-label" value={label} disabled={!canManage} onChange={(e) => setLabel(e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label htmlFor="cost-amount" className="mb-1.5 text-xs font-bold">
               Amount
@@ -156,16 +156,19 @@ function BillForm({
             <Label htmlFor="cost-currency" className="mb-1.5 text-xs font-bold">
               Currency
             </Label>
-            <select
-              id="cost-currency"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px] disabled:opacity-50"
+            <Select
               value={currency}
               disabled={!canManage}
-              onChange={(e) => setCurrency(e.target.value as Currency)}
+              onValueChange={(v) => setCurrency(v as Currency)}
             >
-              <option value="BDT">BDT</option>
-              <option value="USD">USD</option>
-            </select>
+              <SelectTrigger id="cost-currency" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BDT">BDT</SelectItem>
+                <SelectItem value="USD">USD</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label htmlFor="cost-due" className="mb-1.5 text-xs font-bold">

@@ -12,6 +12,19 @@ import { getDashboard } from "@/lib/api/dashboard"
 import { useSession } from "@/lib/auth/session-context"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
+import {
+  Sidebar as UiSidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "@/components/ui/sidebar"
 import type { NavGroup } from "@/components/dashboard/types"
 
 export function Sidebar({
@@ -32,6 +45,10 @@ export function Sidebar({
   const queryClient = useQueryClient()
   const { accessToken, clearSession, status } = useSession()
   const [signingOut, setSigningOut] = useState(false)
+  // Closing the drawer on navigation is ours to do — the sidebar primitive has
+  // no router awareness, so without this the overlay stays sitting over the
+  // page you just navigated to.
+  const { setOpenMobile } = useSidebar()
 
   // The same `["dashboard"]` query the landing page uses, so a badge and the
   // card it mirrors are always the same number. Two sources drift, and the
@@ -59,80 +76,98 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex w-[236px] shrink-0 flex-col bg-linear-to-b from-[#17191C] to-[#0B0D0F] px-3 pt-[18px] pb-3.5 text-white">
-      <div className="mb-1.5 flex flex-col gap-4 px-2.5 pt-1 pb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-8.5 shrink-0 place-items-center rounded bg-linear-to-br from-white to-[#D4D9DE] font-heading text-base font-extrabold text-[#17191C]">
-            P
-          </div>
-          <div className="leading-tight">
-            <div className="font-heading text-[14.5px] font-bold tracking-wide">PeopleCore</div>
-            <div className="text-[10.5px] tracking-widest text-white/50">HR &amp; Payroll</div>
-          </div>
-        </div>
-        <Separator className="bg-white/10" />
-      </div>
-
-      <nav className="flex flex-1 flex-col overflow-y-auto">
-        {navGroups.map((group) => (
-          <div key={group.label}>
-            <div className="px-3 pt-3.5 pb-1.5 text-[10px] font-bold tracking-[1.2px] text-white/38 uppercase">
-              {group.label}
+    <UiSidebar collapsible="offcanvas" className="border-r-0">
+      <div className="flex h-full flex-col bg-linear-to-b from-[#17191C] to-[#0B0D0F] px-3 pt-[18px] pb-3.5 text-white">
+        <SidebarHeader className="mb-1.5 gap-4 p-0 px-2.5 pt-1 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="font-heading grid size-8.5 shrink-0 place-items-center rounded bg-linear-to-br from-white to-[#D4D9DE] text-base font-extrabold text-[#17191C]">
+              P
             </div>
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => {
-                const active = item.href === rootHref ? pathname === item.href : pathname.startsWith(item.href)
-                const Icon = icons[item.icon]
-                const badge = badges[item.href]
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition-colors hover:bg-white/10 hover:text-white",
-                      active ? "bg-white/15 font-bold text-white" : "font-medium text-white/68"
-                    )}
-                  >
-                    <Icon className={cn("size-[17px] shrink-0", active ? "opacity-100" : "opacity-75")} />
-                    <span className="flex-1">{item.label}</span>
-                    {badge ? (
-                      <span className="grid h-[17px] min-w-[18px] place-items-center rounded bg-[#B6BDC6] px-1 text-[10px] font-extrabold text-[#101214]">
-                        {badge}
-                      </span>
-                    ) : null}
-                  </Link>
-                )
-              })}
+            <div className="leading-tight">
+              <div className="font-heading text-[14.5px] font-bold tracking-wide">PeopleCore</div>
+              <div className="text-[10.5px] tracking-widest text-white/50">HR &amp; Payroll</div>
             </div>
           </div>
-        ))}
-      </nav>
+          <Separator className="bg-white/10" />
+        </SidebarHeader>
 
-      <div className="mt-3 flex items-center gap-2.5 rounded-md border border-white/[0.09] bg-white/[0.07] px-3 py-2.5">
-        <Avatar className="shrink-0">
-          <AvatarFallback className="bg-[#9AA3AD] text-xs font-bold text-[#101214]">{userInitials}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="overflow-hidden text-[12.5px] font-semibold text-ellipsis whitespace-nowrap">
-            {userName}
+        <SidebarContent className="flex-1 gap-0 overflow-y-auto">
+          {navGroups.map((group) => (
+            <SidebarGroup key={group.label} className="p-0">
+              <SidebarGroupLabel className="h-auto px-3 pt-3.5 pb-1.5 text-[10px] font-bold tracking-[1.2px] text-white/38 uppercase">
+                {group.label}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-0.5">
+                  {group.items.map((item) => {
+                    const active =
+                      item.href === rootHref ? pathname === item.href : pathname.startsWith(item.href)
+                    const Icon = icons[item.icon]
+                    const badge = badges[item.href]
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        {/* base-nova is Base UI under the hood: composition is
+                            the `render` prop, not `asChild`. */}
+                        <SidebarMenuButton
+                          render={<Link href={item.href} />}
+                          isActive={active}
+                          onClick={() => setOpenMobile(false)}
+                          className={cn(
+                            "h-auto rounded px-3 py-2 text-[13px] transition-colors hover:bg-white/10 hover:text-white active:bg-white/10 active:text-white",
+                            active
+                              ? "bg-white/15 font-bold text-white data-active:bg-white/15 data-active:font-bold data-active:text-white"
+                              : "font-medium text-white/68"
+                          )}
+                        >
+                          <Icon
+                            className={cn("size-[17px] shrink-0", active ? "opacity-100" : "opacity-75")}
+                          />
+                          <span className="flex-1">{item.label}</span>
+                          {badge ? (
+                            <span className="grid h-[17px] min-w-[18px] place-items-center rounded bg-[#B6BDC6] px-1 text-[10px] font-extrabold text-[#101214]">
+                              {badge}
+                            </span>
+                          ) : null}
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
+        </SidebarContent>
+
+        <SidebarFooter className="mt-3 flex-row items-center gap-2.5 rounded-md border border-white/[0.09] bg-white/[0.07] px-3 py-2.5">
+          <Avatar className="shrink-0">
+            <AvatarFallback className="bg-[#9AA3AD] text-xs font-bold text-[#101214]">
+              {userInitials}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="overflow-hidden text-[12.5px] font-semibold text-ellipsis whitespace-nowrap">
+              {userName}
+            </div>
+            <div className="text-[10.5px] text-white/55">{roleLabel}</div>
           </div>
-          <div className="text-[10.5px] text-white/55">{roleLabel}</div>
-        </div>
-        <button
-          type="button"
-          onClick={handleSignOut}
-          disabled={signingOut}
-          title="Sign out"
-          aria-label="Sign out"
-          className="grid size-7 shrink-0 place-items-center rounded text-white/55 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-        >
-          {signingOut ? (
-            <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <RiLogoutBoxRLine className="size-4" aria-hidden="true" />
-          )}
-        </button>
+          {/* Stays a raw button: a 28px icon-only control with bespoke dark
+              styling gains nothing from ui/button and would fight it. */}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            title="Sign out"
+            aria-label="Sign out"
+            className="grid size-7 shrink-0 place-items-center rounded text-white/55 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          >
+            {signingOut ? (
+              <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RiLogoutBoxRLine className="size-4" aria-hidden="true" />
+            )}
+          </button>
+        </SidebarFooter>
       </div>
-    </aside>
+    </UiSidebar>
   )
 }

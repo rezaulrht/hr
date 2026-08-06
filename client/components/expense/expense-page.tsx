@@ -126,19 +126,19 @@ export function ExpensePage() {
         ? {
             node: (
               <div className="flex gap-2">
-                <button
-                  className="text-[12.5px] font-semibold underline disabled:opacity-50"
+                <Button
+                  variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline disabled:opacity-50"
                   disabled={approveMutation.isPending}
                   onClick={() => approveMutation.mutate(claim.id)}
                 >
                   Approve
-                </button>
-                <button
-                  className="text-[12.5px] font-semibold underline"
+                </Button>
+                <Button
+                  variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
                   onClick={() => setRejecting(claim.id)}
                 >
                   Reject
-                </button>
+                </Button>
               </div>
             ),
           }

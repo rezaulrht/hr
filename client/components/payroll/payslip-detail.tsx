@@ -2,6 +2,7 @@
 
 import type { Payslip, PayslipLine } from "@/lib/api/types"
 import { formatMoney, formatMonth, formatRate } from "@/lib/money"
+import { Button } from "@/components/ui/button"
 
 function LineRows({ lines, currency }: { lines: PayslipLine[]; currency: Payslip["currency"] }) {
   if (lines.length === 0) {
@@ -56,9 +57,9 @@ export function PayslipDetail({ payslip, onClose }: { payslip: Payslip; onClose:
           </div>
           <div className="text-[12.5px] text-[#7A8698]">{payslip.payslipNo}</div>
         </div>
-        <button className="text-[12.5px] font-semibold underline" onClick={onClose}>
+        <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">

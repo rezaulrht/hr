@@ -148,7 +148,7 @@ export function CommitmentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="mb-1.5 text-xs font-bold">Category</Label>
               <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")} disabled={isEdit}>
@@ -186,7 +186,7 @@ export function CommitmentDialog({
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="commitment-amount" className="mb-1.5 text-xs font-bold">
                 Amount <span className="font-normal text-muted-foreground">(optional)</span>
@@ -205,15 +205,15 @@ export function CommitmentDialog({
               <Label htmlFor="commitment-currency" className="mb-1.5 text-xs font-bold">
                 Currency
               </Label>
-              <select
-                id="commitment-currency"
-                className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value as Currency)}
-              >
-                <option value="BDT">BDT</option>
-                <option value="USD">USD</option>
-              </select>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="commitment-currency" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BDT">BDT</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="commitment-due-day" className="mb-1.5 text-xs font-bold">

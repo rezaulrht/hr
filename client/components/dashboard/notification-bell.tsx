@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useQueryClient } from "@tanstack/react-query"
 import { RiNotification3Line } from "@remixicon/react"
 
@@ -34,10 +35,12 @@ export function NotificationBell() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
             aria-label="Notification preview"
-            className="relative grid size-8.5 place-items-center rounded border border-[#E4E9EF] text-[#55657A] hover:bg-[#F4F6F9]"
+            className="relative size-8.5 rounded border-[#E4E9EF] text-[#55657A] hover:bg-[#F4F6F9]"
           />
         }
       >

@@ -24,7 +24,15 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  // `max-w-full overflow-x-auto`: triggers are flex items with the default
+  // `min-width: auto`, so they refuse to compress below their label and a
+  // `w-fit` list simply grows past a narrow viewport (5 tabs on the HR assets
+  // page ran to 447px inside 375px). Capping the list and letting it scroll
+  // keeps every tab reachable instead of pushing the page sideways.
+  // `justify-start`, not `justify-center`: the list is `w-fit`, so when the
+  // tabs fit it hugs them and justification is a no-op. When they overflow,
+  // centering clips *both* ends and leaves the first tab unreachable.
+  "group/tabs-list inline-flex w-fit max-w-full items-center justify-start overflow-x-auto rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

@@ -151,9 +151,9 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
     return (
       <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
         Failed to load this run.{" "}
-        <button className="font-semibold underline" onClick={() => runQuery.refetch()}>
+        <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => runQuery.refetch()}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   }
@@ -189,9 +189,9 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
 
   return (
     <div className="space-y-5">
-      <button className="text-[12.5px] font-semibold text-[#7A8698] underline" onClick={onBack}>
+      <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#7A8698] underline" onClick={onBack}>
         ← All runs
-      </button>
+      </Button>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

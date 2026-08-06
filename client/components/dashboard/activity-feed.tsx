@@ -22,7 +22,7 @@ export function ActivityFeed({
   viewAllHref: string
 }) {
   return (
-    <div className="min-w-0 flex-[10_1_460px] rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
+    <div className="min-w-0 flex-[10_1_460px] rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:px-5.5 sm:py-5">
       <div className="mb-3.5 flex items-center justify-between">
         <div className="text-[15px] font-bold">Recent activity</div>
         <Link href={viewAllHref} className="text-[12.5px] font-semibold hover:underline">

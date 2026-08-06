@@ -12,7 +12,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type {
   AnnouncementAudience,
@@ -154,54 +156,60 @@ export function ComposeAnnouncementDialog({
           ) : (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-audience">Audience</Label>
-              <select
-                id="ann-audience"
+              <Select
                 value={audience}
-                onChange={(e) => setAudience(e.target.value as AnnouncementAudience)}
-                className="h-9 rounded-md border border-[#E4E9EF] bg-white px-3 text-[13px]"
+                onValueChange={(v) => setAudience(v as AnnouncementAudience)}
               >
-                <option value="ALL">Everyone</option>
-                <option value="DEPARTMENT">A department</option>
-                <option value="ROLE">A role</option>
-              </select>
+                <SelectTrigger id="ann-audience" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Everyone</SelectItem>
+                  <SelectItem value="DEPARTMENT">A department</SelectItem>
+                  <SelectItem value="ROLE">A role</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           )}
 
           {!managerScoped && audience === "DEPARTMENT" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-department">Department</Label>
-              <select
-                id="ann-department"
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-                className="h-9 rounded-md border border-[#E4E9EF] bg-white px-3 text-[13px]"
-              >
-                <option value="">Choose a department…</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={departmentId} onValueChange={(v) => setDepartmentId(v as string)}>
+                <SelectTrigger id="ann-department" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Kept as a real item rather than Base UI's null-placeholder
+                      so the field stays clearable and `departmentId` stays a
+                      plain string for the submit-time checks. */}
+                  <SelectItem value="">Choose a department…</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           ) : null}
 
           {audience === "ROLE" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-role">Role</Label>
-              <select
-                id="ann-role"
-                value={targetRole}
-                onChange={(e) => setTargetRole(e.target.value as Role)}
-                className="h-9 rounded-md border border-[#E4E9EF] bg-white px-3 text-[13px]"
-              >
-                <option value="">Choose a role…</option>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABEL[r]}
-                  </option>
-                ))}
-              </select>
+              <Select value={targetRole} onValueChange={(v) => setTargetRole(v as Role)}>
+                <SelectTrigger id="ann-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Choose a role…</SelectItem>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ROLE_LABEL[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           ) : null}
 
@@ -214,14 +222,21 @@ export function ComposeAnnouncementDialog({
               disabled={draft}
               onChange={(e) => setPublishAt(e.target.value)}
             />
-            <label className="flex items-center gap-2 text-[12.5px] text-[#55657A]">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              {/* `nativeButton` + a rendered <Button> is what lets a sibling
+                  <Label htmlFor> actually toggle it — the default Base UI root
+                  is not a labelable element. */}
+              <Checkbox
+                id="ann-draft"
+                nativeButton
+                render={<button type="button" />}
                 checked={draft}
-                onChange={(e) => setDraft(e.target.checked)}
+                onCheckedChange={(v) => setDraft(v)}
               />
-              Save as a draft — nobody sees it until you publish
-            </label>
+              <Label htmlFor="ann-draft" className="text-[12.5px] font-normal text-[#55657A]">
+                Save as a draft — nobody sees it until you publish
+              </Label>
+            </div>
             {!draft && !publishAt ? (
               <span className="text-[12px] text-[#7A8698]">Leave empty to publish immediately.</span>
             ) : null}

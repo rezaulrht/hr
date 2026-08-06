@@ -23,7 +23,9 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Tag } from "@/components/dashboard/tag"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FINANCE_ROLES } from "@/components/payroll/payroll-shared"
 
@@ -164,15 +166,15 @@ function StructureCard({
         </div>
         {canWrite ? (
           <div className="flex shrink-0 gap-3">
-            <button className="text-[12.5px] font-semibold underline" onClick={onEdit}>
+            <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={onEdit}>
               Edit
-            </button>
-            <button
-              className="text-[12.5px] font-semibold text-[#B03A3A] underline"
+            </Button>
+            <Button
+              variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#B03A3A] underline"
               onClick={onAskDelete}
             >
               Delete
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -338,18 +340,21 @@ export function SalaryStructuresPage() {
                 <Label htmlFor="s-currency" className="mb-1.5 text-xs font-bold">
                   Currency
                 </Label>
-                <select
-                  id="s-currency"
-                  className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px] disabled:bg-[#F5F7FA] disabled:text-[#A5AFBE]"
+                <Select
                   value={draft.currency}
                   // Immutable after creation: changing it silently
                   // re-denominates every figure already on the structure.
                   disabled={!!draft.id}
-                  onChange={(e) => patch({ currency: e.target.value as Currency })}
+                  onValueChange={(v) => patch({ currency: v as Currency })}
                 >
-                  <option value="BDT">BDT</option>
-                  <option value="USD">USD</option>
-                </select>
+                  <SelectTrigger id="s-currency" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BDT">BDT</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="s-basic" className="mb-1.5 text-xs font-bold">
@@ -368,14 +373,18 @@ export function SalaryStructuresPage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="s-active"
+                nativeButton
+                render={<button type="button" />}
                 checked={draft.isActive}
-                onChange={(e) => patch({ isActive: e.target.checked })}
+                onCheckedChange={(v) => patch({ isActive: v })}
               />
-              Active — inactive structures cannot be assigned to anyone new
-            </label>
+              <Label htmlFor="s-active" className="text-[12.5px] font-normal">
+                Active — inactive structures cannot be assigned to anyone new
+              </Label>
+            </div>
 
             <div>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -390,14 +399,14 @@ export function SalaryStructuresPage() {
                     </div>
                   ) : null}
                 </div>
-                <button
-                  className="text-[12.5px] font-semibold underline"
+                <Button
+                  variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
                   onClick={() =>
                     patch({ components: [...draft.components, { ...BLANK_COMPONENT }] })
                   }
                 >
                   {draft.components.length === 0 ? "Split this salary" : "Add another"}
-                </button>
+                </Button>
               </div>
 
               <div className="space-y-2">
@@ -413,22 +422,30 @@ export function SalaryStructuresPage() {
                       onChange={(e) => patchComponent(i, { label: e.target.value })}
                       placeholder="Label"
                     />
-                    <select
-                      className="h-9 rounded-md border border-[#E4E9EF] px-2 text-[13px]"
+                    <Select
                       value={c.kind}
-                      onChange={(e) => patchComponent(i, { kind: e.target.value as ComponentKind })}
+                      onValueChange={(v) => patchComponent(i, { kind: v as ComponentKind })}
                     >
-                      <option value="EARNING">Earning</option>
-                      <option value="DEDUCTION">Deduction</option>
-                    </select>
-                    <select
-                      className="h-9 rounded-md border border-[#E4E9EF] px-2 text-[13px]"
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="EARNING">Earning</SelectItem>
+                        <SelectItem value="DEDUCTION">Deduction</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
                       value={c.calc}
-                      onChange={(e) => patchComponent(i, { calc: e.target.value as ComponentCalc })}
+                      onValueChange={(v) => patchComponent(i, { calc: v as ComponentCalc })}
                     >
-                      <option value="FIXED">Fixed</option>
-                      <option value="PERCENT_OF_BASIC">% of basic</option>
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FIXED">Fixed</SelectItem>
+                        <SelectItem value="PERCENT_OF_BASIC">% of basic</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Input
                       type="number"
                       min="0"
@@ -439,14 +456,14 @@ export function SalaryStructuresPage() {
                     />
                     {/* Removing the last one is allowed — that is how a split
                         salary goes back to being a flat one. */}
-                    <button
-                      className="text-[12.5px] font-semibold text-[#B03A3A]"
+                    <Button
+                      variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#B03A3A]"
                       onClick={() =>
                         patch({ components: draft.components.filter((_, j) => j !== i) })
                       }
                     >
                       Remove
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -508,9 +525,9 @@ export function SalaryStructuresPage() {
         ) : structuresQuery.isError ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
             Failed to load salary structures.{" "}
-            <button className="font-semibold underline" onClick={() => structuresQuery.refetch()}>
+            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => structuresQuery.refetch()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : structures.length === 0 ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">

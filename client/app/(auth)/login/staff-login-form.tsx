@@ -7,6 +7,7 @@ import { loginStaff } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import { ROLE_ROUTES } from "@/lib/auth/role-routes"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
@@ -74,13 +75,13 @@ export function StaffLoginForm() {
 
       {error ? <p className="mb-4 text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
 
-      <button
+      <Button
         type="submit"
         disabled={submitting}
         className="block w-full rounded bg-[#17191C] py-3.5 text-center text-sm font-bold text-white hover:bg-[#33373D] disabled:opacity-60"
       >
         {submitting ? "Signing in…" : "Sign in"}
-      </button>
+      </Button>
       <p className="mt-4 text-center text-[11.5px] leading-[1.6] text-[#8B95A3]">
         First time signing in? Use the temporary ID and password your HR team sent you — you&rsquo;ll be asked to
         set a new password.

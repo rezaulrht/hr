@@ -122,21 +122,21 @@ export function AnnouncementsPage() {
       ? {
           node: (
             <div className="flex gap-3">
-              <button
-                className="text-[12px] font-bold underline"
+              <Button
+                variant="link" className="h-auto p-0 text-[12px] font-bold underline"
                 onClick={() => {
                   setFormError(null)
                   setEditing(a)
                 }}
               >
                 Edit
-              </button>
-              <button
-                className="text-[12px] font-bold text-[#B03A3A] underline"
+              </Button>
+              <Button
+                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
                 onClick={() => deleteMutation.mutate(a.id)}
               >
                 Delete
-              </button>
+              </Button>
             </div>
           ),
         }
@@ -199,9 +199,9 @@ export function AnnouncementsPage() {
         {listQuery.isError ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
             Failed to load announcements.{" "}
-            <button className="font-semibold underline" onClick={() => listQuery.refetch()}>
+            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => listQuery.refetch()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-8 text-center text-[13px] text-[#7A8698]">

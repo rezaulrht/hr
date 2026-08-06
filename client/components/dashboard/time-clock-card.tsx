@@ -52,7 +52,7 @@ export function TimeClockCard({
   const checkedInAt = clock(state.checkIn)
 
   return (
-    <div className="flex min-w-70 max-w-90 flex-1 flex-col gap-3.5 rounded-md bg-linear-to-br from-[#17191C] to-[#0E1012] p-5.5 text-white">
+    <div className="flex max-w-90 min-w-0 flex-1 flex-col gap-3.5 rounded-md bg-linear-to-br from-[#17191C] to-[#0E1012] p-4 text-white sm:min-w-70 sm:p-5.5">
       <div className="flex items-center justify-between">
         <div className="text-[13px] font-semibold text-white/75">Time clock</div>
         <span

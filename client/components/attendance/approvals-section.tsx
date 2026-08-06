@@ -129,7 +129,7 @@ export function ApprovalsSection({
         />
         <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
           {(["PENDING", "APPROVED", "REJECTED"] as const).map((mode) => (
-            <button
+            <Button
               key={mode}
               onClick={() => {
                 setTab(mode)
@@ -142,7 +142,7 @@ export function ApprovalsSection({
               }
             >
               {mode === "PENDING" ? "Needs review" : mode === "APPROVED" ? "Approved" : "Rejected"}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

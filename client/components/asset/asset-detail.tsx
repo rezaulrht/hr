@@ -106,9 +106,9 @@ export function AssetDetail({
         ) : assetQuery.isError ? (
           <div className="p-4 text-sm text-destructive">
             Failed to load this asset.{" "}
-            <button className="font-semibold underline" onClick={() => assetQuery.refetch()}>
+            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => assetQuery.refetch()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : asset ? (
           <>
@@ -130,7 +130,7 @@ export function AssetDetail({
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                 <Field label="Serial number" value={asset.serialNumber ?? "—"} />
                 <Field label="Model" value={asset.model ?? "—"} />
                 <Field label="Location" value={asset.location ?? "—"} />

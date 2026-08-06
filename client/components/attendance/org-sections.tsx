@@ -22,6 +22,7 @@ import { MiniStat } from "@/components/dashboard/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -441,9 +442,9 @@ function HolidayPanel({
         <div className="mb-3.5 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] text-[#9A6B10]">
           This affected <strong>{impact.affectedEmployees}</strong> employees across{" "}
           {impact.monthsTouched.join(", ")}. Their attendance totals have changed.
-          <button className="ml-2 font-bold underline" onClick={() => setImpact(null)}>
+          <Button variant="link" className="h-auto p-0 ml-2 font-bold underline" onClick={() => setImpact(null)}>
             Dismiss
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -466,13 +467,13 @@ function HolidayPanel({
           },
           {
             node: (
-              <button
-                className="text-[12px] font-bold text-[#B03A3A] underline disabled:opacity-40"
+              <Button
+                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline disabled:opacity-40"
                 disabled={deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate(holiday.id)}
               >
                 Delete
-              </button>
+              </Button>
             ),
           },
         ])}
@@ -537,18 +538,18 @@ function AddHolidayDialog({
             <Label htmlFor="holiday-type" className="mb-1.5 text-xs font-bold">
               Type
             </Label>
-            <select
-              id="holiday-type"
-              value={type}
-              onChange={(e) => setType(e.target.value as HolidayType)}
-              className="h-9 w-full rounded-md border border-[#E4E9EF] bg-white px-3 text-[13px]"
-            >
-              {HOLIDAY_TYPES.map((option) => (
-                <option key={option} value={option}>
-                  {HOLIDAY_TYPE_LABEL[option]}
-                </option>
-              ))}
-            </select>
+            <Select value={type} onValueChange={(v) => setType(v as HolidayType)}>
+              <SelectTrigger id="holiday-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HOLIDAY_TYPES.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {HOLIDAY_TYPE_LABEL[option]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}

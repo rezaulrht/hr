@@ -142,13 +142,13 @@ export function ReturnDialog({
                   className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
                 >
                   {file.name}
-                  <button
+                  <Button
                     type="button"
                     className="text-muted-foreground hover:text-foreground"
                     onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
                   >
                     ×
-                  </button>
+                  </Button>
                 </span>
               ))}
               <FileUpload

@@ -100,7 +100,7 @@ export function RepairDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="repair-vendor" className="mb-1.5 text-xs font-bold">
                 Vendor <span className="font-normal text-muted-foreground">(optional)</span>
