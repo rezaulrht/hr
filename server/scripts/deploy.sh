@@ -35,12 +35,22 @@ cd "$REPO_ROOT"
 # scratch file (e.g. local editor/tooling state) is noise, not a reason to
 # refuse to deploy.
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "error: working tree is dirty. Commit or stash before deploying." >&2
+  echo "error: working tree has uncommitted tracked changes, so it does not match what will ship — only origin/main deploys, not your checkout." >&2
   exit 1
 fi
 
 echo "==> Fetching remotes"
 git fetch --multiple origin reza --quiet
+
+# 1b. Guard ------------------------------------------------------------------
+# The test step below runs against HEAD, but step 4 deploys origin/main, not
+# HEAD. Those are only guaranteed to be the same code when HEAD IS
+# origin/main — run this from a feature branch and you get a fully green
+# transcript for tests that never covered what actually ships.
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  echo "error: HEAD is not origin/main. The tests below would not cover what actually deploys." >&2
+  exit 1
+fi
 
 # 2. Test -------------------------------------------------------------------
 echo "==> Running the server test suite"
