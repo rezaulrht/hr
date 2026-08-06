@@ -156,16 +156,19 @@ function BillForm({
             <Label htmlFor="cost-currency" className="mb-1.5 text-xs font-bold">
               Currency
             </Label>
-            <select
-              id="cost-currency"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px] disabled:opacity-50"
+            <Select
               value={currency}
               disabled={!canManage}
-              onChange={(e) => setCurrency(e.target.value as Currency)}
+              onValueChange={(v) => setCurrency(v as Currency)}
             >
-              <option value="BDT">BDT</option>
-              <option value="USD">USD</option>
-            </select>
+              <SelectTrigger id="cost-currency" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BDT">BDT</SelectItem>
+                <SelectItem value="USD">USD</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label htmlFor="cost-due" className="mb-1.5 text-xs font-bold">

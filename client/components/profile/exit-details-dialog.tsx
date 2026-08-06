@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 /**
@@ -101,18 +102,18 @@ function ExitForm({
           <Label htmlFor="exitReason" className="mb-1.5 text-xs font-bold">
             Reason
           </Label>
-          <select
-            id="exitReason"
-            className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-            value={exitReason}
-            onChange={(e) => setExitReason(e.target.value as ExitReason)}
-          >
-            {EXIT_REASONS.map((reason) => (
-              <option key={reason} value={reason}>
-                {EXIT_REASON_LABEL[reason]}
-              </option>
-            ))}
-          </select>
+          <Select value={exitReason} onValueChange={(v) => setExitReason(v as ExitReason)}>
+            <SelectTrigger id="exitReason" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXIT_REASONS.map((reason) => (
+                <SelectItem key={reason} value={reason}>
+                  {EXIT_REASON_LABEL[reason]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label htmlFor="exitNote" className="mb-1.5 text-xs font-bold">

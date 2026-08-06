@@ -205,15 +205,15 @@ export function CommitmentDialog({
               <Label htmlFor="commitment-currency" className="mb-1.5 text-xs font-bold">
                 Currency
               </Label>
-              <select
-                id="commitment-currency"
-                className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value as Currency)}
-              >
-                <option value="BDT">BDT</option>
-                <option value="USD">USD</option>
-              </select>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="commitment-currency" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BDT">BDT</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="commitment-due-day" className="mb-1.5 text-xs font-bold">

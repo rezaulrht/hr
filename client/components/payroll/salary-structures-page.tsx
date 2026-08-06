@@ -24,6 +24,7 @@ import { Tag } from "@/components/dashboard/tag"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FINANCE_ROLES } from "@/components/payroll/payroll-shared"
 
@@ -338,18 +339,21 @@ export function SalaryStructuresPage() {
                 <Label htmlFor="s-currency" className="mb-1.5 text-xs font-bold">
                   Currency
                 </Label>
-                <select
-                  id="s-currency"
-                  className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px] disabled:bg-[#F5F7FA] disabled:text-[#A5AFBE]"
+                <Select
                   value={draft.currency}
                   // Immutable after creation: changing it silently
                   // re-denominates every figure already on the structure.
                   disabled={!!draft.id}
-                  onChange={(e) => patch({ currency: e.target.value as Currency })}
+                  onValueChange={(v) => patch({ currency: v as Currency })}
                 >
-                  <option value="BDT">BDT</option>
-                  <option value="USD">USD</option>
-                </select>
+                  <SelectTrigger id="s-currency" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BDT">BDT</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="s-basic" className="mb-1.5 text-xs font-bold">
@@ -413,22 +417,30 @@ export function SalaryStructuresPage() {
                       onChange={(e) => patchComponent(i, { label: e.target.value })}
                       placeholder="Label"
                     />
-                    <select
-                      className="h-9 rounded-md border border-[#E4E9EF] px-2 text-[13px]"
+                    <Select
                       value={c.kind}
-                      onChange={(e) => patchComponent(i, { kind: e.target.value as ComponentKind })}
+                      onValueChange={(v) => patchComponent(i, { kind: v as ComponentKind })}
                     >
-                      <option value="EARNING">Earning</option>
-                      <option value="DEDUCTION">Deduction</option>
-                    </select>
-                    <select
-                      className="h-9 rounded-md border border-[#E4E9EF] px-2 text-[13px]"
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="EARNING">Earning</SelectItem>
+                        <SelectItem value="DEDUCTION">Deduction</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
                       value={c.calc}
-                      onChange={(e) => patchComponent(i, { calc: e.target.value as ComponentCalc })}
+                      onValueChange={(v) => patchComponent(i, { calc: v as ComponentCalc })}
                     >
-                      <option value="FIXED">Fixed</option>
-                      <option value="PERCENT_OF_BASIC">% of basic</option>
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FIXED">Fixed</SelectItem>
+                        <SelectItem value="PERCENT_OF_BASIC">% of basic</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Input
                       type="number"
                       min="0"

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 const COMMON_CODES = [
@@ -62,37 +63,37 @@ export function AdjustmentDialog({
             <Label htmlFor="adj-employee" className="mb-1.5 text-xs font-bold">
               Employee
             </Label>
-            <select
-              id="adj-employee"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-            >
-              <option value="">Select an employee</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.fullName} ({e.employeeCode})
-                </option>
-              ))}
-            </select>
+            <Select value={employeeId} onValueChange={(v) => setEmployeeId(v as string)}>
+              <SelectTrigger id="adj-employee" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select an employee</SelectItem>
+                {employees.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.fullName} ({e.employeeCode})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
             <Label htmlFor="adj-kind" className="mb-1.5 text-xs font-bold">
               Type
             </Label>
-            <select
-              id="adj-kind"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-            >
-              {COMMON_CODES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label} ({c.kind === "EARNING" ? "adds" : "deducts"})
-                </option>
-              ))}
-            </select>
+            <Select value={preset} onValueChange={(v) => setPreset(v as string)}>
+              <SelectTrigger id="adj-kind" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_CODES.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>
+                    {c.label} ({c.kind === "EARNING" ? "adds" : "deducts"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -115,15 +116,15 @@ export function AdjustmentDialog({
               </Label>
               {/* HR thinks in BDT; the server converts into the employee's
                   payment currency before it enters the payslip sum. */}
-              <select
-                id="adj-currency"
-                className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value as Currency)}
-              >
-                <option value="BDT">BDT</option>
-                <option value="USD">USD</option>
-              </select>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger id="adj-currency" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BDT">BDT</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

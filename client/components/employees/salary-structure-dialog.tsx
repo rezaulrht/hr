@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 /** Sentinel for "no structure" — a Select cannot hold a null value. */
 const NONE = "__none__"
@@ -62,19 +63,19 @@ export function SalaryStructureDialog({
             <Label htmlFor="structure" className="mb-1.5 text-xs font-bold">
               Structure
             </Label>
-            <select
-              id="structure"
-              className="h-9 w-full rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-            >
-              <option value={NONE}>No structure</option>
-              {assignable.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {s.currency}
-                </option>
-              ))}
-            </select>
+            <Select value={selected} onValueChange={(v) => setSelected(v as string)}>
+              <SelectTrigger id="structure" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>No structure</SelectItem>
+                {assignable.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} · {s.currency}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* The band's actual money, so the choice is not made on a name. */}

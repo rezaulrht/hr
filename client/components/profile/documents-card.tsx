@@ -8,6 +8,7 @@ import { useSession } from "@/lib/auth/session-context"
 import type { DocumentItem, DocumentType } from "@/lib/api/types"
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   CONTRACT: "Contract",
@@ -108,18 +109,18 @@ export function DocumentsCard({
             <Label htmlFor="uploadType" className="mb-1.5 text-xs font-bold">
               Type
             </Label>
-            <select
-              id="uploadType"
-              className="h-9 rounded-md border border-[#E4E9EF] px-3 text-[13px]"
-              value={uploadType}
-              onChange={(e) => setUploadType(e.target.value as DocumentType)}
-            >
-              {DOCUMENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {TYPE_LABEL[type]}
-                </option>
-              ))}
-            </select>
+            <Select value={uploadType} onValueChange={(v) => setUploadType(v as DocumentType)}>
+              <SelectTrigger id="uploadType">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DOCUMENT_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {TYPE_LABEL[type]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <FileUpload
             accept={DOCUMENT_ACCEPT}
