@@ -33,9 +33,12 @@ async function getBrowser(): Promise<Browser> {
     browserPromise = import("puppeteer").then((puppeteer) =>
       puppeteer.default.launch({
         // Undefined locally, where puppeteer resolves its own download. On a
-        // dyno the binary comes from the chrome-for-testing buildpack instead
-        // (PUPPETEER_SKIP_DOWNLOAD keeps it out of the slug), and only the
-        // buildpack's CHROME_PATH points at it.
+        // dyno the binary comes from the chrome-for-testing buildpack, which
+        // exports only PATH — it does NOT set CHROME_PATH. That config var is
+        // set explicitly on the app to point at
+        // /app/.chrome-for-testing/chrome-linux64/chrome. Without it,
+        // PUPPETEER_SKIP_DOWNLOAD=true leaves nothing for puppeteer to find
+        // and every render throws.
         executablePath: process.env.CHROME_PATH,
         args: ["--no-sandbox", "--disable-dev-shm-usage"],
       })

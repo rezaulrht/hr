@@ -2,9 +2,9 @@
  * The configured Cloudinary client, and the only file in the codebase that
  * imports `cloudinary`.
  *
- * Isolated deliberately, in the same spirit as the comment on
- * `PAYSLIP_STORAGE_DIR` in `config/env.ts`: swapping Cloudinary for S3 should
- * be one file, not a grep across the modules.
+ * Isolated deliberately, in the same spirit as `payroll.storage.ts`'s module
+ * comment: swapping Cloudinary for S3 should be one file, not a grep across
+ * the modules.
  */
 
 import { v2 as cloudinary } from "cloudinary"

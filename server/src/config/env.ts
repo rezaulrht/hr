@@ -5,6 +5,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().default(4000),
   CLIENT_ORIGIN: z.string().default("http://localhost:3000"),
+  // Optional comma-separated CORS allowlist. Defaults to [CLIENT_ORIGIN].
+  // Separate from CLIENT_ORIGIN because that one is also the base for
+  // outbound email links, where a list would corrupt every URL.
+  CORS_ORIGINS: z.string().optional(),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   JWT_ACCESS_EXPIRY: z.string().default("15m"),
@@ -30,10 +34,6 @@ const envSchema = z.object({
   // second justifies refusing to boot.
   COMPANY_NAME: z.string().default("Byte Spate"),
   COMPANY_ADDRESS: z.string().default(""),
-  // Local disk, a deliberate prototype choice with a known ceiling: it does
-  // not survive a restart on an ephemeral filesystem and does not work across
-  // replicas. Isolated to payroll.storage.ts so swapping in S3 is one file.
-  PAYSLIP_STORAGE_DIR: z.string().default("./storage/payslips"),
   // Optional, following SMTP_HOST: an unconfigured integration degrades to a
   // clear 503 on upload rather than refusing to boot. Requiring them would
   // block every developer and every CI run on a Cloudinary account, for a
