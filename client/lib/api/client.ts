@@ -17,6 +17,15 @@ export class ApiError extends Error {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"
 
+/**
+ * Auth calls go through the Next rewrite in next.config.ts, so they must be
+ * same-origin — that is what makes the refresh cookie first-party. Everything
+ * else goes straight to the API with a Bearer token.
+ */
+export function resolveBase(path: string): string {
+  return path.startsWith("/api/auth/") ? "" : API_URL
+}
+
 function toApiError(status: number, body: unknown): ApiError {
   const { error, ...details } = (body ?? {}) as Record<string, unknown>
   return new ApiError(
@@ -37,7 +46,7 @@ export async function apiFetch<T>(
   // the server can't parse, since the boundary would be missing.
   const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${resolveBase(path)}${path}`, {
     ...rest,
     credentials: "include",
     headers: {
@@ -66,7 +75,7 @@ export async function apiFetchBlob(
 ): Promise<{ blob: Blob; headers: Headers }> {
   const { accessToken, headers, ...rest } = options
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${resolveBase(path)}${path}`, {
     ...rest,
     credentials: "include",
     headers: {
