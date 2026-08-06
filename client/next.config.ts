@@ -16,11 +16,26 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   async rewrites() {
     const apiOrigin = process.env.API_ORIGIN
-    if (!apiOrigin) return []
+    if (!apiOrigin) {
+      // NODE_ENV is "production" for a developer's local `next build` too, so
+      // gating on that would break local production builds. VERCEL_ENV is
+      // only set by Vercel's own build, and only "production" is the
+      // real deploy — without this, a missing API_ORIGIN silently drops the
+      // rewrite and /api/auth/* 404s to an HTML page at runtime instead,
+      // which is exactly the "broken and nobody notices" failure mode this
+      // branch exists to fix.
+      if (process.env.VERCEL_ENV === "production") {
+        throw new Error("API_ORIGIN is required: /api/auth/* cannot be proxied without it")
+      }
+      return []
+    }
+    // A trailing slash on API_ORIGIN would otherwise double up into
+    // "…//api/auth/...", 404-ing every auth call.
+    const origin = apiOrigin.replace(/\/$/, "")
     return [
       {
         source: "/api/auth/:path*",
-        destination: `${apiOrigin}/api/auth/:path*`,
+        destination: `${origin}/api/auth/:path*`,
       },
     ]
   },
