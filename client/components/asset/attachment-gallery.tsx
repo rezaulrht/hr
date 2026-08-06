@@ -5,6 +5,7 @@ import { useState } from "react"
 import { getAttachmentUrl } from "@/lib/api/assets"
 import { ApiError } from "@/lib/api/client"
 import type { AssetAttachment } from "@/lib/api/types"
+import { Button } from "@/components/ui/button"
 
 /**
  * One thumbnail. Fetches a signed URL on click and opens it — never
@@ -37,14 +38,14 @@ function AttachmentThumb({
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <button
+      <Button
         type="button"
         onClick={() => void open()}
         disabled={busy}
         className="rounded-md border border-dashed px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
       >
         {busy ? "Opening…" : attachment.fileName}
-      </button>
+      </Button>
       {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
     </div>
   )

@@ -106,9 +106,9 @@ export function SettlementDetail({
             <span>· {breakdown.exitLabel}</span>
           </div>
         </div>
-        <button className="text-[12.5px] font-semibold underline" onClick={onClose}>
+        <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

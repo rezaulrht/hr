@@ -91,9 +91,9 @@ function toRows(
               disappears without this component learning anything about
               Finance. */}
           {e.editableFields.length > 0 ? (
-            <button className="text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
+            <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={() => onAssign(e)}>
               {e.payroll?.salaryStructure ? "Change" : "Assign"}
-            </button>
+            </Button>
           ) : null}
         </div>
       ),
@@ -307,9 +307,9 @@ export function EmployeesPage() {
       ) : employeesQuery.isError ? (
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
           Failed to load employees.{" "}
-          <button className="font-semibold underline" onClick={() => employeesQuery.refetch()}>
+          <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => employeesQuery.refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       ) : (
         <DataTable

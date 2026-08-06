@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getMyProfile, listEmployees } from "@/lib/api/employees"
 import { useSession } from "@/lib/auth/session-context"
 import { initialsFrom } from "@/components/profile/avatar-upload"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
 /**
@@ -64,9 +65,9 @@ export function ManagerTeamPage() {
       ) : employeesQuery.isError || meQuery.isError ? (
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
           Failed to load your team.{" "}
-          <button className="font-semibold underline" onClick={() => employeesQuery.refetch()}>
+          <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => employeesQuery.refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       ) : reports.length === 0 ? (
         <p className="text-[13px] text-[#A5AFBE]">Nobody reports to you yet.</p>

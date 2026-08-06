@@ -50,9 +50,9 @@ function LoadError({ label, onRetry }: { label: string; onRetry: () => void }) {
   return (
     <div className="rounded-md border p-4 text-sm text-destructive">
       Failed to load {label}.{" "}
-      <button className="font-semibold underline" onClick={onRetry}>
+      <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   )
 }

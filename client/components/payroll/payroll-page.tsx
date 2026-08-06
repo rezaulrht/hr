@@ -107,12 +107,12 @@ export function PayrollPage() {
     { tag: RUN_STATUS_LABEL[run.status], tone: RUN_STATUS_TONE[run.status] },
     {
       node: (
-        <button
-          className="text-[12.5px] font-semibold underline"
+        <Button
+          variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
           onClick={() => setSelectedRunId(run.id)}
         >
           Open
-        </button>
+        </Button>
       ),
     },
   ])
@@ -146,9 +146,9 @@ export function PayrollPage() {
         ) : runsQuery.isError ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
             Failed to load payroll runs.{" "}
-            <button className="font-semibold underline" onClick={() => runsQuery.refetch()}>
+            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => runsQuery.refetch()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : runs.length === 0 ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">

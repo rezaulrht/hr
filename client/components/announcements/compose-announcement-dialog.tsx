@@ -223,7 +223,7 @@ export function ComposeAnnouncementDialog({
               onChange={(e) => setPublishAt(e.target.value)}
             />
             <div className="flex items-center gap-2">
-              {/* `nativeButton` + a rendered <button> is what lets a sibling
+              {/* `nativeButton` + a rendered <Button> is what lets a sibling
                   <Label htmlFor> actually toggle it — the default Base UI root
                   is not a labelable element. */}
               <Checkbox

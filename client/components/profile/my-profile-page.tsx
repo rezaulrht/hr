@@ -47,9 +47,9 @@ export function MyProfilePage() {
     return (
       <div className="mt-7 rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
         Failed to load your profile.{" "}
-        <button className="font-semibold underline" onClick={() => profileQuery.refetch()}>
+        <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => profileQuery.refetch()}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   }

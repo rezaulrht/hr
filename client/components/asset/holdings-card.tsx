@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { listAssets } from "@/lib/api/assets"
 import { useSession } from "@/lib/auth/session-context"
 import { formatAssetDate } from "@/components/asset/asset-shared"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -43,9 +44,9 @@ export function HoldingsCard({ employeeId }: { employeeId: string }) {
     return (
       <div className="rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5 text-[13px] text-[#B03A3A]">
         Could not load company assets.{" "}
-        <button className="font-semibold underline" onClick={() => assetsQuery.refetch()}>
+        <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => assetsQuery.refetch()}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   }

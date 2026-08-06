@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
 /**
@@ -20,9 +21,9 @@ export function LoadError({ label, onRetry }: { label: string; onRetry: () => vo
   return (
     <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
       Failed to load {label}.{" "}
-      <button className="font-semibold underline" onClick={onRetry}>
+      <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   )
 }

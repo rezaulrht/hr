@@ -5,6 +5,7 @@ import { useState } from "react"
 import { deleteCostReceipt, getCostReceiptUrl, uploadCostReceipt } from "@/lib/api/costs"
 import { ApiError } from "@/lib/api/client"
 import type { CostAttachment } from "@/lib/api/types"
+import { Button } from "@/components/ui/button"
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
 
 /**
@@ -56,16 +57,16 @@ function ReceiptThumb({
   return (
     <div className="flex flex-col items-start gap-1">
       <div className="flex items-center gap-1">
-        <button
+        <Button
           type="button"
           onClick={() => void open()}
           disabled={busy || deleting}
           className="rounded-md border border-dashed px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
         >
           {busy ? "Opening…" : attachment.fileName}
-        </button>
+        </Button>
         {canManage ? (
-          <button
+          <Button
             type="button"
             onClick={() => void remove()}
             disabled={busy || deleting}
@@ -73,7 +74,7 @@ function ReceiptThumb({
             aria-label={`Remove ${attachment.fileName}`}
           >
             ×
-          </button>
+          </Button>
         ) : null}
       </div>
       {error ? <p className="text-[11px] text-destructive">{error}</p> : null}

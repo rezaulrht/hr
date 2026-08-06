@@ -6,6 +6,7 @@ import { deleteDocument, getDocumentUrl, uploadDocument } from "@/lib/api/employ
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { DocumentItem, DocumentType } from "@/lib/api/types"
+import { Button } from "@/components/ui/button"
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -144,23 +145,23 @@ export function DocumentsCard({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <button
+                <Button
                   type="button"
-                  className="text-[12.5px] font-semibold underline disabled:opacity-50"
+                  variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline disabled:opacity-50"
                   disabled={busyId === doc.id}
                   onClick={() => void download(doc.id)}
                 >
                   {busyId === doc.id ? "Opening…" : "Download"}
-                </button>
+                </Button>
                 {canManage ? (
-                  <button
+                  <Button
                     type="button"
-                    className="text-[12.5px] font-semibold text-[#B03A3A] underline disabled:opacity-50"
+                    variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#B03A3A] underline disabled:opacity-50"
                     disabled={busyId === doc.id}
                     onClick={() => void remove(doc)}
                   >
                     Delete
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </li>

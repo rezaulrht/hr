@@ -134,9 +134,9 @@ export function SettlementPage() {
     { tag: SETTLEMENT_STATUS_LABEL[s.status], tone: SETTLEMENT_STATUS_TONE[s.status] },
     {
       node: (
-        <button className="text-[12.5px] font-semibold underline" onClick={() => setSelected(s)}>
+        <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={() => setSelected(s)}>
           Open
-        </button>
+        </Button>
       ),
     },
   ])

@@ -102,9 +102,9 @@ export function EmployeeDetailPage({
     return (
       <div className="mt-7 rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
         Could not load this employee.{" "}
-        <button className="font-semibold underline" onClick={() => employeeQuery.refetch()}>
+        <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => employeeQuery.refetch()}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   }
@@ -117,13 +117,13 @@ export function EmployeeDetailPage({
   // the server's writableFieldsFor.
   const editAction = (card: string) =>
     (CARD_FIELDS[card] ?? []).some((f) => employee.editableFields.includes(f.key)) ? (
-      <button
+      <Button
         type="button"
-        className="text-[12.5px] font-semibold underline"
+        variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
         onClick={() => setEditing(card)}
       >
         Edit
-      </button>
+      </Button>
     ) : null
 
   return (

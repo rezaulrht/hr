@@ -80,13 +80,13 @@ export function AdjustmentsPanel({ month, year }: { month: number; year: number 
       : canWrite
         ? {
             node: (
-              <button
-                className="text-[12.5px] font-semibold underline disabled:opacity-50"
+              <Button
+                variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline disabled:opacity-50"
                 disabled={deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate(a.id)}
               >
                 Remove
-              </button>
+              </Button>
             ),
           }
         : { tag: "Pending", tone: "yellow" },

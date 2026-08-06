@@ -442,9 +442,9 @@ function HolidayPanel({
         <div className="mb-3.5 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] text-[#9A6B10]">
           This affected <strong>{impact.affectedEmployees}</strong> employees across{" "}
           {impact.monthsTouched.join(", ")}. Their attendance totals have changed.
-          <button className="ml-2 font-bold underline" onClick={() => setImpact(null)}>
+          <Button variant="link" className="h-auto p-0 ml-2 font-bold underline" onClick={() => setImpact(null)}>
             Dismiss
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -467,13 +467,13 @@ function HolidayPanel({
           },
           {
             node: (
-              <button
-                className="text-[12px] font-bold text-[#B03A3A] underline disabled:opacity-40"
+              <Button
+                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline disabled:opacity-40"
                 disabled={deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate(holiday.id)}
               >
                 Delete
-              </button>
+              </Button>
             ),
           },
         ])}

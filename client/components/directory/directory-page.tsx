@@ -8,6 +8,7 @@ import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
 import { ColleagueDialog } from "@/components/directory/colleague-dialog"
 import { initialsFrom } from "@/components/profile/avatar-upload"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -67,9 +68,9 @@ export function DirectoryPage() {
       ) : employeesQuery.isError ? (
         <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
           Failed to load the directory.{" "}
-          <button className="font-semibold underline" onClick={() => employeesQuery.refetch()}>
+          <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => employeesQuery.refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       ) : filtered.length === 0 ? (
         <p className="text-[13px] text-[#A5AFBE]">No colleagues match “{query}”.</p>
@@ -102,13 +103,13 @@ export function DirectoryPage() {
               {/* A named action rather than a card-sized hit area. It also gives
                   the card one real focus target, which a whole-card button made
                   awkward to describe to a screen reader. */}
-              <button
+              <Button
                 type="button"
                 onClick={() => setSelected(e)}
                 className="rounded-md border border-[#E4E9EF] px-2.5 py-1 text-[12.5px] font-semibold hover:border-[#C6CCD3]"
               >
                 View details
-              </button>
+              </Button>
             </div>
           ))}
         </div>

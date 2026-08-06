@@ -166,15 +166,15 @@ function StructureCard({
         </div>
         {canWrite ? (
           <div className="flex shrink-0 gap-3">
-            <button className="text-[12.5px] font-semibold underline" onClick={onEdit}>
+            <Button variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline" onClick={onEdit}>
               Edit
-            </button>
-            <button
-              className="text-[12.5px] font-semibold text-[#B03A3A] underline"
+            </Button>
+            <Button
+              variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#B03A3A] underline"
               onClick={onAskDelete}
             >
               Delete
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -399,14 +399,14 @@ export function SalaryStructuresPage() {
                     </div>
                   ) : null}
                 </div>
-                <button
-                  className="text-[12.5px] font-semibold underline"
+                <Button
+                  variant="link" className="h-auto p-0 text-[12.5px] font-semibold underline"
                   onClick={() =>
                     patch({ components: [...draft.components, { ...BLANK_COMPONENT }] })
                   }
                 >
                   {draft.components.length === 0 ? "Split this salary" : "Add another"}
-                </button>
+                </Button>
               </div>
 
               <div className="space-y-2">
@@ -456,14 +456,14 @@ export function SalaryStructuresPage() {
                     />
                     {/* Removing the last one is allowed — that is how a split
                         salary goes back to being a flat one. */}
-                    <button
-                      className="text-[12.5px] font-semibold text-[#B03A3A]"
+                    <Button
+                      variant="link" className="h-auto p-0 text-[12.5px] font-semibold text-[#B03A3A]"
                       onClick={() =>
                         patch({ components: draft.components.filter((_, j) => j !== i) })
                       }
                     >
                       Remove
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -525,9 +525,9 @@ export function SalaryStructuresPage() {
         ) : structuresQuery.isError ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
             Failed to load salary structures.{" "}
-            <button className="font-semibold underline" onClick={() => structuresQuery.refetch()}>
+            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => structuresQuery.refetch()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : structures.length === 0 ? (
           <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">

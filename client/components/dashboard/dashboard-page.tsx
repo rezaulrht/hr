@@ -7,6 +7,7 @@ import { checkIn as checkInApi, checkOut as checkOutApi } from "@/lib/api/attend
 import { ApiError } from "@/lib/api/client"
 import { getDashboard } from "@/lib/api/dashboard"
 import { useSession } from "@/lib/auth/session-context"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { ChartCard } from "@/components/dashboard/chart-card"
@@ -122,12 +123,12 @@ export function DashboardPage() {
             ? dashboardQuery.error.message
             : "Something went wrong on the way to the server."}
         </div>
-        <button
+        <Button
           className="mt-4 rounded-md bg-[#17191C] px-4 py-2 text-[13px] font-bold text-white"
           onClick={() => dashboardQuery.refetch()}
         >
           Try again
-        </button>
+        </Button>
       </div>
     )
   }
