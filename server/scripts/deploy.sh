@@ -28,7 +28,13 @@ run() {
 cd "$REPO_ROOT"
 
 # 1. Guard ------------------------------------------------------------------
-if [ -n "$(git status --porcelain)" ]; then
+# Tracked changes only: this script deploys origin/main via `git subtree
+# split` and never reads the working tree, so untracked files cannot affect
+# what ships. This is a hygiene check that your committed work is what gets
+# deployed, not a check on the working tree in general — an untracked
+# scratch file (e.g. local editor/tooling state) is noise, not a reason to
+# refuse to deploy.
+if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "error: working tree is dirty. Commit or stash before deploying." >&2
   exit 1
 fi
