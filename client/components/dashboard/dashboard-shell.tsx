@@ -44,7 +44,9 @@ export function DashboardShell({
       <Sidebar navGroups={navGroups} rootHref={rootHref} userName={userName} userInitials={userInitials} roleLabel={roleLabel} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header userName={userName} userInitials={userInitials} userEmail={email || "…"} />
-        <main className="mx-auto flex w-full max-w-[1220px] flex-1 flex-col px-7 pb-8">{children}</main>
+        <main className="mx-auto flex w-full max-w-[1220px] flex-1 flex-col px-4 pb-8 sm:px-6 lg:px-7 2xl:max-w-[1600px]">
+          {children}
+        </main>
       </div>
     </>
   )
