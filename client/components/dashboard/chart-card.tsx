@@ -2,10 +2,10 @@ import type { ChartBar } from "@/components/dashboard/types"
 
 export function ChartCard({ title, sub, bars }: { title: string; sub: string; bars: ChartBar[] }) {
   return (
-    <div className="flex min-w-75 max-w-100 flex-1 flex-col rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
+    <div className="@container flex max-w-100 min-w-0 flex-1 flex-col rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:min-w-75 sm:px-5.5 sm:py-5">
       <div className="text-[15px] font-bold">{title}</div>
       <div className="mt-0.5 mb-4.5 text-xs text-[#7A8698]">{sub}</div>
-      <div className="mt-auto flex h-37.5 items-end gap-3.5">
+      <div className="mt-auto flex h-30 items-end gap-3.5 @[400px]:h-37.5">
         {bars.map((bar, i) => (
           <div key={bar.label} className="flex h-full flex-1 flex-col items-center justify-end gap-1.5">
             <div className="text-[10.5px] font-bold text-[#55657A]">{bar.display}</div>

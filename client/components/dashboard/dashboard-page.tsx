@@ -56,7 +56,7 @@ function DashboardSkeleton() {
         ))}
       </div>
       <div className="mt-6 flex flex-wrap items-stretch gap-4">
-        <Skeleton className="h-63 min-w-75 max-w-100 flex-1 rounded-md" />
+        <Skeleton className="h-63 max-w-100 min-w-0 flex-1 rounded-md sm:min-w-70" />
         <Skeleton className="h-63 min-w-0 flex-[10_1_460px] rounded-md" />
       </div>
     </>

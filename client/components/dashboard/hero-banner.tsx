@@ -25,7 +25,7 @@ export function HeroBanner({
 
   return (
     <div
-      className="relative overflow-hidden rounded-b-md px-7.5 pt-7.5 pb-19.5 text-white"
+      className="relative overflow-hidden rounded-b-md px-4.5 pt-6 pb-18 text-white sm:px-7.5 sm:pt-7.5 sm:pb-19.5"
       style={{ background: "linear-gradient(120deg, #17191C 0%, #33373D 55%, #17191C 100%)" }}
     >
       <div className="absolute top-[-80px] right-[-60px] size-65 rounded-full bg-white/6" />
@@ -33,7 +33,7 @@ export function HeroBanner({
       <div className="relative flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="mb-2 text-xs font-bold tracking-[1.2px] text-[#B6BDC6] uppercase">{kicker}</div>
-          <h1 className="font-heading mb-1.5 text-[27px] font-bold tracking-tight">{heading}</h1>
+          <h1 className="font-heading mb-1.5 text-[22px] font-bold tracking-tight sm:text-[27px]">{heading}</h1>
           <div className="text-[13.5px] text-white/75">
             {todayLong} · {sub}
           </div>
