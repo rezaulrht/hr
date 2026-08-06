@@ -2,6 +2,7 @@
 
 import { Header } from "@/components/dashboard/header"
 import { Sidebar } from "@/components/dashboard/sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import type { NavGroup } from "@/components/dashboard/types"
 import { useSession } from "@/lib/auth/session-context"
 import type { Role } from "@/lib/api/types"
@@ -40,14 +41,20 @@ export function DashboardShell({
   const roleLabel = status === "authenticated" && user ? ROLE_LABELS[user.role] : "…"
 
   return (
-    <>
+    // The primitive's default width is 16rem; ours is 236px. It sets the
+    // variable as an inline style on its own wrapper, so this style prop —
+    // spread after the defaults — is the override point. Editing the vendored
+    // constant would be undone by the next `shadcn add`.
+    <SidebarProvider style={{ "--sidebar-width": "236px" } as React.CSSProperties}>
       <Sidebar navGroups={navGroups} rootHref={rootHref} userName={userName} userInitials={userInitials} roleLabel={roleLabel} />
+      {/* Deliberately not SidebarInset: that renders its own <main>, and the
+          content area below already is one. Nested <main> is invalid. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <Header userName={userName} userInitials={userInitials} userEmail={email || "…"} />
         <main className="mx-auto flex w-full max-w-[1220px] flex-1 flex-col px-4 pb-8 sm:px-6 lg:px-7 2xl:max-w-[1600px]">
           {children}
         </main>
       </div>
-    </>
+    </SidebarProvider>
   )
 }
