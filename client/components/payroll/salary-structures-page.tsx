@@ -23,6 +23,7 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Tag } from "@/components/dashboard/tag"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -372,14 +373,18 @@ export function SalaryStructuresPage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="s-active"
+                nativeButton
+                render={<button type="button" />}
                 checked={draft.isActive}
-                onChange={(e) => patch({ isActive: e.target.checked })}
+                onCheckedChange={(v) => patch({ isActive: v })}
               />
-              Active — inactive structures cannot be assigned to anyone new
-            </label>
+              <Label htmlFor="s-active" className="text-[12.5px] font-normal">
+                Active — inactive structures cannot be assigned to anyone new
+              </Label>
+            </div>
 
             <div>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

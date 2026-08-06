@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -221,14 +222,21 @@ export function ComposeAnnouncementDialog({
               disabled={draft}
               onChange={(e) => setPublishAt(e.target.value)}
             />
-            <label className="flex items-center gap-2 text-[12.5px] text-[#55657A]">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              {/* `nativeButton` + a rendered <button> is what lets a sibling
+                  <Label htmlFor> actually toggle it — the default Base UI root
+                  is not a labelable element. */}
+              <Checkbox
+                id="ann-draft"
+                nativeButton
+                render={<button type="button" />}
                 checked={draft}
-                onChange={(e) => setDraft(e.target.checked)}
+                onCheckedChange={(v) => setDraft(v)}
               />
-              Save as a draft — nobody sees it until you publish
-            </label>
+              <Label htmlFor="ann-draft" className="text-[12.5px] font-normal text-[#55657A]">
+                Save as a draft — nobody sees it until you publish
+              </Label>
+            </div>
             {!draft && !publishAt ? (
               <span className="text-[12px] text-[#7A8698]">Leave empty to publish immediately.</span>
             ) : null}
