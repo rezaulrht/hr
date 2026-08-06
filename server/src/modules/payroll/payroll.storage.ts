@@ -61,12 +61,22 @@ export async function putPdf(key: string, bytes: Uint8Array): Promise<string | n
 export async function getPdf(key: string): Promise<Buffer | null> {
   try {
     const { url } = signedDocumentUrl(publicIdFor(key), "pdf")
-    const res = await fetch(url)
-    if (!res.ok) return null
+    // 5s, well under Heroku's 30s router limit: this is a cache read on the
+    // download request path, and a cache read slower than a re-render is
+    // worse than no cache at all. The abort lands in the catch below and
+    // degrades to a re-render, same as any other unreachable-store outcome.
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) {
+      console.warn("Payslip cache miss", key, res.status)
+      return null
+    }
     return Buffer.from(await res.arrayBuffer())
-  } catch {
+  } catch (err) {
     // Absent, unreachable or unconfigured are the same answer to the caller:
-    // re-render it. A miss costs a Puppeteer render, never a failure.
+    // re-render it. A miss costs a Puppeteer render, never a failure. Still
+    // logged, though — a permanent miss (e.g. Cloudinary PDF delivery
+    // disabled) must be visible somewhere, not just slower.
+    console.warn("Payslip cache read failed", key, err)
     return null
   }
 }

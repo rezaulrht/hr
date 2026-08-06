@@ -95,6 +95,56 @@ describe("getPdf", () => {
     await expect(getPdf("payslip-abc123.pdf")).resolves.toBeNull()
   })
 
+  // A hung Cloudinary must not hold the request open behind Heroku's 30s
+  // router timeout — the fetch has to carry its own, much shorter, deadline.
+  it("passes an abort signal so a hung request cannot outlast Heroku's router timeout", async () => {
+    signedDocumentUrl.mockReturnValue({ url: "https://signed.example/x.pdf", expiresAt: "" })
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await getPdf("payslip-abc123.pdf")
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  // The abort itself throws (DOMException / AbortError) and must land in the
+  // same catch as any other unreachable-store failure, degrading to null
+  // rather than surfacing as a failed download.
+  it("returns null when the fetch aborts on timeout", async () => {
+    signedDocumentUrl.mockReturnValue({ url: "https://signed.example/x.pdf", expiresAt: "" })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new DOMException("The operation was aborted.", "TimeoutError"))
+    )
+
+    await expect(getPdf("payslip-abc123.pdf")).resolves.toBeNull()
+  })
+
+  it("warns rather than silently discarding a non-ok response", async () => {
+    signedDocumentUrl.mockReturnValue({ url: "https://signed.example/x.pdf", expiresAt: "" })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    await getPdf("payslip-abc123.pdf")
+
+    expect(warn).toHaveBeenCalledWith("Payslip cache miss", "payslip-abc123.pdf", 404)
+    warn.mockRestore()
+  })
+
+  it("warns rather than silently discarding a fetch failure", async () => {
+    signedDocumentUrl.mockReturnValue({ url: "https://signed.example/x.pdf", expiresAt: "" })
+    const err = new Error("network")
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(err))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    await getPdf("payslip-abc123.pdf")
+
+    expect(warn).toHaveBeenCalledWith("Payslip cache read failed", "payslip-abc123.pdf", err)
+    warn.mockRestore()
+  })
+
   it("returns null rather than throwing when media is not configured", async () => {
     signedDocumentUrl.mockImplementation(() => {
       throw new Error("File storage is not configured on this server")
