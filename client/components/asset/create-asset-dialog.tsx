@@ -134,7 +134,7 @@ export function CreateAssetDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="mb-1.5 text-xs font-bold">Category</Label>
               <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")}>
@@ -176,7 +176,7 @@ export function CreateAssetDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="asset-model" className="mb-1.5 text-xs font-bold">
                 Model <span className="font-normal text-muted-foreground">(optional)</span>
@@ -213,7 +213,7 @@ export function CreateAssetDialog({
             </Select>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="asset-cost" className="mb-1.5 text-xs font-bold">
                 Purchase cost <span className="font-normal text-muted-foreground">(optional)</span>
@@ -254,7 +254,7 @@ export function CreateAssetDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="asset-vendor" className="mb-1.5 text-xs font-bold">
                 Vendor <span className="font-normal text-muted-foreground">(optional)</span>

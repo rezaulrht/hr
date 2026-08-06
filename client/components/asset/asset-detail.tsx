@@ -130,7 +130,7 @@ export function AssetDetail({
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                 <Field label="Serial number" value={asset.serialNumber ?? "—"} />
                 <Field label="Model" value={asset.model ?? "—"} />
                 <Field label="Location" value={asset.location ?? "—"} />

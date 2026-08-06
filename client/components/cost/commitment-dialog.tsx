@@ -148,7 +148,7 @@ export function CommitmentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="mb-1.5 text-xs font-bold">Category</Label>
               <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")} disabled={isEdit}>
@@ -186,7 +186,7 @@ export function CommitmentDialog({
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="commitment-amount" className="mb-1.5 text-xs font-bold">
                 Amount <span className="font-normal text-muted-foreground">(optional)</span>

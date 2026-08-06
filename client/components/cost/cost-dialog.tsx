@@ -104,7 +104,7 @@ function BillForm({
           ) : null}
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label className="mb-1.5 text-xs font-bold">Category</Label>
             <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")} disabled={!canManage}>
@@ -137,7 +137,7 @@ function BillForm({
           <Input id="cost-label" value={label} disabled={!canManage} onChange={(e) => setLabel(e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label htmlFor="cost-amount" className="mb-1.5 text-xs font-bold">
               Amount

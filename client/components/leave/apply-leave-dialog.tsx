@@ -301,7 +301,7 @@ export function ApplyLeaveDialog({
 
           <div>
             <Label className="mb-1.5 text-xs font-bold">How long?</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 type="button"
                 variant={isSingleDay ? "default" : "outline"}
@@ -348,7 +348,7 @@ export function ApplyLeaveDialog({
               </Popover>
             </div>
           ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="mb-1.5 text-xs font-bold">Start date</Label>
               <Popover>
@@ -412,7 +412,7 @@ export function ApplyLeaveDialog({
           {isSingleDay ? (
             <div>
               <Label className="mb-1.5 text-xs font-bold">Duration</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {DURATION_CHOICES.map((choice) => {
                   // Disabled rather than hidden for a whole-days-only type:
                   // an option that silently vanishes when you change type is
