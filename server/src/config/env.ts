@@ -5,6 +5,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().default(4000),
   CLIENT_ORIGIN: z.string().default("http://localhost:3000"),
+  // Optional comma-separated CORS allowlist. Defaults to [CLIENT_ORIGIN].
+  // Separate from CLIENT_ORIGIN because that one is also the base for
+  // outbound email links, where a list would corrupt every URL.
+  CORS_ORIGINS: z.string().optional(),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   JWT_ACCESS_EXPIRY: z.string().default("15m"),

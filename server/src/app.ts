@@ -4,6 +4,7 @@ import express from "express"
 import helmet from "helmet"
 import morgan from "morgan"
 
+import { parseOrigins } from "./config/cors"
 import { env } from "./config/env"
 import { errorHandler } from "./middleware/errorHandler"
 import announcementRoutes from "./modules/announcement/announcement.routes"
@@ -26,7 +27,7 @@ const app = express()
 app.use(helmet())
 app.use(
   cors({
-    origin: env.CLIENT_ORIGIN,
+    origin: parseOrigins(env.CORS_ORIGINS, env.CLIENT_ORIGIN),
     credentials: true,
   })
 )
