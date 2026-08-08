@@ -13,17 +13,21 @@ vi.mock("./user.service", () => ({
     role: "HR_ADMIN",
     temporaryPassword: "TempPass123",
   })),
+  setUserStatus: vi.fn(async () => ({
+    id: "u2",
+    email: "b@c.com",
+    role: "HR_ADMIN",
+    isActive: false,
+    mustChangePassword: false,
+    createdAt: "2026-01-05T00:00:00.000Z",
+    employee: null,
+  })),
 }))
 
 import app from "../../app"
+import { AppError } from "../../middleware/errorHandler"
 import { signAccessToken } from "./auth.utils"
-import prisma from "../../config/prisma"
-import { Prisma } from "../../generated/prisma/client"
-
-const mockedPrisma = prisma as unknown as {
-  user: { update: ReturnType<typeof vi.fn> }
-  refreshToken: { updateMany: ReturnType<typeof vi.fn> }
-}
+import { setUserStatus } from "./user.service"
 
 function tokenFor(role: "SUPER_ADMIN" | "EMPLOYEE" | "HR_ADMIN") {
   return signAccessToken({ sub: "actor-1", role: role as any, email: "actor@b.com", mustChangePassword: false })
@@ -47,29 +51,29 @@ describe("PATCH /api/users/:id/status", () => {
     expect(res.status).toBe(403)
   })
 
-  it("returns 200, updates isActive, and revokes refresh tokens when deactivating", async () => {
-    mockedPrisma.user.update.mockResolvedValue({ id: "u2", email: "b@c.com", isActive: false })
-    mockedPrisma.refreshToken.updateMany.mockResolvedValue({ count: 1 })
+  // Token revocation, the 404 and the guards moved into user.service when
+  // this handler was made to delegate; user.service.test.ts owns them now.
+  // What is left to assert here is the wiring.
+  it("returns 200 and passes the CALLER's id through, so the self-guard can fire", async () => {
     const res = await request(app)
       .patch("/api/users/u2/status")
       .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
       .send({ isActive: false })
+
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ id: "u2", email: "b@c.com", isActive: false })
-    expect(mockedPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
-      where: { userId: "u2", revokedAt: null },
-      data: { revokedAt: expect.any(Date) },
-    })
+    expect(res.body.isActive).toBe(false)
+    // The guard is useless if the route drops the actor.
+    expect(setUserStatus).toHaveBeenCalledWith("actor-1", "u2", false)
   })
 
-  it("returns 200 and does not revoke tokens when reactivating", async () => {
-    mockedPrisma.user.update.mockResolvedValue({ id: "u2", email: "b@c.com", isActive: true })
+  it("passes true straight through when reactivating", async () => {
     const res = await request(app)
       .patch("/api/users/u2/status")
       .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
       .send({ isActive: true })
+
     expect(res.status).toBe(200)
-    expect(mockedPrisma.refreshToken.updateMany).not.toHaveBeenCalled()
+    expect(setUserStatus).toHaveBeenCalledWith("actor-1", "u2", true)
   })
 
   it("returns 400 for a malformed body", async () => {
@@ -80,10 +84,8 @@ describe("PATCH /api/users/:id/status", () => {
     expect(res.status).toBe(400)
   })
 
-  it("returns 404 for an unknown user id", async () => {
-    mockedPrisma.user.update.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError("Record not found", { code: "P2025", clientVersion: "7.9.0" })
-    )
+  it("surfaces the service's 404 for an unknown user id", async () => {
+    vi.mocked(setUserStatus).mockRejectedValueOnce(new AppError(404, "User not found"))
     const res = await request(app)
       .patch("/api/users/unknown-id/status")
       .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)

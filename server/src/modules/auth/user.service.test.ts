@@ -12,8 +12,12 @@ vi.mock("./auth.utils", () => ({
   hashPassword: vi.fn(async () => "hashed"),
 }))
 
+vi.mock("./auth.service", () => ({
+  revokeAllUserTokens: vi.fn(async () => undefined),
+}))
+
 import prisma from "../../config/prisma"
-import { createUser, listUsers } from "./user.service"
+import { createUser, listUsers, setUserStatus } from "./user.service"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -138,5 +142,95 @@ describe("createUser", () => {
     const result = await createUser({ email: "new@demo.com", role: "HR_ADMIN" })
 
     expect(result).not.toHaveProperty("passwordHash")
+  })
+})
+
+describe("setUserStatus", () => {
+  const target = {
+    id: "u-2",
+    email: "hr@demo.com",
+    role: "HR_ADMIN",
+    isActive: true,
+    mustChangePassword: false,
+    createdAt: new Date("2026-01-05T00:00:00.000Z"),
+    employee: null,
+  }
+
+  it("deactivates another user and returns the updated account", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(target as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...target,
+      isActive: false,
+    } as never)
+
+    const result = await setUserStatus("u-1", "u-2", false)
+
+    expect(result.isActive).toBe(false)
+  })
+
+  it("refuses self-deactivation — it revokes the caller's own session", async () => {
+    // updateUserStatusHandler calls revokeAllUserTokens on the target. Doing
+    // that to yourself logs you out mid-request, and every route here is
+    // SUPER_ADMIN-gated, so there is no way back in.
+    await expect(setUserStatus("u-1", "u-1", false)).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it("refuses deactivating the last ACTIVE super admin", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...target,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+    } as never)
+    vi.mocked(prisma.user.count).mockResolvedValue(1 as never)
+
+    await expect(setUserStatus("u-1", "u-3", false)).rejects.toMatchObject({ statusCode: 409 })
+
+    // Counts ACTIVE super admins, not all of them — three super admins where
+    // two are already deactivated is still one away from lockout.
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: { role: "SUPER_ADMIN", isActive: true },
+    })
+  })
+
+  it("allows deactivating a super admin when another active one remains", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...target,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+    } as never)
+    vi.mocked(prisma.user.count).mockResolvedValue(2 as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...target,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+      isActive: false,
+    } as never)
+
+    await expect(setUserStatus("u-1", "u-3", false)).resolves.toBeDefined()
+  })
+
+  it("does not run the last-admin check when REACTIVATING", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...target,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+      isActive: false,
+    } as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...target,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+    } as never)
+
+    await setUserStatus("u-1", "u-3", true)
+
+    expect(prisma.user.count).not.toHaveBeenCalled()
+  })
+
+  it("404s for an unknown user", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
+
+    await expect(setUserStatus("u-1", "nope", false)).rejects.toMatchObject({ statusCode: 404 })
   })
 })

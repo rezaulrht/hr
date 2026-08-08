@@ -15,6 +15,7 @@ import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
 import type { Role } from "../../generated/prisma/client"
 import { generateTemporaryPassword, hashPassword } from "./auth.utils"
+import { revokeAllUserTokens } from "./auth.service"
 
 export interface UserAccount {
   id: string
@@ -101,4 +102,61 @@ export async function createUser(input: {
   })
 
   return { id: user.id, email: user.email, role: user.role, temporaryPassword }
+}
+
+/**
+ * Refuses to leave the system with nobody who can administer it.
+ *
+ * Counts ACTIVE super admins, not all of them: three super admins where two
+ * are already deactivated is still one step from a locked system.
+ *
+ * Only checked when deactivating or demoting. Reactivating the second-to-last
+ * admin is always safe, and running the count there would be a query that can
+ * only ever pass.
+ */
+async function assertNotLastActiveSuperAdmin(user: { id: string; role: Role }): Promise<void> {
+  if (user.role !== "SUPER_ADMIN") return
+  const activeAdmins = await prisma.user.count({
+    where: { role: "SUPER_ADMIN", isActive: true },
+  })
+  if (activeAdmins <= 1) {
+    throw new AppError(409, "This is the last active super admin. Promote another one first.")
+  }
+}
+
+/**
+ * The soft delete. `isActive = false` locks the account out — auth.service
+ * refuses login, refresh and rotation on it — while the row and every foreign
+ * key to it survive, and the change is reversible.
+ */
+export async function setUserStatus(
+  actorUserId: string,
+  targetUserId: string,
+  isActive: boolean
+): Promise<UserAccount> {
+  // Before the lookup: the caller does not need to exist for this to be wrong.
+  if (!isActive && actorUserId === targetUserId) {
+    throw new AppError(409, "You cannot deactivate your own account")
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: USER_ACCOUNT_SELECT,
+  })
+  if (!target) throw new AppError(404, "User not found")
+
+  if (!isActive) await assertNotLastActiveSuperAdmin(target)
+
+  const updated = await prisma.user.update({
+    where: { id: targetUserId },
+    data: { isActive },
+    select: USER_ACCOUNT_SELECT,
+  })
+
+  // The access token survives until it expires and the refresh cookie keeps
+  // minting new ones, so without this the lockout does not take effect for
+  // the length of a session.
+  if (!isActive) await revokeAllUserTokens(targetUserId)
+
+  return toAccount(updated as UserRow)
 }
