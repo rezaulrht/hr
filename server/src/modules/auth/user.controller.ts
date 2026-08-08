@@ -4,12 +4,24 @@ import prisma from "../../config/prisma"
 import { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { revokeAllUserTokens } from "./auth.service"
-import { updateUserStatusSchema } from "./auth.validators"
-import { listUsers } from "./user.service"
+import { createUserSchema, updateUserStatusSchema } from "./auth.validators"
+import { createUser, listUsers } from "./user.service"
 
 export async function listUsersHandler(_req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await listUsers())
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function createUserHandler(req: Request, res: Response, next: NextFunction) {
+  const parsed = createUserSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request body" })
+  }
+  try {
+    return res.status(201).json(await createUser(parsed.data))
   } catch (err) {
     return next(err)
   }

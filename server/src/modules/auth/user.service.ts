@@ -12,7 +12,9 @@
  */
 
 import prisma from "../../config/prisma"
+import { AppError } from "../../middleware/errorHandler"
 import type { Role } from "../../generated/prisma/client"
+import { generateTemporaryPassword, hashPassword } from "./auth.utils"
 
 export interface UserAccount {
   id: string
@@ -67,4 +69,36 @@ export async function listUsers(): Promise<UserAccount[]> {
     orderBy: { createdAt: "desc" },
   })
   return (rows as UserRow[]).map(toAccount)
+}
+
+/**
+ * An administrative account with no Employee record.
+ *
+ * The role is narrowed by `createUserSchema` to the three roles that have no
+ * employment side. EMPLOYEE and REPORTING_MANAGER go through
+ * POST /api/employees/staff, which collects the department, designation,
+ * employment type and joining date an Employee row requires.
+ *
+ * The temporary password is returned exactly once, in this response. It is
+ * never stored in plaintext and never retrievable afterwards — the same
+ * contract createStaffAccount has.
+ */
+export async function createUser(input: {
+  email: string
+  role: Role
+}): Promise<{ id: string; email: string; role: Role; temporaryPassword: string }> {
+  const email = input.email.trim().toLowerCase()
+
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+  if (existing) throw new AppError(409, "An account with that email already exists")
+
+  const temporaryPassword = generateTemporaryPassword()
+  const passwordHash = await hashPassword(temporaryPassword)
+
+  const user = await prisma.user.create({
+    data: { email, passwordHash, role: input.role, mustChangePassword: true },
+    select: { id: true, email: true, role: true },
+  })
+
+  return { id: user.id, email: user.email, role: user.role, temporaryPassword }
 }

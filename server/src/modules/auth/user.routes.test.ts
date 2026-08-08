@@ -7,6 +7,12 @@ vi.mock("../../config/prisma", () => ({
 
 vi.mock("./user.service", () => ({
   listUsers: vi.fn(async () => []),
+  createUser: vi.fn(async () => ({
+    id: "u-9",
+    email: "new@demo.com",
+    role: "HR_ADMIN",
+    temporaryPassword: "TempPass123",
+  })),
 }))
 
 import app from "../../app"
@@ -109,5 +115,47 @@ describe("GET /api/users", () => {
     const res = await request(app).get("/api/users")
 
     expect(res.status).toBe(401)
+  })
+})
+
+describe("POST /api/users", () => {
+  it("201s and returns the temporary password once", async () => {
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ email: "new@demo.com", role: "HR_ADMIN" })
+
+    expect(res.status).toBe(201)
+    expect(res.body.temporaryPassword).toBe("TempPass123")
+    expect(res.body).not.toHaveProperty("passwordHash")
+  })
+
+  it("400s on an employee-tier role — those need POST /api/employees/staff", async () => {
+    // An EMPLOYEE account with no Employee row breaks employeeIdForUser,
+    // which leave, insights and attendance all resolve callers through.
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ email: "new@demo.com", role: "EMPLOYEE" })
+
+    expect(res.status).toBe(400)
+  })
+
+  it("400s on a malformed email", async () => {
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ email: "not-an-email", role: "HR_ADMIN" })
+
+    expect(res.status).toBe(400)
+  })
+
+  it("403s for HR_ADMIN", async () => {
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ email: "new@demo.com", role: "HR_ADMIN" })
+
+    expect(res.status).toBe(403)
   })
 })

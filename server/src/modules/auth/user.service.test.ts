@@ -7,8 +7,13 @@ vi.mock("../../config/prisma", () => ({
   },
 }))
 
+vi.mock("./auth.utils", () => ({
+  generateTemporaryPassword: vi.fn(() => "TempPass123"),
+  hashPassword: vi.fn(async () => "hashed"),
+}))
+
 import prisma from "../../config/prisma"
-import { listUsers } from "./user.service"
+import { createUser, listUsers } from "./user.service"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -67,5 +72,71 @@ describe("listUsers", () => {
       employeeCode: "BS-EMP-00001",
       fullName: "Rita Sen",
     })
+  })
+})
+
+describe("createUser", () => {
+  it("creates the account with a hashed temporary password and returns it once", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: "u-9",
+      email: "new@demo.com",
+      role: "HR_ADMIN",
+    } as never)
+
+    const result = await createUser({ email: "new@demo.com", role: "HR_ADMIN" })
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          email: "new@demo.com",
+          role: "HR_ADMIN",
+          passwordHash: "hashed",
+          // The account is unusable until they set their own password.
+          mustChangePassword: true,
+        }),
+      })
+    )
+    expect(result.temporaryPassword).toBe("TempPass123")
+  })
+
+  it("lowercases and trims the email before the uniqueness check", async () => {
+    // Otherwise Bob@x.com and bob@x.com become two accounts, the exact
+    // problem createStaffAccount normalises against.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: "u-9",
+      email: "bob@x.com",
+      role: "HR_ADMIN",
+    } as never)
+
+    await createUser({ email: "  Bob@X.com  ", role: "HR_ADMIN" })
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { email: "bob@x.com" },
+      select: { id: true },
+    })
+  })
+
+  it("409s on a duplicate email", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: "u-1" } as never)
+
+    await expect(createUser({ email: "hr@demo.com", role: "HR_ADMIN" })).rejects.toMatchObject({
+      statusCode: 409,
+    })
+    expect(prisma.user.create).not.toHaveBeenCalled()
+  })
+
+  it("never returns passwordHash", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: "u-9",
+      email: "new@demo.com",
+      role: "HR_ADMIN",
+    } as never)
+
+    const result = await createUser({ email: "new@demo.com", role: "HR_ADMIN" })
+
+    expect(result).not.toHaveProperty("passwordHash")
   })
 })
