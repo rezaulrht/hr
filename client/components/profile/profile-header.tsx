@@ -56,6 +56,8 @@ export function ProfileHeader({
           {employment ? (
             <Tag tone={STATUS_TONE[employment.employmentStatus]} label={STATUS_LABEL[employment.employmentStatus]} />
           ) : null}
+          {/* Independent of employmentStatus — see EmploymentDetails.accountActive. */}
+          {employment && !employment.accountActive ? <Tag tone="red" label="No access" /> : null}
         </div>
         <div className="mt-0.5 text-[13px] text-[#7A8698]">
           {employee.work.designation} · {employee.work.department.name}

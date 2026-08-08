@@ -22,6 +22,7 @@ import type {
 } from "@/lib/api/types"
 import { DataTable } from "@/components/dashboard/data-table"
 import { MiniStat } from "@/components/dashboard/page-header"
+import { Tag } from "@/components/dashboard/tag"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -73,8 +74,21 @@ function toRows(
     e.payroll?.salaryStructure
       ? { text: e.payroll.salaryStructure.name, sub: e.payroll.salaryStructure.currency }
       : { tag: e.payroll ? "Not set" : "—", tone: e.payroll ? ("red" as const) : ("neutral" as const) },
+    // Two tags, not one replacing the other: an employee who still works here
+    // but cannot log in is genuinely both, and collapsing that to one word
+    // loses the fact this column exists to show.
     e.employment
-      ? { tag: STATUS_LABEL[e.employment.employmentStatus], tone: STATUS_TONE[e.employment.employmentStatus] }
+      ? {
+          node: (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Tag
+                label={STATUS_LABEL[e.employment.employmentStatus]}
+                tone={STATUS_TONE[e.employment.employmentStatus]}
+              />
+              {e.employment.accountActive ? null : <Tag label="No access" tone="red" />}
+            </div>
+          ),
+        }
       : { text: "—" },
     {
       node: (
