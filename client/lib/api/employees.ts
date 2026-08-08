@@ -61,6 +61,28 @@ export function setSalaryStructure(
 }
 
 /**
+ * Enables or disables the login behind an employee record.
+ *
+ * SUPER_ADMIN only on the server, so the UI gates on role before offering it.
+ * Disabling revokes every refresh token that user holds. This is `isActive`
+ * on the User row — not `employmentStatus`, which `setExitDetails` owns.
+ */
+export function setAccountActive(
+  accessToken: string,
+  employeeId: string,
+  isActive: boolean
+): Promise<{ id: string; accountActive: boolean }> {
+  return apiFetch<{ id: string; accountActive: boolean }>(
+    `/api/employees/${employeeId}/account`,
+    {
+      method: "PATCH",
+      accessToken,
+      body: JSON.stringify({ isActive }),
+    }
+  )
+}
+
+/**
  * HR-only, and deliberately separate from `PATCH /:id`: it asserts the month
  * is not locked, refuses once a settlement is approved, and derives
  * `employmentStatus` from the reason. Routing this through the general edit

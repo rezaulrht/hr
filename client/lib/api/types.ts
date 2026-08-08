@@ -604,6 +604,13 @@ export interface EmploymentDetails {
   joiningDate: string
   officeLocation: string | null
   shift: { id: string; name: string } | null
+  /**
+   * Whether the login works — `User.isActive` on the server, NOT
+   * `employmentStatus`. The two are independent: a current employee can have
+   * a disabled account, and a resigned one can still have a live login until
+   * it is revoked. Render both, never one in place of the other.
+   */
+  accountActive: boolean
   deviceUserId?: string | null
 }
 
