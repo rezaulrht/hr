@@ -3,7 +3,7 @@ import { Router } from "express"
 import { Role } from "../../generated/prisma/client"
 import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
-import { costUpload } from "../media/media.upload"
+import { costUpload, spreadsheetUpload } from "../media/media.upload"
 import {
   createCategoryHandler,
   createCommitmentHandler,
@@ -45,19 +45,21 @@ router.patch("/commitments/:id", requireAuth, requireRole(...WRITE_ROLES), updat
 router.get("/summary", requireAuth, requireRole(...READ_ROLES), summaryHandler)
 
 // costUpload is already a complete handler with .single("file") baked in —
-// calling .single() on it again throws at request time.
+// calling .single() on it again throws at request time. The same is true of
+// spreadsheetUpload, which these two use because they carry a sheet rather
+// than a receipt.
 router.post(
   "/import/preview",
   requireAuth,
   requireRole(...WRITE_ROLES),
-  costUpload,
+  spreadsheetUpload,
   importPreviewHandler
 )
 router.post(
   "/import/commit",
   requireAuth,
   requireRole(...WRITE_ROLES),
-  costUpload,
+  spreadsheetUpload,
   importCommitHandler
 )
 

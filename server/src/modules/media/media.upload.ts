@@ -24,6 +24,20 @@ export const DOCUMENT_LIMITS: MediaLimits = {
   allowedFormats: ["pdf", "jpg", "jpeg", "png"],
 }
 
+/**
+ * The import kernel's formats, not the document ones.
+ *
+ * `parseSheet` (utils/import/import.parse.ts) reads xlsx and csv and nothing
+ * else, so a third format here would be a file multer waves through and the
+ * parser then rejects with a worse message. The ceiling matches
+ * DOCUMENT_LIMITS deliberately — a register export is the same size class as
+ * a scanned contract, and the client already sends DOCUMENT_MAX_BYTES.
+ */
+export const SPREADSHEET_LIMITS: MediaLimits = {
+  maxBytes: 15 * 1024 * 1024,
+  allowedFormats: ["xlsx", "csv"],
+}
+
 /** Last dot wins, so `contract.pdf.exe` reads as `exe` rather than `pdf`. */
 export function extensionOf(fileName: string): string {
   const dot = fileName.lastIndexOf(".")
@@ -78,3 +92,10 @@ export const documentUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUM
 export const assetUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
 // A receipt is the same size class too — no third limit constant.
 export const costUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
+// Both import consumers (asset register, operating costs) share this one.
+// They were previously wired to assetUpload/costUpload, which are document
+// filters, so every .xlsx 400ed at the fileFilter.
+export const spreadsheetUpload = withErrorTranslation(
+  build(SPREADSHEET_LIMITS),
+  SPREADSHEET_LIMITS
+)
