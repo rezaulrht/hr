@@ -1164,3 +1164,34 @@ export interface CostImportCommitResult {
   costCount: number
   paidCount: number
 }
+
+// ── USER ACCOUNTS ─────────────────────────────
+// Hand-mirrored from server/src/modules/auth/user.service.ts. Account-level
+// fields only — employment lives on EmployeeView, which /admin/employees
+// owns. `employee` is null for the three administrative roles, which have no
+// Employee row at all.
+
+export interface UserAccount {
+  id: string
+  email: string
+  role: Role
+  /** false is the soft delete: locked out, row and history preserved. */
+  isActive: boolean
+  mustChangePassword: boolean
+  createdAt: string
+  employee: { id: string; employeeCode: string; fullName: string } | null
+}
+
+/** Narrower than Role: employee-tier accounts go through the Add-employee form. */
+export interface CreateUserInput {
+  email: string
+  role: "SUPER_ADMIN" | "HR_ADMIN" | "FINANCE_OFFICER"
+}
+
+export interface CreateUserResult {
+  id: string
+  email: string
+  role: Role
+  /** Shown once, never retrievable again. */
+  temporaryPassword: string
+}
