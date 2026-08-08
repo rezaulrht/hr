@@ -5,6 +5,10 @@ vi.mock("../../config/prisma", () => ({
   default: { user: { update: vi.fn() }, refreshToken: { updateMany: vi.fn() } },
 }))
 
+vi.mock("./user.service", () => ({
+  listUsers: vi.fn(async () => []),
+}))
+
 import app from "../../app"
 import { signAccessToken } from "./auth.utils"
 import prisma from "../../config/prisma"
@@ -15,7 +19,7 @@ const mockedPrisma = prisma as unknown as {
   refreshToken: { updateMany: ReturnType<typeof vi.fn> }
 }
 
-function tokenFor(role: "SUPER_ADMIN" | "EMPLOYEE") {
+function tokenFor(role: "SUPER_ADMIN" | "EMPLOYEE" | "HR_ADMIN") {
   return signAccessToken({ sub: "actor-1", role: role as any, email: "actor@b.com", mustChangePassword: false })
 }
 
@@ -80,5 +84,30 @@ describe("PATCH /api/users/:id/status", () => {
       .send({ isActive: false })
     expect(res.status).toBe(404)
     expect(res.body).toEqual({ error: "User not found" })
+  })
+})
+
+describe("GET /api/users", () => {
+  it("200s for a SUPER_ADMIN", async () => {
+    const res = await request(app)
+      .get("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+
+  it("403s for HR_ADMIN — account administration is not HR's surface", async () => {
+    const res = await request(app)
+      .get("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+
+    expect(res.status).toBe(403)
+  })
+
+  it("401s without a token", async () => {
+    const res = await request(app).get("/api/users")
+
+    expect(res.status).toBe(401)
   })
 })

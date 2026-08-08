@@ -33,3 +33,26 @@ export const updateUserStatusSchema = z.object({
   isActive: z.boolean(),
 })
 export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>
+
+/**
+ * Narrower than the Role enum on purpose. An EMPLOYEE or REPORTING_MANAGER
+ * account needs an Employee row — department, designation, employment type,
+ * joining date — which is POST /api/employees/staff, not this. Creating one
+ * here would produce exactly the state setUserRole's guard refuses.
+ */
+export const createUserSchema = z.object({
+  email: z.string().email().trim().toLowerCase(),
+  role: z.enum(["SUPER_ADMIN", "HR_ADMIN", "FINANCE_OFFICER"]),
+})
+export type CreateUserInput = z.infer<typeof createUserSchema>
+
+export const setUserRoleSchema = z.object({
+  role: z.enum([
+    "SUPER_ADMIN",
+    "HR_ADMIN",
+    "FINANCE_OFFICER",
+    "REPORTING_MANAGER",
+    "EMPLOYEE",
+  ]),
+})
+export type SetUserRoleInput = z.infer<typeof setUserRoleSchema>
