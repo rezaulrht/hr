@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express"
 
-import { createUserSchema, updateUserStatusSchema } from "./auth.validators"
-import { createUser, listUsers, setUserStatus } from "./user.service"
+import { createUserSchema, setUserRoleSchema, updateUserStatusSchema } from "./auth.validators"
+import { createUser, listUsers, setUserRole, setUserStatus } from "./user.service"
 
 export async function listUsersHandler(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -38,6 +38,22 @@ export async function updateUserStatusHandler(
     return res
       .status(200)
       .json(await setUserStatus(req.user!.sub, req.params.id, parsed.data.isActive))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function setUserRoleHandler(
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = setUserRoleSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request body" })
+  }
+  try {
+    return res.status(200).json(await setUserRole(req.user!.sub, req.params.id, parsed.data.role))
   } catch (err) {
     return next(err)
   }

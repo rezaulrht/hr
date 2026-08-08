@@ -160,3 +160,66 @@ export async function setUserStatus(
 
   return toAccount(updated as UserRow)
 }
+
+const EMPLOYEE_TIER_ROLES: readonly Role[] = ["EMPLOYEE", "REPORTING_MANAGER"]
+
+/**
+ * Changing what an account is allowed to do.
+ *
+ * Promotion out of an employee role is safe: the Employee row stays, so
+ * payroll, leave and attendance keep resolving through it. The employeeCode
+ * prefix (BS-EMP-) goes stale, which is correct — it records what they were
+ * hired as, not what they are now.
+ *
+ * The two refusals below are the directions that break something.
+ *
+ * `actorUserId` is unused today. It is here so the signature matches
+ * setUserStatus and so an audit row can be added without touching call sites.
+ */
+export async function setUserRole(
+  _actorUserId: string,
+  targetUserId: string,
+  role: Role
+): Promise<UserAccount> {
+  const target = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: USER_ACCOUNT_SELECT,
+  })
+  if (!target) throw new AppError(404, "User not found")
+
+  const current = target as UserRow
+  if (current.role === role) return toAccount(current)
+
+  // An employee-tier role without an Employee row makes employeeIdForUser
+  // return null, and leave, insights, attendance and the employee update
+  // path all resolve a caller through it.
+  if (EMPLOYEE_TIER_ROLES.includes(role) && current.employee === null) {
+    throw new AppError(
+      400,
+      "This account has no employee record, so it cannot hold an employee or manager role"
+    )
+  }
+
+  // assertIsReportingManager gates on user.role, so demoting a manager leaves
+  // their reports pointing at somebody the system no longer accepts as one.
+  if (current.role === "REPORTING_MANAGER" && current.employee !== null) {
+    const subordinates = await prisma.employee.count({
+      where: { reportingManagerId: current.employee.id },
+    })
+    if (subordinates > 0) {
+      throw new AppError(
+        409,
+        `This manager still has ${subordinates} direct report${subordinates === 1 ? "" : "s"}. Reassign them first.`
+      )
+    }
+  }
+
+  await assertNotLastActiveSuperAdmin(current)
+
+  const updated = await prisma.user.update({
+    where: { id: targetUserId },
+    data: { role },
+    select: USER_ACCOUNT_SELECT,
+  })
+  return toAccount(updated as UserRow)
+}

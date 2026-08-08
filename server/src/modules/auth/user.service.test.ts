@@ -17,7 +17,7 @@ vi.mock("./auth.service", () => ({
 }))
 
 import prisma from "../../config/prisma"
-import { createUser, listUsers, setUserStatus } from "./user.service"
+import { createUser, listUsers, setUserRole, setUserStatus } from "./user.service"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -232,5 +232,99 @@ describe("setUserStatus", () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
 
     await expect(setUserStatus("u-1", "nope", false)).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe("setUserRole", () => {
+  const adminTarget = {
+    id: "u-2",
+    email: "hr@demo.com",
+    role: "HR_ADMIN",
+    isActive: true,
+    mustChangePassword: false,
+    createdAt: new Date("2026-01-05T00:00:00.000Z"),
+    employee: null,
+  }
+
+  const staffTarget = {
+    ...adminTarget,
+    id: "u-4",
+    role: "REPORTING_MANAGER",
+    employee: { id: "emp-4", employeeCode: "BS-MGR-00001", fullName: "Karim Rahman" },
+  }
+
+  it("promotes a staff account to an administrative role", async () => {
+    // Allowed in this direction: they keep their Employee row, so payroll,
+    // leave and attendance all keep resolving.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(staffTarget as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(0 as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...staffTarget,
+      role: "HR_ADMIN",
+    } as never)
+
+    const result = await setUserRole("u-1", "u-4", "HR_ADMIN")
+
+    expect(result.role).toBe("HR_ADMIN")
+  })
+
+  it("refuses an employee-tier role on an account with no Employee record", async () => {
+    // employeeIdForUser would return null, and leave, insights, attendance
+    // and the employee update path all resolve a caller through it.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+
+    await expect(setUserRole("u-1", "u-2", "EMPLOYEE")).rejects.toMatchObject({ statusCode: 400 })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it("refuses demoting a REPORTING_MANAGER who still has subordinates", async () => {
+    // assertIsReportingManager gates on user.role, so their reports would
+    // point at somebody the system no longer accepts as a manager.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(staffTarget as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(3 as never)
+
+    await expect(setUserRole("u-1", "u-4", "EMPLOYEE")).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.employee.count).toHaveBeenCalledWith({
+      where: { reportingManagerId: "emp-4" },
+    })
+  })
+
+  it("allows demoting a manager with no subordinates", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(staffTarget as never)
+    vi.mocked(prisma.employee.count).mockResolvedValue(0 as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...staffTarget,
+      role: "EMPLOYEE",
+    } as never)
+
+    await expect(setUserRole("u-1", "u-4", "EMPLOYEE")).resolves.toBeDefined()
+  })
+
+  it("refuses demoting the last active super admin", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...adminTarget,
+      id: "u-3",
+      role: "SUPER_ADMIN",
+    } as never)
+    vi.mocked(prisma.user.count).mockResolvedValue(1 as never)
+
+    await expect(setUserRole("u-1", "u-3", "HR_ADMIN")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("is a no-op that still returns the account when the role is unchanged", async () => {
+    // Not an error: the UI can submit the current value, and a 409 for
+    // "changed nothing" would be a worse experience than a 200.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+
+    const result = await setUserRole("u-1", "u-2", "HR_ADMIN")
+
+    expect(result.role).toBe("HR_ADMIN")
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it("404s for an unknown user", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
+
+    await expect(setUserRole("u-1", "nope", "HR_ADMIN")).rejects.toMatchObject({ statusCode: 404 })
   })
 })

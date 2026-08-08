@@ -22,12 +22,21 @@ vi.mock("./user.service", () => ({
     createdAt: "2026-01-05T00:00:00.000Z",
     employee: null,
   })),
+  setUserRole: vi.fn(async () => ({
+    id: "u2",
+    email: "b@c.com",
+    role: "FINANCE_OFFICER",
+    isActive: true,
+    mustChangePassword: false,
+    createdAt: "2026-01-05T00:00:00.000Z",
+    employee: null,
+  })),
 }))
 
 import app from "../../app"
 import { AppError } from "../../middleware/errorHandler"
 import { signAccessToken } from "./auth.utils"
-import { setUserStatus } from "./user.service"
+import { setUserRole, setUserStatus } from "./user.service"
 
 function tokenFor(role: "SUPER_ADMIN" | "EMPLOYEE" | "HR_ADMIN") {
   return signAccessToken({ sub: "actor-1", role: role as any, email: "actor@b.com", mustChangePassword: false })
@@ -157,6 +166,36 @@ describe("POST /api/users", () => {
       .post("/api/users")
       .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
       .send({ email: "new@demo.com", role: "HR_ADMIN" })
+
+    expect(res.status).toBe(403)
+  })
+})
+
+describe("PATCH /api/users/:id/role", () => {
+  it("200s for a SUPER_ADMIN and passes the actor through", async () => {
+    const res = await request(app)
+      .patch("/api/users/u2/role")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ role: "FINANCE_OFFICER" })
+
+    expect(res.status).toBe(200)
+    expect(setUserRole).toHaveBeenCalledWith("actor-1", "u2", "FINANCE_OFFICER")
+  })
+
+  it("400s on a role outside the enum", async () => {
+    const res = await request(app)
+      .patch("/api/users/u2/role")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ role: "WIZARD" })
+
+    expect(res.status).toBe(400)
+  })
+
+  it("403s for HR_ADMIN", async () => {
+    const res = await request(app)
+      .patch("/api/users/u2/role")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ role: "FINANCE_OFFICER" })
 
     expect(res.status).toBe(403)
   })
