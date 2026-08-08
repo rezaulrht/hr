@@ -27,9 +27,11 @@ import { visibilityTierFor } from "./employee.access"
 import {
   createStaffAccountSchema,
   documentTypeSchema,
+  setAccountActiveSchema,
   setSalaryStructureSchema,
   updateEmployeeSchema,
 } from "./employee.validators"
+import { setAccountActive } from "./employee.account"
 
 type RequestWithId = Request<{ id: string }>
 type RequestWithDoc = Request<{ id: string; docId: string }>
@@ -100,6 +102,28 @@ export async function setSalaryStructureHandler(
   }
   try {
     return res.status(200).json(await setSalaryStructure(req.params.id, req.user!.sub, parsed.data))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+/**
+ * Enabling/disabling the login behind an employee record.
+ *
+ * Keyed on the employee id rather than the user id, because that is the only
+ * identifier the client holds — see employee.account.ts.
+ */
+export async function setAccountActiveHandler(
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+) {
+  const parsed = setAccountActiveSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request body" })
+  }
+  try {
+    return res.status(200).json(await setAccountActive(req.params.id, parsed.data.isActive))
   } catch (err) {
     return next(err)
   }

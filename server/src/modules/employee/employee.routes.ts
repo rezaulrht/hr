@@ -14,6 +14,7 @@ import {
   getMyProfileHandler,
   listDocumentsHandler,
   listEmployeesHandler,
+  setAccountActiveHandler,
   setExitDetailsHandler,
   setSalaryStructureHandler,
   updateEmployeeHandler,
@@ -65,6 +66,16 @@ router.patch(
   requireAuth,
   requireRole(Role.SUPER_ADMIN, Role.HR_ADMIN),
   setExitDetailsHandler
+)
+
+// SUPER_ADMIN only, matching PATCH /api/users/:id/status. Disabling a login
+// revokes every session that person holds; that stays an admin action rather
+// than part of HR's offboarding, which is what `/:id/exit` is for.
+router.patch(
+  "/:id/account",
+  requireAuth,
+  requireRole(Role.SUPER_ADMIN),
+  setAccountActiveHandler
 )
 
 // No `requireRole`: listing is self-or-HR, so what a caller may do depends on
