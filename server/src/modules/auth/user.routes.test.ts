@@ -161,6 +161,21 @@ describe("POST /api/users", () => {
     expect(res.status).toBe(400)
   })
 
+  it("accepts a pasted email with padding and case, rather than 400ing on it", async () => {
+    // Regression: the schema read `.email().trim().toLowerCase()`, and Zod
+    // applies those in order — so validation ran on the padded string and
+    // rejected it as a malformed body instead of normalising it.
+    const { createUser } = await import("./user.service")
+
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ email: "  Bob@X.com  ", role: "HR_ADMIN" })
+
+    expect(res.status).toBe(201)
+    expect(createUser).toHaveBeenCalledWith({ email: "bob@x.com", role: "HR_ADMIN" })
+  })
+
   it("403s for HR_ADMIN", async () => {
     const res = await request(app)
       .post("/api/users")

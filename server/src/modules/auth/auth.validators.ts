@@ -41,7 +41,11 @@ export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>
  * here would produce exactly the state setUserRole's guard refuses.
  */
 export const createUserSchema = z.object({
-  email: z.string().email().trim().toLowerCase(),
+  // trim/lowercase BEFORE email(): Zod applies these in order, so validating
+  // first rejects a pasted "  Bob@X.com  " as a malformed body rather than
+  // normalising it. The service normalises again — that is the uniqueness
+  // check's guarantee, not this one's.
+  email: z.string().trim().toLowerCase().email(),
   role: z.enum(["SUPER_ADMIN", "HR_ADMIN", "FINANCE_OFFICER"]),
 })
 export type CreateUserInput = z.infer<typeof createUserSchema>
