@@ -31,11 +31,14 @@ export function ProfileHeader({
   employee,
   avatarEditable,
   onAvatarChanged,
+  onEditName,
   action,
 }: {
   employee: EmployeeView
   avatarEditable: boolean
   onAvatarChanged: () => void
+  /** Rendered only when supplied — the caller decides from editableFields. */
+  onEditName?: () => void
   action?: ReactNode
 }) {
   const employment = employee.employment
@@ -53,6 +56,30 @@ export function ProfileHeader({
           <h1 className="font-heading text-[21px] font-bold tracking-tight">
             {employee.work.fullName}
           </h1>
+          {onEditName ? (
+            <button
+              type="button"
+              onClick={onEditName}
+              aria-label="Edit name"
+              title="Edit name"
+              className="rounded p-1 text-[#7A8698] hover:bg-[#F4F6F9] hover:text-[#17191C]"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+            </button>
+          ) : null}
           {employment ? (
             <Tag tone={STATUS_TONE[employment.employmentStatus]} label={STATUS_LABEL[employment.employmentStatus]} />
           ) : null}
