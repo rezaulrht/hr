@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { users } from "@/components/dashboard/shared-pages"
+import { UsersPage } from "@/components/admin/users-page"
 
-export default function UsersPage() {
-  return <SubpagePage data={users} />
+export default function Page() {
+  return <UsersPage />
 }
