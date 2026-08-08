@@ -27,6 +27,10 @@ vi.mock("./employee.update", () => ({
   updateEmployee: vi.fn(),
 }))
 
+vi.mock("./employee.account", () => ({
+  setAccountActive: vi.fn(async () => ({ id: "emp-1", accountActive: false })),
+}))
+
 vi.mock("./employee.insights", () => ({
   getEmployeeInsights: vi.fn(),
 }))
@@ -456,5 +460,41 @@ describe("GET /api/employees/:id/insights", () => {
       .get("/api/employees/emp-1/insights")
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
     expect(res.status).toBe(403)
+  })
+})
+
+describe("PATCH /api/employees/:id/account", () => {
+  it("lets a SUPER_ADMIN disable a login", async () => {
+    const res = await request(app)
+      .patch("/api/employees/emp-1/account")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({ isActive: false })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ id: "emp-1", accountActive: false })
+  })
+
+  it("403s for HR_ADMIN — locking someone out is not part of offboarding", async () => {
+    const res = await request(app)
+      .patch("/api/employees/emp-1/account")
+      .set("Authorization", `Bearer ${tokenFor("HR_ADMIN")}`)
+      .send({ isActive: false })
+
+    expect(res.status).toBe(403)
+  })
+
+  it("400s on a missing isActive", async () => {
+    const res = await request(app)
+      .patch("/api/employees/emp-1/account")
+      .set("Authorization", `Bearer ${tokenFor("SUPER_ADMIN")}`)
+      .send({})
+
+    expect(res.status).toBe(400)
+  })
+
+  it("401s without a token", async () => {
+    const res = await request(app).patch("/api/employees/emp-1/account").send({ isActive: false })
+
+    expect(res.status).toBe(401)
   })
 })

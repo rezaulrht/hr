@@ -4,13 +4,14 @@ import { useState } from "react"
 import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getEmployee, setSalaryStructure } from "@/lib/api/employees"
+import { getEmployee, setAccountActive, setSalaryStructure } from "@/lib/api/employees"
 import { listSalaryStructures } from "@/lib/api/payroll"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
 import { SalaryStructureDialog } from "@/components/employees/salary-structure-dialog"
 import { CARD_FIELDS, EditCardDialog } from "@/components/profile/edit-card-dialog"
+import { EditNameDialog } from "@/components/profile/edit-name-dialog"
 import { ExitDetailsDialog } from "@/components/profile/exit-details-dialog"
 import { DocumentsCard } from "@/components/profile/documents-card"
 import { LeaveBalanceCard } from "@/components/profile/leave-balance-card"
@@ -47,12 +48,14 @@ export function EmployeeDetailPage({
   employeeId: string
   backHref: string
 }) {
-  const { accessToken, status: sessionStatus } = useSession()
+  const { accessToken, user, status: sessionStatus } = useSession()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState(false)
   const [exitOpen, setExitOpen] = useState(false)
   const [assigningStructure, setAssigningStructure] = useState(false)
   const [assignError, setAssignError] = useState<string | null>(null)
+  const [accountError, setAccountError] = useState<string | null>(null)
 
   const employeeQuery = useQuery({
     queryKey: ["employee", employeeId],
@@ -89,6 +92,19 @@ export function EmployeeDetailPage({
     },
   })
 
+  // Same reason as assignMutation: declared before the early returns, so it
+  // keys off `employeeId` rather than a record that may not exist yet.
+  const accountMutation = useMutation({
+    mutationFn: (isActive: boolean) => setAccountActive(accessToken!, employeeId, isActive),
+    onSuccess: () => {
+      setAccountError(null)
+      refresh()
+    },
+    onError: (err) => {
+      setAccountError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
+  })
+
   if (sessionStatus === "loading" || employeeQuery.isPending) {
     return (
       <div className="space-y-3 pt-7">
@@ -111,6 +127,11 @@ export function EmployeeDetailPage({
 
   const employee: EmployeeView = employeeQuery.data
   const canEdit = employee.editableFields.length > 0
+  const canEditName = employee.editableFields.includes("fullName")
+  // SUPER_ADMIN only, matching requireRole on PATCH /:id/account, so the
+  // control can never 403 when pressed.
+  const canToggleAccount = user?.role === "SUPER_ADMIN" && !!employee.employment
+  const accountActive = employee.employment?.accountActive ?? true
 
   // A card shows an Edit control if and only if it contains at least one
   // field this caller may write. No role check — editableFields comes from
@@ -138,21 +159,48 @@ export function EmployeeDetailPage({
         employee={employee}
         avatarEditable={canEdit}
         onAvatarChanged={refresh}
+        onEditName={canEditName ? () => setEditingName(true) : undefined}
         action={
-          canEdit ? (
+          canEdit || canToggleAccount ? (
             <>
-              <Button type="button" variant="outline" onClick={() => setAssigningStructure(true)}>
-                Assign salary structure
-              </Button>
-              {employee.exit === null ? (
-                <Button type="button" variant="outline" onClick={() => setExitOpen(true)}>
-                  Record exit
+              {canEdit ? (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setAssigningStructure(true)}>
+                    Assign salary structure
+                  </Button>
+                  {employee.exit === null ? (
+                    <Button type="button" variant="outline" onClick={() => setExitOpen(true)}>
+                      Record exit
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+              {/* Distinct from "Record exit": that ends the employment, this
+                  ends the access. Either can happen without the other. */}
+              {canToggleAccount ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={accountMutation.isPending}
+                  onClick={() => accountMutation.mutate(!accountActive)}
+                >
+                  {accountMutation.isPending
+                    ? "Saving…"
+                    : accountActive
+                      ? "Deactivate login"
+                      : "Reactivate login"}
                 </Button>
               ) : null}
             </>
           ) : null
         }
       />
+
+      {accountError ? (
+        <div className="mb-4 rounded-md border border-[#E4E9EF] bg-white px-5 py-3 text-[13px] text-[#B03A3A]">
+          {accountError}
+        </div>
+      ) : null}
 
       {/* FULL only — blockers arrive for SELF and FULL, and this page is never
           SELF. Every blocker here is actionable, because the person reading
@@ -274,6 +322,13 @@ export function EmployeeDetailPage({
           onSaved={refresh}
         />
       ) : null}
+
+      <EditNameDialog
+        employee={employee}
+        open={editingName}
+        onOpenChange={setEditingName}
+        onSaved={refresh}
+      />
 
       <ExitDetailsDialog
         employee={employee}

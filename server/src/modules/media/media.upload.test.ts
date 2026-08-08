@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { AVATAR_LIMITS, DOCUMENT_LIMITS, extensionOf } from "./media.upload"
+import {
+  AVATAR_LIMITS,
+  DOCUMENT_LIMITS,
+  SPREADSHEET_LIMITS,
+  extensionOf,
+} from "./media.upload"
 
 describe("extensionOf", () => {
   it("lowercases the extension", () => {
@@ -29,5 +34,22 @@ describe("limits", () => {
   it("allows pdf for documents but not webp", () => {
     expect(DOCUMENT_LIMITS.allowedFormats).toContain("pdf")
     expect(DOCUMENT_LIMITS.allowedFormats).not.toContain("webp")
+  })
+})
+
+describe("SPREADSHEET_LIMITS", () => {
+  it("accepts the two formats parseSheet can actually read", () => {
+    expect(SPREADSHEET_LIMITS.allowedFormats).toEqual(["xlsx", "csv"])
+  })
+
+  it("rejects document formats — an import is not a scanned contract", () => {
+    // The bug this test exists for: the import routes were wired to
+    // DOCUMENT_LIMITS, so multer refused every .xlsx before the parser ran.
+    expect(SPREADSHEET_LIMITS.allowedFormats).not.toContain("pdf")
+    expect(SPREADSHEET_LIMITS.allowedFormats).not.toContain("png")
+  })
+
+  it("caps at 15 MB, matching the client's DOCUMENT_MAX_BYTES", () => {
+    expect(SPREADSHEET_LIMITS.maxBytes).toBe(15 * 1024 * 1024)
   })
 })

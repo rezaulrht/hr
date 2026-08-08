@@ -165,7 +165,7 @@ const row = {
   lastWorkingDay: null,
   exitReason: null,
   exitNote: null,
-  user: { email: "rita@demo.com" },
+  user: { email: "rita@demo.com", isActive: true },
 } as any
 
 describe("projectEmployee", () => {
@@ -308,5 +308,34 @@ describe("projectEmployee", () => {
     const rich = projectEmployee(row, "FULL", [], [{ field: "x", blocks: "y" }])
     expect(rich.documents).toEqual([])
     expect(rich.blockers).toHaveLength(1)
+  })
+})
+
+describe("projectEmployee — accountActive", () => {
+  it("reports the login state for a FULL viewer", () => {
+    const view = projectEmployee(row, "FULL")
+    expect(view.employment?.accountActive).toBe(true)
+  })
+
+  it("reports a DISABLED login as false, independently of employmentStatus", () => {
+    // The bug: these are separate fields with separate writers. Deactivating
+    // a login never touches employmentStatus, so a locked-out employee still
+    // read as ACTIVE everywhere in the UI.
+    const disabled = { ...row, user: { email: "rita@demo.com", isActive: false } } as never
+    const view = projectEmployee(disabled, "FULL")
+
+    expect(view.employment?.employmentStatus).toBe("ACTIVE")
+    expect(view.employment?.accountActive).toBe(false)
+  })
+
+  it("is absent for COLLEAGUE, which has no employment group at all", () => {
+    // Who is locked out is not directory information.
+    const view = projectEmployee(row, "COLLEAGUE")
+    expect(view.employment).toBeUndefined()
+  })
+
+  it("is present for FINANCE and MANAGER, which do see employment", () => {
+    expect(projectEmployee(row, "FINANCE").employment?.accountActive).toBe(true)
+    expect(projectEmployee(row, "MANAGER").employment?.accountActive).toBe(true)
   })
 })

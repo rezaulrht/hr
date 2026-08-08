@@ -106,3 +106,9 @@ export const updateEmployeeSchema = z
   })
 
 export type UpdateEmployeeBody = z.infer<typeof updateEmployeeSchema>
+
+export const setAccountActiveSchema = z.object({
+  isActive: z.boolean(),
+})
+
+export type SetAccountActiveBody = z.infer<typeof setAccountActiveSchema>

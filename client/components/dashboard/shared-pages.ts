@@ -26,27 +26,8 @@ export const employees: SubpageData = {
   ],
 }
 
-export const users: SubpageData = {
-  kicker: "Administration",
-  title: "Users",
-  sub: "System accounts, roles, and activation",
-  cta: "Create user",
-  stats: [
-    { label: "Total users", value: "1,254", sub: "1,238 active · 16 deactivated" },
-    { label: "By role", value: "5 roles", sub: "2 super admins · 3 HR · 2 finance" },
-    { label: "Pending invites", value: "6", sub: "Sent with July onboarding" },
-  ],
-  tableTitle: "User accounts",
-  cols: "1.5fr 1.1fr 0.9fr 0.9fr",
-  headers: ["User", "Role", "Last login", "Status"],
-  rows: [
-    [{ text: "Priya Nair", sub: "priya.n@peoplecore.io", weight: 600 }, { text: "HR Admin" }, { text: "9:12 AM" }, { tag: "Active", tone: "green" }],
-    [{ text: "Marcus Webb", sub: "marcus.w@peoplecore.io", weight: 600 }, { text: "Finance Officer" }, { text: "8:40 AM" }, { tag: "Active", tone: "green" }],
-    [{ text: "Daniel Kim", sub: "daniel.k@peoplecore.io", weight: 600 }, { text: "Reporting Manager" }, { text: "Yesterday" }, { tag: "Active", tone: "green" }],
-    [{ text: "Yuki Tanaka", sub: "yuki.t@peoplecore.io", weight: 600 }, { text: "Employee" }, { text: "Never" }, { tag: "Invited", tone: "yellow" }],
-    [{ text: "Robert Ellis", sub: "Left company Jun 30", weight: 600 }, { text: "Employee" }, { text: "Jun 28" }, { tag: "Deactivated", tone: "red" }],
-  ],
-}
+// `users` used to live here. It is now a real page reading the User table —
+// components/admin/users-page.tsx.
 
 export const reports: SubpageData = {
   kicker: "Management",

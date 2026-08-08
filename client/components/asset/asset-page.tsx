@@ -97,10 +97,14 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function AssetTable({
   assets,
   onView,
+  onEdit,
   emptyLabel,
 }: {
   assets: Asset[]
   onView: (id: string) => void
+  /** HR / Super Admin only — absent for Finance and managers, matching the
+   *  server's HR_ROLES on PATCH /api/assets/:id. */
+  onEdit?: (id: string) => void
   emptyLabel: string
 }) {
   if (assets.length === 0) {
@@ -151,9 +155,16 @@ function AssetTable({
                 </TableCell>
               ) : null}
               <TableCell>
-                <Button type="button" size="sm" variant="outline" onClick={() => onView(asset.id)}>
-                  View
-                </Button>
+                <div className="flex justify-end gap-2 whitespace-nowrap">
+                  {onEdit ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => onEdit(asset.id)}>
+                      Edit
+                    </Button>
+                  ) : null}
+                  <Button type="button" size="sm" variant="outline" onClick={() => onView(asset.id)}>
+                    View
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -461,6 +472,7 @@ export function AssetPage() {
   const [repairTarget, setRepairTarget] = useState<string | null>(null)
   const [requestOpen, setRequestOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [editAssetId, setEditAssetId] = useState<string | null>(null)
 
   const categoriesQuery = useQuery({
     queryKey: ["asset-categories"],
@@ -607,6 +619,7 @@ export function AssetPage() {
                 <AssetTable
                   assets={registerQuery.data ?? []}
                   onView={setSelectedAssetId}
+                  onEdit={setEditAssetId}
                   emptyLabel="No assets match these filters."
                 />
               )}
@@ -797,6 +810,15 @@ export function AssetPage() {
       <CreateAssetDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
+        onSuccess={invalidateAssets}
+      />
+
+      {/* Keyed so switching target asset remounts and re-seeds the form. */}
+      <CreateAssetDialog
+        key={editAssetId ?? "edit-idle"}
+        open={!!editAssetId}
+        assetId={editAssetId}
+        onOpenChange={(next) => !next && setEditAssetId(null)}
         onSuccess={invalidateAssets}
       />
 

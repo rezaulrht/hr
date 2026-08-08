@@ -3,7 +3,7 @@ import { Router } from "express"
 import { Role } from "../../generated/prisma/client"
 import { requireAuth } from "../../middleware/requireAuth"
 import { requireRole } from "../../middleware/requireRole"
-import { assetUpload } from "../media/media.upload"
+import { assetUpload, spreadsheetUpload } from "../media/media.upload"
 import {
   acknowledgeHandler,
   approveRequestHandler,
@@ -71,18 +71,20 @@ router.post("/requests/:id/fulfil", requireAuth, requireRole(...HR_ROLES), fulfi
 // HR_ADMIN overriding are both legitimate, and the 403 lives in the service
 // where the reporting line is known.
 
+// spreadsheetUpload, not assetUpload: these carry an .xlsx/.csv register,
+// not a photo. assetUpload's document filter rejected every import.
 router.post(
   "/import/preview",
   requireAuth,
   requireRole(...HR_ROLES),
-  assetUpload,
+  spreadsheetUpload,
   importPreviewHandler
 )
 router.post(
   "/import/commit",
   requireAuth,
   requireRole(...HR_ROLES),
-  assetUpload,
+  spreadsheetUpload,
   importCommitHandler
 )
 

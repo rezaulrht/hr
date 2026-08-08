@@ -55,6 +55,15 @@ export interface EmploymentDetails {
   joiningDate: string
   officeLocation: string | null
   shift: { id: string; name: string } | null
+  /**
+   * Whether the login works — `User.isActive`, not `employmentStatus`.
+   *
+   * Deliberately a separate fact: an employee on garden leave has a live
+   * employment record and no login, and a current employee can have a
+   * disabled account during an investigation. Collapsing the two would erase
+   * a distinction the schema draws on purpose.
+   */
+  accountActive: boolean
   /** FULL only. A biometric enrolment id the employee cannot act on. */
   deviceUserId?: string | null
 }
