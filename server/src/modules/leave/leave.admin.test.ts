@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { assertStatutoryUpdateAllowed } from "./leave.admin"
+vi.mock("../../config/prisma", () => ({
+  default: {
+    $transaction: vi.fn(),
+    leaveType: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    leaveRequest: { count: vi.fn() },
+    leaveBalance: { count: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+}))
+
+import prisma from "../../config/prisma"
+import {
+  assertStatutoryUpdateAllowed,
+  createLeaveType,
+  deleteLeaveType,
+  updateLeaveType,
+} from "./leave.admin"
 
 // Mirrors the seeded CASUAL row (§115): 10 days, no carry-forward, no cap.
 const CASUAL = {
@@ -160,5 +176,114 @@ describe("locked fields", () => {
 
   it("always allows renaming", () => {
     expect(() => assertStatutoryUpdateAllowed(CASUAL as any, { name: "Casual Leave" })).not.toThrow()
+  })
+})
+
+const ACTOR = { sub: "user-1", role: "HR_ADMIN", email: "hr@demo.com", mustChangePassword: false } as any
+
+const NEW_TYPE = {
+  code: "STUDY",
+  name: "Study",
+  isPaid: true,
+  annualQuota: 5,
+  carryForwardPct: 0,
+  maxConsecutive: null,
+  allowsBackdating: false,
+  eligibleFor: ["FULL_TIME"],
+  countsHolidays: false,
+  accrualBasis: "PRO_RATED" as const,
+  minServiceMonths: 0,
+  maxAccrual: null,
+  allowsHalfDay: true,
+}
+
+describe("leave-type service", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => fn(prisma))
+    vi.mocked(prisma.leaveRequest.count).mockResolvedValue(0)
+    vi.mocked(prisma.leaveBalance.count).mockResolvedValue(0)
+  })
+
+  it("creates a type as non-statutory, whatever the caller wants", async () => {
+    vi.mocked(prisma.leaveType.create).mockResolvedValue({ id: "lt1", ...NEW_TYPE } as any)
+
+    await createLeaveType(NEW_TYPE as any, ACTOR)
+
+    expect(prisma.leaveType.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ statutory: false }) })
+    )
+  })
+
+  it("turns a duplicate code into a 409", async () => {
+    vi.mocked(prisma.$transaction).mockRejectedValue({ code: "P2002" })
+
+    await expect(createLeaveType(NEW_TYPE as any, ACTOR)).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("applies the statutory rules on update", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({ id: "lt-casual", ...CASUAL } as any)
+
+    await expect(updateLeaveType("lt-casual", { annualQuota: 8 }, ACTOR)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("cannot go below 10"),
+    })
+    expect(prisma.leaveType.update).not.toHaveBeenCalled()
+  })
+
+  it("allows a generous update to a statutory type", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({ id: "lt-casual", ...CASUAL } as any)
+    vi.mocked(prisma.leaveType.update).mockResolvedValue({
+      id: "lt-casual",
+      ...CASUAL,
+      annualQuota: 14,
+    } as any)
+
+    const result = await updateLeaveType("lt-casual", { annualQuota: 14 }, ACTOR)
+
+    expect(result.annualQuota).toBe(14)
+  })
+
+  it("refuses to delete a statutory type", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({ id: "lt-casual", ...CASUAL } as any)
+
+    await expect(deleteLeaveType("lt-casual", ACTOR)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("statutory"),
+    })
+    expect(prisma.leaveType.delete).not.toHaveBeenCalled()
+  })
+
+  it("deletes an unused company-policy type", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      id: "lt-personal",
+      code: "PERSONAL",
+      ...PERSONAL,
+    } as any)
+
+    await deleteLeaveType("lt-personal", ACTOR)
+
+    expect(prisma.leaveType.delete).toHaveBeenCalledWith({ where: { id: "lt-personal" } })
+  })
+
+  it("refuses to delete a type with requests or balances against it", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
+      id: "lt-personal",
+      code: "PERSONAL",
+      ...PERSONAL,
+    } as any)
+    vi.mocked(prisma.leaveRequest.count).mockResolvedValue(6)
+    vi.mocked(prisma.leaveBalance.count).mockResolvedValue(2)
+
+    await expect(deleteLeaveType("lt-personal", ACTOR)).rejects.toMatchObject({
+      message:
+        "This leave type is still in use by 6 leave requests and 2 leave balances. Reassign them first.",
+    })
+  })
+
+  it("404s an unknown id", async () => {
+    vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(null)
+
+    await expect(deleteLeaveType("nope", ACTOR)).rejects.toMatchObject({ statusCode: 404 })
   })
 })

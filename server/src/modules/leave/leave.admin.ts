@@ -15,8 +15,12 @@
  * granted benefit be walked back to the statutory floor with no warning.
  */
 
+import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
-import type { UpdateLeaveTypeInput } from "./leave.validators"
+import { writeAudit } from "../../utils/audit"
+import { describeUsage } from "../../utils/referenceUsage"
+import type { AccessTokenPayload } from "../auth/auth.types"
+import type { CreateLeaveTypeInput, UpdateLeaveTypeInput } from "./leave.validators"
 
 /** The subset of `LeaveType` the statutory check reads. */
 export interface StatutoryComparable {
@@ -105,4 +109,113 @@ export function assertStatutoryUpdateAllowed(
       throw refusal(`eligibleFor cannot drop ${dropped.join(", ")}`)
     }
   }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002"
+}
+
+export async function createLeaveType(input: CreateLeaveTypeInput, actor: AccessTokenPayload) {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const leaveType = await tx.leaveType.create({
+        // `statutory` is forced, never taken from the body: a row HR could
+        // mark statutory is a row HR could then no longer correct.
+        data: { ...input, statutory: false },
+      })
+
+      await writeAudit(tx, {
+        entity: "LEAVE_TYPE",
+        entityId: leaveType.id,
+        action: "CREATE",
+        changedBy: actor.sub,
+        after: { code: leaveType.code, name: leaveType.name, annualQuota: leaveType.annualQuota },
+      })
+
+      return leaveType
+    })
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new AppError(409, "A leave type with this code or name already exists")
+    }
+    throw err
+  }
+}
+
+export async function updateLeaveType(
+  id: string,
+  input: UpdateLeaveTypeInput,
+  actor: AccessTokenPayload
+) {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.leaveType.findUnique({ where: { id } })
+      if (!existing) throw new AppError(404, "Leave type not found")
+
+      assertStatutoryUpdateAllowed(existing, input)
+
+      const updated = await tx.leaveType.update({ where: { id }, data: input })
+
+      await writeAudit(tx, {
+        entity: "LEAVE_TYPE",
+        entityId: id,
+        action: "UPDATE",
+        changedBy: actor.sub,
+        before: {
+          name: existing.name,
+          annualQuota: existing.annualQuota,
+          minServiceMonths: existing.minServiceMonths,
+        },
+        after: {
+          name: updated.name,
+          annualQuota: updated.annualQuota,
+          minServiceMonths: updated.minServiceMonths,
+        },
+      })
+
+      return updated
+    })
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new AppError(409, "A leave type with this code or name already exists")
+    }
+    throw err
+  }
+}
+
+export async function deleteLeaveType(id: string, actor: AccessTokenPayload): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.leaveType.findUnique({ where: { id } })
+    if (!existing) throw new AppError(404, "Leave type not found")
+
+    if (existing.statutory) {
+      throw new AppError(
+        409,
+        `${existing.name} is a statutory leave type and cannot be deleted. Reduce it as far as the Act allows instead.`
+      )
+    }
+
+    const [requests, balances] = await Promise.all([
+      tx.leaveRequest.count({ where: { leaveTypeId: id } }),
+      tx.leaveBalance.count({ where: { leaveTypeId: id } }),
+    ])
+
+    const usage = describeUsage([
+      { noun: "leave request", count: requests },
+      { noun: "leave balance", count: balances },
+    ])
+    if (usage !== null) {
+      throw new AppError(409, `This leave type is still in use by ${usage}. Reassign them first.`)
+    }
+
+    await tx.leaveType.delete({ where: { id } })
+
+    await writeAudit(tx, {
+      entity: "LEAVE_TYPE",
+      entityId: id,
+      action: "DELETE",
+      changedBy: actor.sub,
+      before: { code: existing.code, name: existing.name },
+    })
+  })
 }

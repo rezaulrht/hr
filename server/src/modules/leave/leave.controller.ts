@@ -15,11 +15,52 @@ import {
   rejectLeaveRequest,
   revertLeaveRequest,
 } from "./leave.service"
-import { applyLeaveSchema, decisionNoteSchema } from "./leave.validators"
+import { createLeaveType, deleteLeaveType, updateLeaveType } from "./leave.admin"
+import {
+  applyLeaveSchema,
+  createLeaveTypeSchema,
+  decisionNoteSchema,
+  updateLeaveTypeSchema,
+} from "./leave.validators"
 
 export async function listLeaveTypesHandler(_req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await listLeaveTypes())
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function createLeaveTypeHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = createLeaveTypeSchema.parse(req.body)
+    return res.status(201).json(await createLeaveType(body, req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function updateLeaveTypeHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const body = updateLeaveTypeSchema.parse(req.body)
+    return res.json(await updateLeaveType(req.params.id, body, req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function deleteLeaveTypeHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    await deleteLeaveType(req.params.id, req.user!)
+    return res.status(204).send()
   } catch (err) {
     return next(err)
   }
