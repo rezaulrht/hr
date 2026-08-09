@@ -8,6 +8,7 @@ import { useSession } from "@/lib/auth/session-context"
 import { AssetCategoriesPanel } from "./asset-categories-panel"
 import { CostCategoriesPanel } from "./cost-categories-panel"
 import { DepartmentsPanel } from "./departments-panel"
+import { ExchangeRatesPanel } from "./exchange-rates-panel"
 import { LeaveTypesPanel } from "./leave-types-panel"
 import { ShiftsPanel } from "./shifts-panel"
 
@@ -59,6 +60,12 @@ const TABS: SettingsTab[] = [
     label: "Cost categories",
     roles: ["SUPER_ADMIN", "FINANCE_OFFICER"],
     Panel: CostCategoriesPanel,
+  },
+  {
+    value: "exchange-rates",
+    label: "Exchange rates",
+    roles: ["SUPER_ADMIN", "FINANCE_OFFICER"],
+    Panel: ExchangeRatesPanel,
   },
 ]
 
