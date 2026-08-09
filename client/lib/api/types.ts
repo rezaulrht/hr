@@ -1195,3 +1195,75 @@ export interface CreateUserResult {
   /** Shown once, never retrievable again. */
   temporaryPassword: string
 }
+
+// ── Reference data written from the Settings screens ──────────────────────
+// Hand-mirrored from the server's Zod schemas, like every other type here.
+// There is no shared package; that is deliberate.
+
+export interface DepartmentInput {
+  name: string
+}
+
+/** The whole `Shift` row. The server returns all of it since Project B. */
+export interface Shift {
+  id: string
+  name: string
+  startTime: string
+  endTime: string
+  breakMinutes: number
+  graceMinutes: number
+  /** 0=Sun … 6=Sat. `[5]` is Friday. */
+  weeklyOffDays: number[]
+  effectiveFrom: string | null
+  effectiveTo: string | null
+}
+
+export interface ShiftInput {
+  name: string
+  startTime: string
+  endTime: string
+  breakMinutes?: number
+  graceMinutes?: number
+  weeklyOffDays?: number[]
+}
+
+/**
+ * Every field optional and NO defaults applied — the server's update schema is
+ * built from a defaults-free field set on purpose, so a PATCH writes only what
+ * it carries. Sending a field here means intending to change it.
+ */
+export type ShiftUpdateInput = Partial<ShiftInput>
+
+/**
+ * Returned only when `weeklyOffDays` actually changed. Nothing else about a
+ * shift rewrites history: `isLate` is decided at punch time and stored, while
+ * weekly-off days are re-derived on every read.
+ */
+export interface ShiftImpact {
+  affectedEmployees: number
+  earliestAffectedDate: string | null
+}
+
+export interface ShiftWriteResult {
+  shift: Shift
+  impact?: ShiftImpact
+}
+
+export interface CreateLeaveTypeInput {
+  code: string
+  name: string
+  annualQuota: number
+  eligibleFor: EmploymentType[]
+  isPaid?: boolean
+  carryForwardPct?: number
+  maxConsecutive?: number | null
+  allowsBackdating?: boolean
+  countsHolidays?: boolean
+  accrualBasis?: LeaveAccrualBasis
+  minServiceMonths?: number
+  maxAccrual?: number | null
+  allowsHalfDay?: boolean
+}
+
+/** `code` is immutable, and `statutory` is never settable through the API. */
+export type UpdateLeaveTypeInput = Partial<Omit<CreateLeaveTypeInput, "code">>

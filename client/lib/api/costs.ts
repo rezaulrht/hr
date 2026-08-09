@@ -193,3 +193,7 @@ export function commitCostImport(
     body,
   })
 }
+
+export function deleteCostCategory(accessToken: string, id: string): Promise<void> {
+  return apiFetch<void>(`/api/costs/categories/${id}`, { method: "DELETE", accessToken })
+}
