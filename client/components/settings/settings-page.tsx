@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Role } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session-context"
 import { DepartmentsPanel } from "./departments-panel"
+import { ShiftsPanel } from "./shifts-panel"
 
 interface SettingsTab {
   value: string
@@ -29,6 +30,12 @@ const TABS: SettingsTab[] = [
     label: "Departments",
     roles: ["SUPER_ADMIN", "HR_ADMIN"],
     Panel: DepartmentsPanel,
+  },
+  {
+    value: "shifts",
+    label: "Shifts",
+    roles: ["SUPER_ADMIN", "HR_ADMIN"],
+    Panel: ShiftsPanel,
   },
 ]
 
