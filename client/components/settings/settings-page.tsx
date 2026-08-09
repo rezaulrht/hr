@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Role } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session-context"
 import { DepartmentsPanel } from "./departments-panel"
+import { LeaveTypesPanel } from "./leave-types-panel"
 import { ShiftsPanel } from "./shifts-panel"
 
 interface SettingsTab {
@@ -36,6 +37,12 @@ const TABS: SettingsTab[] = [
     label: "Shifts",
     roles: ["SUPER_ADMIN", "HR_ADMIN"],
     Panel: ShiftsPanel,
+  },
+  {
+    value: "leave-types",
+    label: "Leave types",
+    roles: ["SUPER_ADMIN", "HR_ADMIN"],
+    Panel: LeaveTypesPanel,
   },
 ]
 
