@@ -5,6 +5,8 @@ import type { ComponentType } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Role } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session-context"
+import { AssetCategoriesPanel } from "./asset-categories-panel"
+import { CostCategoriesPanel } from "./cost-categories-panel"
 import { DepartmentsPanel } from "./departments-panel"
 import { LeaveTypesPanel } from "./leave-types-panel"
 import { ShiftsPanel } from "./shifts-panel"
@@ -43,6 +45,20 @@ const TABS: SettingsTab[] = [
     label: "Leave types",
     roles: ["SUPER_ADMIN", "HR_ADMIN"],
     Panel: LeaveTypesPanel,
+  },
+  {
+    value: "asset-categories",
+    label: "Asset categories",
+    roles: ["SUPER_ADMIN", "HR_ADMIN"],
+    Panel: AssetCategoriesPanel,
+  },
+  // Finance, not HR — cost categories are the one reference table HR does not
+  // own, matching the WRITE_ROLES gate on /api/costs/categories.
+  {
+    value: "cost-categories",
+    label: "Cost categories",
+    roles: ["SUPER_ADMIN", "FINANCE_OFFICER"],
+    Panel: CostCategoriesPanel,
   },
 ]
 
