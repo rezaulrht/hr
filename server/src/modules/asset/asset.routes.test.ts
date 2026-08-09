@@ -13,6 +13,7 @@ vi.mock("./asset.service", () => ({
   listCategories: vi.fn(async () => []),
   createCategory: vi.fn(),
   updateCategory: vi.fn(),
+  deleteCategory: vi.fn(async () => undefined),
 }))
 
 vi.mock("./asset.assignments", () => ({
@@ -129,5 +130,21 @@ describe("route ordering", () => {
     const res = await request(app).get("/api/assets/categories").set(authHeader("EMPLOYEE"))
 
     expect(res.status).toBe(200)
+  })
+})
+
+describe("DELETE /api/assets/categories/:id", () => {
+  it("refuses a Finance officer — asset categories are HR's", async () => {
+    const res = await request(app)
+      .delete("/api/assets/categories/c1")
+      .set(authHeader("FINANCE_OFFICER"))
+
+    expect(res.status).toBe(403)
+  })
+
+  it("allows HR_ADMIN", async () => {
+    const res = await request(app).delete("/api/assets/categories/c1").set(authHeader("HR_ADMIN"))
+
+    expect(res.status).toBe(204)
   })
 })

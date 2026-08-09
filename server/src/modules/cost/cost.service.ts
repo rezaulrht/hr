@@ -11,6 +11,7 @@ import prisma from "../../config/prisma"
 import type { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
+import { describeUsage } from "../../utils/referenceUsage"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { dec, toMoneyString } from "../payroll/payroll.money"
 import { isOverdue } from "./cost.derive"
@@ -94,6 +95,38 @@ export async function updateCategory(
     })
 
     return updated
+  })
+}
+
+export async function deleteCategory(id: string, actor: AccessTokenPayload): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.costCategory.findUnique({ where: { id } })
+    if (!existing) throw new AppError(404, "Cost category not found")
+
+    // Both relations are required, so the database restricts already — but a
+    // P2003 renders as a 500. Counting first makes it a 409 with a number.
+    const [costs, commitments] = await Promise.all([
+      tx.operatingCost.count({ where: { categoryId: id } }),
+      tx.costCommitment.count({ where: { categoryId: id } }),
+    ])
+
+    const usage = describeUsage([
+      { noun: "cost", count: costs },
+      { noun: "commitment", count: commitments },
+    ])
+    if (usage !== null) {
+      throw new AppError(409, `This category is still in use by ${usage}. Reassign them first.`)
+    }
+
+    await tx.costCategory.delete({ where: { id } })
+
+    await writeAudit(tx, {
+      entity: "COST_CATEGORY",
+      entityId: id,
+      action: "DELETE",
+      changedBy: actor.sub,
+      before: { code: existing.code, name: existing.name },
+    })
   })
 }
 

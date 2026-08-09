@@ -12,6 +12,7 @@ import {
   createAssetHandler,
   createCategoryHandler,
   deleteAttachmentHandler,
+  deleteCategoryHandler,
   fulfilRequestHandler,
   getAssetHandler,
   getAttachmentUrlHandler,
@@ -49,6 +50,7 @@ const DISPOSAL_ROLES = [Role.HR_ADMIN, Role.FINANCE_OFFICER, Role.SUPER_ADMIN] a
 router.get("/categories", requireAuth, listCategoriesHandler)
 router.post("/categories", requireAuth, requireRole(...HR_ROLES), createCategoryHandler)
 router.patch("/categories/:id", requireAuth, requireRole(...HR_ROLES), updateCategoryHandler)
+router.delete("/categories/:id", requireAuth, requireRole(...HR_ROLES), deleteCategoryHandler)
 
 router.get("/me", requireAuth, requireRole(...STAFF_ROLES), myHoldingsHandler)
 router.get("/unacknowledged", requireAuth, requireRole(...HR_ROLES), listUnacknowledgedHandler)
