@@ -4,9 +4,6 @@ import {
   AnnouncementAudience,
   PrismaClient,
   Role,
-  type ComponentCalc,
-  type ComponentKind,
-  type Currency,
   type HolidayType,
 } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
@@ -71,84 +68,6 @@ const HOLIDAYS_2026 = [
   ["2026-12-16", "Victory Day", "GENERAL"],
   ["2026-12-25", "Christmas Day", "GENERAL"],
 ] as const satisfies ReadonlyArray<readonly [string, string, HolidayType]>
-
-/**
- * Two structures, so the multi-currency payroll path is exercisable without
- * hand data entry. Percent-of-basic house rent is the Bangladeshi norm and is
- * exactly the case the old `allowances Json` blob could not express.
- *
- * `countsAsWages` is false for the deduction lines: §119 leave pay and the
- * §2(10) gratuity base are built from earnings, and a deduction has no
- * business in either.
- */
-const SALARY_STRUCTURES = [
-  {
-    name: "Standard (BDT)",
-    currency: "BDT",
-    basic: 50000,
-    components: [
-      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
-      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 3000, sortOrder: 2, countsAsWages: true },
-      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 2000, sortOrder: 3, countsAsWages: true },
-      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
-      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 2500, sortOrder: 2, countsAsWages: false },
-    ],
-  },
-  {
-    name: "Standard (USD)",
-    currency: "USD",
-    basic: 2000,
-    // FIXED values are in the structure's own currency, so these are dollars.
-    // Entering the BDT figures here would overpay by roughly 122×, which is
-    // the whole reason currency lives on the structure.
-    components: [
-      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
-      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 120, sortOrder: 2, countsAsWages: true },
-      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 80, sortOrder: 3, countsAsWages: true },
-      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
-      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 100, sortOrder: 2, countsAsWages: false },
-    ],
-  },
-] as const satisfies ReadonlyArray<{
-  name: string
-  currency: Currency
-  basic: number
-  components: ReadonlyArray<{
-    code: string
-    label: string
-    kind: ComponentKind
-    calc: ComponentCalc
-    value: number
-    sortOrder: number
-    countsAsWages: boolean
-  }>
-}>
-
-async function seedSalaryStructures() {
-  for (const structure of SALARY_STRUCTURES) {
-    const { components, ...head } = structure
-
-    const saved = await prisma.salaryStructure.upsert({
-      where: { name: head.name },
-      // Filled in, not `{}` — an empty update makes re-seeding silently skip
-      // rows that already exist, so a corrected basic would never take
-      // effect. `currency` is deliberately absent: it is immutable after
-      // creation, because changing it re-denominates every figure at once.
-      update: { basic: head.basic },
-      create: head,
-    })
-
-    for (const component of components) {
-      await prisma.salaryComponent.upsert({
-        // By (structure, code), never by label — renaming a payslip line must
-        // not create a second component alongside the original.
-        where: { salaryStructureId_code: { salaryStructureId: saved.id, code: component.code } },
-        update: component,
-        create: { ...component, salaryStructureId: saved.id },
-      })
-    }
-  }
-}
 
 /**
  * Three announcements covering the three states the read filter produces:
@@ -352,8 +271,6 @@ async function main() {
     })
   }
 
-  await seedSalaryStructures()
-
   // One demo rate, so the USD path is walkable without data entry. Stored in
   // the single canonical direction (base USD, quote BDT); the inverse is
   // derived as 1/rate and never stored, so a round trip cannot lose money.
@@ -391,8 +308,9 @@ async function main() {
   console.log("No staff accounts are seeded. Employees and reporting managers")
   console.log("are created through the app — POST /api/employees/staff — and sign")
   console.log("in with their employee code, never their email.\n")
-  console.log("Payroll: both staff accounts are on 'Standard (BDT)' (basic 50,000).")
-  console.log("  'Standard (USD)' (basic 2,000) exists to exercise the currency path.")
+  console.log("Payroll: no salary structure is seeded. Finance authors one and HR")
+  console.log("  assigns it before a run can process anyone — an unassigned")
+  console.log("  structure is payroll preflight blocker 3.")
   console.log("  Exchange rate: 1 USD = 122.500000 BDT, effective 2026-01-01.")
 }
 
