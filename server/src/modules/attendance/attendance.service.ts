@@ -148,11 +148,3 @@ export async function getToday(userId: string): Promise<TodayAttendance> {
     detail: day.detail,
   }
 }
-
-/** The shift picker for HR's create/edit employee forms. */
-export async function listShifts() {
-  return prisma.shift.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, startTime: true, endTime: true },
-  })
-}

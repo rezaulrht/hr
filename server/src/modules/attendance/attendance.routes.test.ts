@@ -5,12 +5,21 @@ vi.mock("./attendance.service", () => ({
   getToday: vi.fn(),
   getMyAttendance: vi.fn(),
   getEmployeeAttendance: vi.fn(),
+}))
+
+// listShifts moved to attendance.shifts alongside the writes, so one file
+// owns shifts. Mocked here rather than in attendance.service.
+vi.mock("./attendance.shifts", () => ({
   listShifts: vi.fn(),
+  createShift: vi.fn(),
+  updateShift: vi.fn(),
+  deleteShift: vi.fn(),
 }))
 
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import * as service from "./attendance.service"
+import * as shifts from "./attendance.shifts"
 
 type TestRole = "EMPLOYEE" | "REPORTING_MANAGER" | "HR_ADMIN" | "SUPER_ADMIN" | "FINANCE_OFFICER"
 
@@ -89,7 +98,7 @@ describe("GET /api/attendance/shifts", () => {
   })
 
   it.each<TestRole>(["HR_ADMIN", "SUPER_ADMIN"])("returns 200 for %s", async (role) => {
-    vi.mocked(service.listShifts).mockResolvedValue([])
+    vi.mocked(shifts.listShifts).mockResolvedValue([])
     const res = await request(app).get("/api/attendance/shifts").set("Authorization", auth(role))
     expect(res.status).toBe(200)
   })
@@ -128,5 +137,39 @@ describe("GET /api/attendance/history/:employeeId", () => {
 
     expect(res.status).toBe(403)
     expect(res.body.error).toMatch(/your own attendance/i)
+  })
+})
+
+describe("shift writes", () => {
+  it("refuses POST /api/attendance/shifts for a non-HR role", async () => {
+    const res = await request(app)
+      .post("/api/attendance/shifts")
+      .set("Authorization", auth("EMPLOYEE"))
+      .send({ name: "Night", startTime: "22:00", endTime: "06:00" })
+    expect(res.status).toBe(403)
+  })
+
+  it("refuses DELETE /api/attendance/shifts/:id for a non-HR role", async () => {
+    const res = await request(app)
+      .delete("/api/attendance/shifts/s1")
+      .set("Authorization", auth("EMPLOYEE"))
+    expect(res.status).toBe(403)
+  })
+
+  // The trap this file's route order sets: PATCH "/:id" is registered above
+  // the shift routes. It must not swallow a two-segment path.
+  it("routes PATCH /api/attendance/shifts/:id to the shift handler, not PATCH /:id", async () => {
+    vi.mocked(shifts.updateShift).mockResolvedValue({
+      shift: { id: "s1", startTime: "21:00" },
+    } as never)
+
+    const res = await request(app)
+      .patch("/api/attendance/shifts/s1")
+      .set("Authorization", auth("HR_ADMIN"))
+      .send({ startTime: "21:00" })
+
+    expect(res.status).toBe(200)
+    expect(res.body.shift.startTime).toBe("21:00")
+    expect(shifts.updateShift).toHaveBeenCalledWith("s1", { startTime: "21:00" }, expect.anything())
   })
 })
