@@ -51,24 +51,7 @@ export const reports: SubpageData = {
   ],
 }
 
-export const settings: SubpageData = {
-  kicker: "Administration",
-  title: "Settings",
-  sub: "Workspace configuration and access",
-  cta: "Invite admin",
-  stats: [
-    { label: "Integrations", value: "6", sub: "All connected" },
-    { label: "Admin users", value: "4", sub: "2 super admins" },
-    { label: "SSO", value: "Enabled", sub: "SAML · cert expires Aug 9" },
-  ],
-  tableTitle: "Configuration",
-  cols: "1.4fr 1.4fr 0.9fr",
-  headers: ["Setting", "Value", "Status"],
-  rows: [
-    [{ text: "Payroll schedule", sub: "Company-wide", weight: 600 }, { text: "Monthly · 1st of month" }, { tag: "Active", tone: "green" }],
-    [{ text: "Leave carry-over cap", sub: "Policy · edited yesterday", weight: 600 }, { text: "10 days / year" }, { tag: "Pending review", tone: "yellow" }],
-    [{ text: "Expense auto-approval", sub: "Under threshold", weight: 600 }, { text: "Claims below $50" }, { tag: "Active", tone: "green" }],
-    [{ text: "Two-factor authentication", sub: "All users", weight: 600 }, { text: "Required" }, { tag: "Enforced", tone: "green" }],
-    [{ text: "Accounting sync", sub: "ERP integration", weight: 600 }, { text: "Nightly at 1:00 AM" }, { tag: "Connected", tone: "green" }],
-  ],
-}
+// `settings` used to be a SubpageData mock here. The Settings screens are real
+// now — see components/settings/settings-page.tsx. The mock described payroll
+// schedules, SSO, two-factor authentication and a nightly ERP sync, none of
+// which exist anywhere in this system.
