@@ -22,7 +22,7 @@ import { DepartmentsPanel } from "./departments-panel"
 import { ExchangeRatesPanel } from "./exchange-rates-panel"
 import { LeaveTypesPanel } from "./leave-types-panel"
 import { ShiftsPanel } from "./shifts-panel"
-import { TONE } from "./settings-shared"
+import { TONE } from "@/components/dashboard/record-kit"
 
 interface SettingsTab {
   value: string

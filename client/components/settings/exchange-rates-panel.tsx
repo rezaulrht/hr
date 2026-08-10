@@ -22,7 +22,7 @@ import {
   PanelTable,
   RowActions,
   toMessage,
-} from "./settings-shared"
+} from "@/components/dashboard/record-kit"
 
 export function ExchangeRatesPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()

@@ -26,7 +26,7 @@ import {
   RowActions,
   TONE,
   toMessage,
-} from "./settings-shared"
+} from "@/components/dashboard/record-kit"
 
 /**
  * The attendance grid resolves the fallback shift by this literal name for

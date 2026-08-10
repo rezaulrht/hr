@@ -24,7 +24,7 @@ import {
   PanelTable,
   RowActions,
   toMessage,
-} from "./settings-shared"
+} from "@/components/dashboard/record-kit"
 
 export function AssetCategoriesPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()

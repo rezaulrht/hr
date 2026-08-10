@@ -1,9 +1,11 @@
 "use client"
 
 import type { ReactNode } from "react"
+import Link from "next/link"
 import {
   RiAddLine,
   RiAlertLine,
+  RiArrowRightUpLine,
   RiDeleteBinLine,
   RiErrorWarningLine,
   RiInboxLine,
@@ -32,13 +34,20 @@ import { ApiError } from "@/lib/api/client"
 import { cn } from "@/lib/utils"
 
 /**
- * One palette for the whole settings surface.
+ * The kit for any surface that is a table of records plus the dialogs that
+ * write to it.
  *
- * These are class strings rather than raw hexes so Tailwind's scanner still
- * sees the candidates. Every grey in here clears WCAG AA against white at the
- * sizes it is used at, which `#7A8698` (the app's older secondary grey, 3.7:1)
- * does not. Reference data is read carefully by a small number of people, and
- * two of the six panels are legally load-bearing.
+ * This was `settings/settings-shared.tsx`, built for the six reference-data
+ * panels. It moved here when the employee directory became its second
+ * consumer: the pieces below are the answer to "what does a list of records
+ * look like while it is loading, empty, or broken", and that question is not
+ * specific to settings. The `Panel*` names are kept from the original rather
+ * than renamed, since six working call sites is not worth the churn.
+ *
+ * One palette for all of it. These are class strings rather than raw hexes so
+ * Tailwind's scanner still sees the candidates. Every grey in here clears
+ * WCAG AA against white at the sizes it is used at, which `#7A8698` (the
+ * app's older secondary grey, 3.7:1) does not.
  */
 export const TONE = {
   /** Secondary prose: panel descriptions, field hints, inactive rail items. */
@@ -186,6 +195,7 @@ export function PanelTable({
   emptyTitle,
   emptyBody,
   emptyAction,
+  emptyActionIcon,
   onEmptyAction,
 }: {
   cols: string
@@ -197,6 +207,12 @@ export function PanelTable({
   emptyTitle: string
   emptyBody: string
   emptyAction: string
+  /**
+   * Defaults to a plus, because on the settings panels empty always means
+   * "nothing has been created yet". A filtered list is empty for a different
+   * reason and its way out is not an add, so it supplies its own glyph.
+   */
+  emptyActionIcon?: ReactNode
   onEmptyAction: () => void
 }) {
   if (isLoading) return <TableLoading cols={cols} headers={headers} />
@@ -243,7 +259,7 @@ export function PanelTable({
             onClick={onEmptyAction}
             className="h-auto rounded-md bg-[#17191C] px-3.5 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"
           >
-            <RiAddLine className="size-4" aria-hidden />
+            {emptyActionIcon ?? <RiAddLine className="size-4" aria-hidden />}
             {emptyAction}
           </Button>
         </div>
@@ -309,8 +325,17 @@ function TableLoading({ cols, headers }: { cols: string; headers: string[] }) {
 export type RowAction =
   | { kind: "edit"; label: string; onClick: () => void }
   | { kind: "delete"; label: string; onClick: () => void }
+  /** Navigation to the record's own page. A real anchor, so it opens in a new
+      tab on middle-click and shows its target in the status bar. */
+  | { kind: "link"; label: string; href: string; icon?: ReactNode }
+  /** An action other than edit or delete, with its own glyph. */
+  | { kind: "custom"; label: string; icon: ReactNode; onClick: () => void }
   /** A row the server refuses to remove: the default shift, a statutory type. */
   | { kind: "locked"; label: string; hint: string }
+
+/** The quiet-until-hover treatment every row action shares. */
+const ROW_ACTION =
+  "h-auto rounded-md px-2 py-1 text-[12px] font-semibold transition-colors text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
 
 /**
  * Actions were previously two underlined links per row, the second of them
@@ -322,6 +347,33 @@ export function RowActions({ actions }: { actions: RowAction[] }) {
   return (
     <div className="flex items-center justify-end gap-0.5">
       {actions.map((action) => {
+        if (action.kind === "link") {
+          return (
+            <Link
+              key={action.label}
+              href={action.href}
+              className={cn(ROW_ACTION, "inline-flex items-center gap-1")}
+            >
+              {action.icon ?? <RiArrowRightUpLine className="size-3.5" aria-hidden />}
+              {action.label}
+            </Link>
+          )
+        }
+
+        if (action.kind === "custom") {
+          return (
+            <Button
+              key={action.label}
+              variant="ghost"
+              onClick={action.onClick}
+              className={ROW_ACTION}
+            >
+              {action.icon}
+              {action.label}
+            </Button>
+          )
+        }
+
         if (action.kind === "locked") {
           return (
             <span
@@ -345,10 +397,8 @@ export function RowActions({ actions }: { actions: RowAction[] }) {
             variant="ghost"
             onClick={action.onClick}
             className={cn(
-              "h-auto rounded-md px-2 py-1 text-[12px] font-semibold transition-colors",
-              isDelete
-                ? "text-[#5F6B7C] hover:bg-[#FDF1F1] hover:text-[#B03A3A]"
-                : "text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
+              ROW_ACTION,
+              isDelete && "hover:bg-[#FDF1F1] hover:text-[#B03A3A]"
             )}
           >
             {isDelete ? (
@@ -442,6 +492,12 @@ export function FormError({ children }: { children: ReactNode }) {
  * Cancel plus the primary action. These dialogs previously offered the primary
  * button alone, leaving Escape and the close glyph as the only way out of a
  * half-filled form.
+ *
+ * Both buttons are explicitly `type="button"`. A button inside a `<form>`
+ * defaults to `type="submit"`, which would make Cancel submit the form and
+ * would run the primary action twice: once from this `onClick`, once from the
+ * form's own `onSubmit`. The settings panels do not use a `<form>` and are
+ * unaffected either way; the employee directory does, for Enter-to-submit.
  */
 export function DialogActions({
   pending,
@@ -459,6 +515,7 @@ export function DialogActions({
   return (
     <>
       <Button
+        type="button"
         variant="ghost"
         onClick={onCancel}
         disabled={pending}
@@ -467,6 +524,7 @@ export function DialogActions({
         Cancel
       </Button>
       <Button
+        type="button"
         disabled={pending || disabled}
         onClick={onSubmit}
         className="h-auto rounded-md bg-[#17191C] px-3.5 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"

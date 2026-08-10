@@ -43,7 +43,7 @@ import {
   RowActions,
   TONE,
   toMessage,
-} from "./settings-shared"
+} from "@/components/dashboard/record-kit"
 
 const ACCRUAL_BASES: LeaveAccrualBasis[] = ["PRO_RATED", "PER_EVENT", "EARNED", "NONE"]
 
