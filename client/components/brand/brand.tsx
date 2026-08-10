@@ -19,12 +19,18 @@ export const BRAND_NAME = "byteSpate"
 export const BRAND_TAGLINE = "Accelerating the future Byte by Byte"
 
 /**
- * The full lockup.
+ * The full lockup, in the variant that suits the surface.
  *
- * Its wordmark is black, so on a dark surface it needs something to sit on.
- * `tone="dark"` supplies a white plate rather than a recoloured copy of the
- * artwork: inverting it would mean recolouring the wordmark but not the brain
- * inside the mark, which is also black but sits on white and would vanish.
+ * The artwork's wordmark is black, so a dark panel needs its own copy rather
+ * than the light one on a white plate. A plate is the safe answer and it looks
+ * like one: a bright slab in the middle of a near-black sidebar.
+ *
+ * `bytespate-logo-dark.png` is derived from the light file by inverting only
+ * the *achromatic* pixels to the right of the mark. That leaves the red S and
+ * the green bar untouched, because they are chromatic, and leaves the mark
+ * itself completely alone, because the brain inside it is black on white and a
+ * blanket inversion would erase it. The soft grey drop shadow is curved away
+ * rather than inverted, which would have haloed every letter.
  */
 export function BrandLogo({
   tone = "light",
@@ -36,25 +42,19 @@ export function BrandLogo({
   width?: number
   className?: string
 }) {
-  const logo = (
-    <Image
-      src="/brand/bytespate-logo.png"
-      alt={BRAND_NAME}
-      width={720}
-      height={168}
-      style={{ width, height: "auto" }}
-      className="block"
-      priority
-    />
+  return (
+    <span className={cn("inline-flex", className)}>
+      <Image
+        src={tone === "dark" ? "/brand/bytespate-logo-dark.png" : "/brand/bytespate-logo.png"}
+        alt={BRAND_NAME}
+        width={720}
+        height={168}
+        style={{ width, height: "auto" }}
+        className="block"
+        priority
+      />
+    </span>
   )
-
-  if (tone === "dark") {
-    return (
-      <span className={cn("inline-flex rounded-md bg-white px-2.5 py-2", className)}>{logo}</span>
-    )
-  }
-
-  return <span className={cn("inline-flex", className)}>{logo}</span>
 }
 
 /** The square mark on its own. Safe on any background: its red border runs to
