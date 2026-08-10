@@ -61,13 +61,13 @@ function StructureForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Salary structure — {employee.work.fullName}</DialogTitle>
+        <DialogTitle>Salary structure for {employee.work.fullName}</DialogTitle>
       </DialogHeader>
 
       <div className="space-y-4">
-        <div className="text-[12.5px] text-[#7A8698]">
+        <div className="text-[12.5px] leading-relaxed text-[#5F6B7C]">
           Finance authors the structures; HR decides who sits on which. The change applies to the
-          next payroll run — months already paid keep the figures they were paid on.
+          next payroll run. Months already paid keep the figures they were paid on.
         </div>
 
         <div>
@@ -94,7 +94,7 @@ function StructureForm({
         {/* The band's actual money, so the choice is not made on a name. */}
         {chosen ? (
           <div className="rounded-md border border-[#E4E9EF] bg-[#F8FAFC] px-4 py-3">
-            <div className="text-[11.5px] font-bold tracking-wide text-[#7A8698] uppercase">
+            <div className="text-[11.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">
               {chosen.components.length === 0 ? "Monthly salary" : "Basic"}
             </div>
             <div className="font-heading text-[17px] font-bold">
@@ -114,9 +114,9 @@ function StructureForm({
             </div>
           </div>
         ) : (
-          <div className="rounded-md border border-[#F5E3C0] bg-[#FDF9F0] px-4 py-3 text-[12.5px] text-[#7A5B23]">
-            With no structure this employee blocks every payroll run they fall into — preflight
-            names them rather than paying them nothing.
+          <div className="rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] leading-relaxed text-[#8A5E0C]">
+            With no structure this employee blocks every payroll run they fall into. Preflight names
+            them rather than paying them nothing.
           </div>
         )}
 
