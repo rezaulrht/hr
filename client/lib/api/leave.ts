@@ -1,11 +1,13 @@
 import { apiFetch } from "./client"
 import type {
   ApplyLeaveInput,
+  CreateLeaveTypeInput,
   HalfDayWindow,
   LeaveBalanceItem,
   LeaveRequestItem,
   LeaveType,
   TeamMemberStatus,
+  UpdateLeaveTypeInput,
 } from "./types"
 
 export function listLeaveTypes(accessToken: string): Promise<LeaveType[]> {
@@ -97,4 +99,31 @@ export function cancelLeaveRequest(accessToken: string, id: string): Promise<Lea
     method: "PATCH",
     accessToken,
   })
+}
+
+export function createLeaveType(
+  accessToken: string,
+  input: CreateLeaveTypeInput
+): Promise<LeaveType> {
+  return apiFetch<LeaveType>("/api/leave/types", {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateLeaveType(
+  accessToken: string,
+  id: string,
+  input: UpdateLeaveTypeInput
+): Promise<LeaveType> {
+  return apiFetch<LeaveType>(`/api/leave/types/${id}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteLeaveType(accessToken: string, id: string): Promise<void> {
+  return apiFetch<void>(`/api/leave/types/${id}`, { method: "DELETE", accessToken })
 }

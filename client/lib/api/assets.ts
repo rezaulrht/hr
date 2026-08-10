@@ -320,3 +320,7 @@ export function commitAssetImport(
     body,
   })
 }
+
+export function deleteCategory(accessToken: string, id: string): Promise<void> {
+  return apiFetch<void>(`/api/assets/categories/${id}`, { method: "DELETE", accessToken })
+}

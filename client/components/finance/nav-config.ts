@@ -29,6 +29,9 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: "Account",
-    items: [{ label: "My Profile", href: "/finance/profile", icon: "RiUser3Line" }],
+    items: [
+      { label: "Settings", href: "/finance/settings", icon: "RiSettingsLine" },
+      { label: "My Profile", href: "/finance/profile", icon: "RiUser3Line" },
+    ],
   },
 ]
