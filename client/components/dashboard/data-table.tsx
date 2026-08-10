@@ -13,8 +13,11 @@ function CellBody({ cell }: { cell: TableCell }) {
       >
         {cell.text}
       </div>
+      {/* `#6B7789`, not the old `#A5AFBE`: that was 2.2:1 against white, which
+          is unreadable rather than quiet. This is the same grey one shade down,
+          at 4.5:1. */}
       {cell.sub ? (
-        <div className="mt-0.5 overflow-hidden text-[11.5px] text-ellipsis whitespace-nowrap text-[#A5AFBE]">
+        <div className="mt-0.5 overflow-hidden text-[11.5px] text-ellipsis whitespace-nowrap text-[#6B7789]">
           {cell.sub}
         </div>
       ) : null}
@@ -34,10 +37,15 @@ export function DataTable({
 }: Pick<SubpageData, "cols" | "headers" | "rows"> & { title: string; action?: string }) {
   return (
     <div className="rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:px-5.5 sm:py-5">
-      <div className="mb-2.5 flex items-center justify-between gap-3">
-        <div className="text-[15px] font-bold">{title}</div>
-        <span className="shrink-0 text-[12.5px] font-semibold">{action}</span>
-      </div>
+      {/* Callers that own their own heading (the settings panels, four of the
+          attendance sections) pass both of these empty. Rendering the row
+          anyway left an empty 15px bar plus its margin above the table. */}
+      {title || action ? (
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <div className="text-[15px] font-bold">{title}</div>
+          <span className="shrink-0 text-[12.5px] font-semibold">{action}</span>
+        </div>
+      ) : null}
 
       {/* md and up: the original aligned grid, visually unchanged. It iterates
           `rows.flat()` because the grid is one flat list of tracks. */}

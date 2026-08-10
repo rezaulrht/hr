@@ -3,8 +3,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -14,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   createDepartment,
   deleteDepartment,
@@ -22,7 +19,16 @@ import {
   updateDepartment,
 } from "@/lib/api/departments"
 import type { Department } from "@/lib/api/types"
-import { ConfirmDeleteDialog, PanelFrame, toMessage } from "./settings-shared"
+import {
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelTable,
+  RowActions,
+  toMessage,
+} from "./settings-shared"
 
 export function DepartmentsPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()
@@ -30,7 +36,12 @@ export function DepartmentsPanel({ accessToken }: { accessToken: string }) {
   const [deleting, setDeleting] = useState<Department | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: departments = [], isLoading } = useQuery({
+  const {
+    data: departments = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["departments"],
     queryFn: () => listDepartments(accessToken),
   })
@@ -60,55 +71,57 @@ export function DepartmentsPanel({ accessToken }: { accessToken: string }) {
     },
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Departments"
       sub="Every employee belongs to one. A department in use cannot be deleted."
       actionLabel="Add department"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="2fr 0.8fr"
         headers={["Department", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }]]
-            : departments.map((department) => [
-                { text: department.name, weight: 600 },
-                {
-                  node: (
-                    <div className="flex gap-3">
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold underline"
-                        onClick={() => {
-                          setError(null)
-                          setEditing(department)
-                        }}
-                      >
-                        Rename
-                      </Button>
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                        onClick={() => {
-                          setError(null)
-                          setDeleting(department)
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ),
-                },
-              ])
-        }
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No departments yet"
+        emptyBody="Employees, announcements and assets are all filed under a department, so this is the first table to fill in."
+        emptyAction="Add department"
+        onEmptyAction={add}
+        rows={departments.map((department) => [
+          { text: department.name, weight: 600 },
+          {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "edit",
+                    label: "Rename",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(department)
+                    },
+                  },
+                  {
+                    kind: "delete",
+                    label: "Delete",
+                    onClick: () => {
+                      setError(null)
+                      setDeleting(department)
+                    },
+                  },
+                ]}
+              />
+            ),
+          },
+        ])}
       />
 
       {/* Mounted only while open, so the name field seeds from a useState
@@ -163,28 +176,25 @@ function DepartmentDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="department-name" className="mb-1.5 text-xs font-bold">
-              Name
-            </Label>
+          <Field label="Name" htmlFor="department-name">
             <Input
               id="department-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
             />
-          </div>
+          </Field>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || name.trim().length === 0}
-              onClick={() => onSave(name.trim())}
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : department ? "Save" : "Add department"}
-            </Button>
+            <DialogActions
+              pending={pending}
+              disabled={name.trim().length === 0}
+              submitLabel={department ? "Save" : "Add department"}
+              onCancel={onClose}
+              onSubmit={() => onSave(name.trim())}
+            />
           </DialogFooter>
         </div>
       </DialogContent>

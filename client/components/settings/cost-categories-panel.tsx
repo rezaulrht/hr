@@ -3,8 +3,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -14,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   createCostCategory,
   deleteCostCategory,
@@ -22,7 +19,16 @@ import {
   updateCostCategory,
 } from "@/lib/api/costs"
 import type { CostCategory, CreateCostCategoryInput } from "@/lib/api/types"
-import { ConfirmDeleteDialog, PanelFrame, toMessage } from "./settings-shared"
+import {
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelTable,
+  RowActions,
+  toMessage,
+} from "./settings-shared"
 
 export function CostCategoriesPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()
@@ -30,7 +36,12 @@ export function CostCategoriesPanel({ accessToken }: { accessToken: string }) {
   const [deleting, setDeleting] = useState<CostCategory | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: categories = [], isLoading } = useQuery({
+  const {
+    data: categories = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["cost-categories"],
     queryFn: () => listCostCategories(accessToken),
   })
@@ -62,55 +73,57 @@ export function CostCategoriesPanel({ accessToken }: { accessToken: string }) {
     },
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Cost categories"
       sub="What operating costs are booked against. One with costs or commitments against it cannot be deleted."
       actionLabel="Add category"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="2fr 0.8fr"
         headers={["Category", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }]]
-            : categories.map((category) => [
-                { text: category.name, sub: category.code, weight: 600 },
-                {
-                  node: (
-                    <div className="flex gap-3">
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold underline"
-                        onClick={() => {
-                          setError(null)
-                          setEditing(category)
-                        }}
-                      >
-                        Rename
-                      </Button>
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                        onClick={() => {
-                          setError(null)
-                          setDeleting(category)
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ),
-                },
-              ])
-        }
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No cost categories yet"
+        emptyBody="Operating costs are booked against one of these, so the costs module has nowhere to file anything until one exists."
+        emptyAction="Add category"
+        onEmptyAction={add}
+        rows={categories.map((category) => [
+          { text: category.name, sub: category.code, weight: 600 },
+          {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "edit",
+                    label: "Rename",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(category)
+                    },
+                  },
+                  {
+                    kind: "delete",
+                    label: "Delete",
+                    onClick: () => {
+                      setError(null)
+                      setDeleting(category)
+                    },
+                  },
+                ]}
+              />
+            ),
+          },
+        ])}
       />
 
       {editing !== null ? (
@@ -163,11 +176,12 @@ function CostCategoryDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cc-code" className="mb-1.5 text-xs font-bold">
-                Code
-              </Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field
+              label="Code"
+              htmlFor="cc-code"
+              hint={category ? "Fixed. Rules key off the code." : undefined}
+            >
               <Input
                 id="cc-code"
                 value={code}
@@ -175,28 +189,22 @@ function CostCategoryDialog({
                 disabled={category !== null}
                 placeholder="GAS"
               />
-              {category ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">Fixed. Rules key off the code.</p>
-              ) : null}
-            </div>
-            <div>
-              <Label htmlFor="cc-name" className="mb-1.5 text-xs font-bold">
-                Name
-              </Label>
+            </Field>
+            <Field label="Name" htmlFor="cc-name">
               <Input id="cc-name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
+            </Field>
           </div>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || name.trim().length === 0 || code.trim().length === 0}
-              onClick={() => onSave({ code: code.trim(), name: name.trim() })}
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : category ? "Save" : "Add category"}
-            </Button>
+            <DialogActions
+              pending={pending}
+              disabled={name.trim().length === 0 || code.trim().length === 0}
+              submitLabel={category ? "Save" : "Add category"}
+              onCancel={onClose}
+              onSubmit={() => onSave({ code: code.trim(), name: name.trim() })}
+            />
           </DialogFooter>
         </div>
       </DialogContent>
