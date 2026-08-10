@@ -1,11 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -35,7 +32,18 @@ import type {
   LeaveAccrualBasis,
   LeaveType,
 } from "@/lib/api/types"
-import { ConfirmDeleteDialog, PanelFrame, toMessage } from "./settings-shared"
+import {
+  CheckboxField,
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelTable,
+  RowActions,
+  TONE,
+  toMessage,
+} from "./settings-shared"
 
 const ACCRUAL_BASES: LeaveAccrualBasis[] = ["PRO_RATED", "PER_EVENT", "EARNED", "NONE"]
 
@@ -61,7 +69,12 @@ export function LeaveTypesPanel({ accessToken }: { accessToken: string }) {
   const [deleting, setDeleting] = useState<LeaveType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: leaveTypes = [], isLoading } = useQuery({
+  const {
+    data: leaveTypes = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["leave-types"],
     queryFn: () => listLeaveTypes(accessToken),
   })
@@ -94,80 +107,79 @@ export function LeaveTypesPanel({ accessToken }: { accessToken: string }) {
     },
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Leave types"
       sub="Statutory types come from the Bangladesh Labour Act. They can be made more generous, never less."
       actionLabel="Add leave type"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="1.3fr 0.7fr 0.9fr 1fr 0.8fr"
         headers={["Type", "Quota", "Accrual", "Eligible", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }, { text: "" }, { text: "" }, { text: "" }]]
-            : leaveTypes.map((type) => [
-                {
-                  text: type.name,
-                  sub: type.statutory ? `${type.code} · statutory` : type.code,
-                  weight: 600,
-                },
-                {
-                  text: type.accrualBasis === "EARNED" ? "Earned" : `${type.annualQuota} days`,
-                  sub: type.isPaid ? "Paid" : "Unpaid",
-                },
-                { text: ACCRUAL_LABEL[type.accrualBasis] ?? type.accrualBasis },
-                {
-                  text: type.eligibleFor.map((e) => EMPLOYMENT_LABEL[e] ?? e).join(", "),
-                  sub:
-                    type.minServiceMonths > 0
-                      ? `After ${type.minServiceMonths} months' service`
-                      : undefined,
-                },
-                {
-                  node: (
-                    <div className="flex gap-3">
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold underline"
-                        onClick={() => {
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No leave types found"
+        emptyBody="The statutory types are created by the seed. An empty list means they were never loaded, and no leave can be applied for until they are."
+        emptyAction="Add leave type"
+        onEmptyAction={add}
+        rows={leaveTypes.map((type) => [
+          {
+            text: type.name,
+            sub: type.statutory ? `${type.code} · statutory` : type.code,
+            weight: 600,
+          },
+          {
+            text: type.accrualBasis === "EARNED" ? "Earned" : `${type.annualQuota} days`,
+            sub: type.isPaid ? "Paid" : "Unpaid",
+          },
+          { text: ACCRUAL_LABEL[type.accrualBasis] ?? type.accrualBasis },
+          {
+            text: type.eligibleFor.map((e) => EMPLOYMENT_LABEL[e] ?? e).join(", "),
+            sub:
+              type.minServiceMonths > 0
+                ? `After ${type.minServiceMonths} months' service`
+                : undefined,
+          },
+          {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "edit",
+                    label: "Edit",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(type)
+                    },
+                  },
+                  type.statutory
+                    ? {
+                        kind: "locked",
+                        label: "Statutory",
+                        hint: "Granted by the Labour Act. It can be raised, but not removed.",
+                      }
+                    : {
+                        kind: "delete",
+                        label: "Delete",
+                        onClick: () => {
                           setError(null)
-                          setEditing(type)
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      {type.statutory ? (
-                        <span
-                          className="text-[12px] font-semibold text-[#9AA4B0]"
-                          title="Granted by the Labour Act. It can be raised, but not removed."
-                        >
-                          Statutory
-                        </span>
-                      ) : (
-                        <Button
-                          variant="link"
-                          className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                          onClick={() => {
-                            setError(null)
-                            setDeleting(type)
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ])
-        }
+                          setDeleting(type)
+                        },
+                      },
+                ]}
+              />
+            ),
+          },
+        ])}
       />
 
       {editing !== null ? (
@@ -190,6 +202,20 @@ export function LeaveTypesPanel({ accessToken }: { accessToken: string }) {
         onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
       />
     </PanelFrame>
+  )
+}
+
+/**
+ * Thirteen fields in one scrolling column is a wall. Grouping them under the
+ * question each group answers is the only structure that survives the type
+ * being statutory, where roughly half of them lock.
+ */
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3 border-t border-[#EEF1F5] pt-4 first:border-0 first:pt-0">
+      <h3 className={`text-[11.5px] font-bold tracking-wide uppercase ${TONE.muted}`}>{title}</h3>
+      {children}
+    </section>
   )
 }
 
@@ -233,7 +259,7 @@ function LeaveTypeDialog({
   )
 
   // Mirrors assertStatutoryUpdateAllowed on the server. An affordance, not the
-  // enforcement — the server's 409 is the authority and is shown verbatim.
+  // enforcement: the server's 409 is the authority and is shown verbatim.
   const locked = leaveType?.statutory ?? false
 
   const toggleEligible = (type: EmploymentType) =>
@@ -256,237 +282,230 @@ function LeaveTypeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="lt-code" className="mb-1.5 text-xs font-bold">
-                Code
-              </Label>
-              <Input
-                id="lt-code"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                disabled={leaveType !== null}
-                placeholder="STUDY"
-              />
-              {leaveType ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                  Fixed. Policy rules are looked up by code, never by name.
-                </p>
-              ) : null}
+        <div className="max-h-[62vh] space-y-4 overflow-y-auto pr-1">
+          <FormSection title="Identity">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field
+                label="Code"
+                htmlFor="lt-code"
+                hint={leaveType ? "Fixed. Policy rules are looked up by code, never by name." : undefined}
+              >
+                <Input
+                  id="lt-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  disabled={leaveType !== null}
+                  placeholder="STUDY"
+                />
+              </Field>
+              <Field label="Name" htmlFor="lt-name">
+                <Input id="lt-name" value={name} onChange={(e) => setName(e.target.value)} />
+              </Field>
             </div>
-            <div>
-              <Label htmlFor="lt-name" className="mb-1.5 text-xs font-bold">
-                Name
-              </Label>
-              <Input id="lt-name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-          </div>
+          </FormSection>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="lt-quota" className="mb-1.5 text-xs font-bold">
-                Annual quota (days)
-              </Label>
-              <Input
-                id="lt-quota"
-                type="number"
-                min={0}
-                max={365}
-                value={annualQuota}
-                onChange={(e) => setAnnualQuota(e.target.value)}
-              />
-              {locked && leaveType ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                  At least {leaveType.annualQuota} — statutory.
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <Label htmlFor="lt-carry" className="mb-1.5 text-xs font-bold">
-                Carry-forward (%)
-              </Label>
-              <Input
-                id="lt-carry"
-                type="number"
-                min={0}
-                max={100}
-                value={carryForwardPct}
-                onChange={(e) => setCarryForwardPct(e.target.value)}
-              />
-              {locked && leaveType ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                  At least {leaveType.carryForwardPct}% — statutory.
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <Label htmlFor="lt-maxrun" className="mb-1.5 text-xs font-bold">
-                Longest single absence (days)
-              </Label>
-              <Input
-                id="lt-maxrun"
-                type="number"
-                min={1}
-                max={365}
-                value={maxConsecutive}
-                onChange={(e) => setMaxConsecutive(e.target.value)}
-                placeholder="No limit"
-              />
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                {locked && leaveType?.maxConsecutive === null
-                  ? "Currently unlimited — statutory, so it cannot be capped."
-                  : "Leave blank for no limit."}
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="lt-maxaccrual" className="mb-1.5 text-xs font-bold">
-                Accrual ceiling (days)
-              </Label>
-              <Input
-                id="lt-maxaccrual"
-                type="number"
-                min={1}
-                max={365}
-                value={maxAccrual}
-                onChange={(e) => setMaxAccrual(e.target.value)}
-                placeholder="No ceiling"
-              />
-              {locked && leaveType && leaveType.maxAccrual !== null ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                  At least {leaveType.maxAccrual} — statutory.
-                </p>
-              ) : null}
-            </div>
-          </div>
+          <FormSection title="Entitlement">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field
+                label="Annual quota (days)"
+                htmlFor="lt-quota"
+                hint={
+                  locked && leaveType ? `At least ${leaveType.annualQuota}, by statute.` : undefined
+                }
+              >
+                <Input
+                  id="lt-quota"
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={annualQuota}
+                  onChange={(e) => setAnnualQuota(e.target.value)}
+                />
+              </Field>
 
-          <div>
-            <Label htmlFor="lt-service" className="mb-1.5 text-xs font-bold">
-              Minimum service (months)
-            </Label>
-            <Input
-              id="lt-service"
-              type="number"
-              min={0}
-              max={120}
-              value={minServiceMonths}
-              onChange={(e) => setMinServiceMonths(e.target.value)}
-            />
-            {/* This one inverts: a waiting period is more generous when it is
-                shorter, so the statutory rule is a ceiling, not a floor. */}
-            {locked && leaveType ? (
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                At most {leaveType.minServiceMonths} — statutory. A shorter wait is more generous,
-                so this is the one limit that works the other way round.
-              </p>
-            ) : null}
-          </div>
+              <Field
+                label="Carry-forward (%)"
+                htmlFor="lt-carry"
+                hint={
+                  locked && leaveType
+                    ? `At least ${leaveType.carryForwardPct}%, by statute.`
+                    : undefined
+                }
+              >
+                <Input
+                  id="lt-carry"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={carryForwardPct}
+                  onChange={(e) => setCarryForwardPct(e.target.value)}
+                />
+              </Field>
 
-          <div>
-            <Label htmlFor="lt-accrual" className="mb-1.5 text-xs font-bold">
-              How entitlement is calculated
-            </Label>
-            <Select
-              value={accrualBasis}
-              onValueChange={(v) => setAccrualBasis(v as LeaveAccrualBasis)}
-              disabled={locked}
+              <Field
+                label="Longest single absence (days)"
+                htmlFor="lt-maxrun"
+                hint={
+                  locked && leaveType?.maxConsecutive === null
+                    ? "Unlimited by statute, so it cannot be capped."
+                    : "Leave blank for no limit."
+                }
+              >
+                <Input
+                  id="lt-maxrun"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={maxConsecutive}
+                  onChange={(e) => setMaxConsecutive(e.target.value)}
+                  placeholder="No limit"
+                />
+              </Field>
+
+              <Field
+                label="Accrual ceiling (days)"
+                htmlFor="lt-maxaccrual"
+                hint={
+                  locked && leaveType && leaveType.maxAccrual !== null
+                    ? `At least ${leaveType.maxAccrual}, by statute.`
+                    : undefined
+                }
+              >
+                <Input
+                  id="lt-maxaccrual"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={maxAccrual}
+                  onChange={(e) => setMaxAccrual(e.target.value)}
+                  placeholder="No ceiling"
+                />
+              </Field>
+            </div>
+
+            <Field
+              label="How entitlement is calculated"
+              htmlFor="lt-accrual"
+              hint={
+                locked
+                  ? "Fixed. This decides which section of the Act applies, not how generous the company is, so there is no more generous direction to move it in."
+                  : undefined
+              }
             >
-              <SelectTrigger id="lt-accrual" className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    value === null ? "Select…" : (ACCRUAL_LABEL[value] ?? value)
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {ACCRUAL_BASES.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {ACCRUAL_LABEL[option]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {locked ? (
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                Fixed. This decides which section of the Act applies, not how generous the company
-                is, so there is no &ldquo;more generous&rdquo; direction to move it in.
-              </p>
-            ) : null}
-          </div>
+              <Select
+                value={accrualBasis}
+                onValueChange={(v) => setAccrualBasis(v as LeaveAccrualBasis)}
+                disabled={locked}
+              >
+                <SelectTrigger id="lt-accrual" className="w-full">
+                  <SelectValue>
+                    {(value: string | null) =>
+                      value === null ? "Select…" : (ACCRUAL_LABEL[value] ?? value)
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ACCRUAL_BASES.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {ACCRUAL_LABEL[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </FormSection>
 
-          <div>
-            <Label className="mb-1.5 text-xs font-bold">Eligible employment types</Label>
-            <div className="flex flex-wrap gap-3">
-              {EMPLOYMENT_TYPES.map((type) => (
-                <label key={type} className="flex items-center gap-1.5 text-[12.5px]">
-                  <Checkbox
+          <FormSection title="Who can take it">
+            <Field
+              label="Minimum service (months)"
+              htmlFor="lt-service"
+              /* This one inverts: a waiting period is more generous when it is
+                 shorter, so the statutory rule is a ceiling, not a floor. */
+              hint={
+                locked && leaveType
+                  ? `At most ${leaveType.minServiceMonths}, by statute. A shorter wait is more generous, so this is the one limit that works the other way round.`
+                  : undefined
+              }
+            >
+              <Input
+                id="lt-service"
+                type="number"
+                min={0}
+                max={120}
+                value={minServiceMonths}
+                onChange={(e) => setMinServiceMonths(e.target.value)}
+              />
+            </Field>
+
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] font-bold text-[#1C2733]">
+                Eligible employment types
+              </Label>
+              <div className="flex flex-wrap gap-x-5 gap-y-1">
+                {EMPLOYMENT_TYPES.map((type) => (
+                  <CheckboxField
+                    key={type}
+                    label={EMPLOYMENT_LABEL[type]}
                     checked={eligibleFor.includes(type)}
-                    onCheckedChange={() => toggleEligible(type)}
+                    onChange={() => toggleEligible(type)}
                   />
-                  {EMPLOYMENT_LABEL[type]}
-                </label>
-              ))}
+                ))}
+              </div>
+              {locked ? (
+                <p className={`text-[11.5px] leading-relaxed ${TONE.muted}`}>
+                  You can cover more employment types than the Act requires, but not fewer.
+                </p>
+              ) : null}
+            </div>
+          </FormSection>
+
+          <FormSection title="How it behaves">
+            <div className="grid gap-1 sm:grid-cols-2">
+              <CheckboxField
+                label="Paid leave"
+                checked={isPaid}
+                onChange={setIsPaid}
+                disabled={locked}
+              />
+              <CheckboxField
+                label="Can be filed after the fact"
+                checked={allowsBackdating}
+                onChange={setAllowsBackdating}
+                disabled={locked}
+              />
+              <CheckboxField
+                label="Holidays inside the range count as leave"
+                checked={countsHolidays}
+                onChange={setCountsHolidays}
+                disabled={locked}
+              />
+              <CheckboxField
+                label="Can be taken as a half day"
+                checked={allowsHalfDay}
+                onChange={setAllowsHalfDay}
+                disabled={locked}
+              />
             </div>
             {locked ? (
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                You can cover more employment types than the Act requires, but not fewer.
-              </p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={isPaid}
-                onCheckedChange={(v) => setIsPaid(v === true)}
-                disabled={locked}
-              />
-              Paid leave
-            </label>
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={allowsBackdating}
-                onCheckedChange={(v) => setAllowsBackdating(v === true)}
-                disabled={locked}
-              />
-              Can be filed after the fact
-            </label>
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={countsHolidays}
-                onCheckedChange={(v) => setCountsHolidays(v === true)}
-                disabled={locked}
-              />
-              Holidays inside the range count as leave
-            </label>
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={allowsHalfDay}
-                onCheckedChange={(v) => setAllowsHalfDay(v === true)}
-                disabled={locked}
-              />
-              Can be taken as a half day
-            </label>
-            {locked ? (
-              <p className="text-[11.5px] text-[#6B7683]">
+              <p className={`text-[11.5px] leading-relaxed ${TONE.muted}`}>
                 These four say how the statute is applied rather than how much is granted, so they
                 are fixed for a statutory type.
               </p>
             ) : null}
-          </div>
+          </FormSection>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
         </div>
 
         <DialogFooter>
-          <Button
+          <DialogActions
+            pending={pending}
             disabled={
-              pending ||
-              name.trim().length === 0 ||
-              code.trim().length === 0 ||
-              eligibleFor.length === 0
+              name.trim().length === 0 || code.trim().length === 0 || eligibleFor.length === 0
             }
-            onClick={() =>
+            submitLabel={leaveType ? "Save" : "Add leave type"}
+            onCancel={onClose}
+            onSubmit={() =>
               onSave({
                 code: code.trim(),
                 name: name.trim(),
@@ -503,10 +522,7 @@ function LeaveTypeDialog({
                 eligibleFor,
               })
             }
-            className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-          >
-            {pending ? "Saving…" : leaveType ? "Save" : "Add leave type"}
-          </Button>
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

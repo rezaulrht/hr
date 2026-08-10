@@ -3,9 +3,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -18,7 +15,18 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createShift, deleteShift, listShifts, updateShift } from "@/lib/api/shifts"
 import type { Shift, ShiftImpact, ShiftInput } from "@/lib/api/types"
-import { ConfirmDeleteDialog, PanelFrame, toMessage } from "./settings-shared"
+import {
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelNotice,
+  PanelTable,
+  RowActions,
+  TONE,
+  toMessage,
+} from "./settings-shared"
 
 /**
  * The attendance grid resolves the fallback shift by this literal name for
@@ -40,7 +48,12 @@ export function ShiftsPanel({ accessToken }: { accessToken: string }) {
   const [impact, setImpact] = useState<ShiftImpact | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: shifts = [], isLoading } = useQuery({
+  const {
+    data: shifts = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["shifts"],
     queryFn: () => listShifts(accessToken),
   })
@@ -73,99 +86,90 @@ export function ShiftsPanel({ accessToken }: { accessToken: string }) {
     },
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Shifts"
       sub="Working hours and weekly off days. Employees without an explicit shift fall back to General."
       actionLabel="Add shift"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
       {/* Changing the weekly off days re-derives every past attendance day for
           everyone on this shift, in a different module from this screen. The
           write has already happened; this states what it did. */}
       {impact ? (
-        <div className="rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] text-[#9A6B10]">
+        <PanelNotice onDismiss={() => setImpact(null)}>
           The weekly off days changed, so attendance re-derives for{" "}
           <strong>{impact.affectedEmployees}</strong> employee
           {impact.affectedEmployees === 1 ? "" : "s"}
           {impact.earliestAffectedDate
-            ? ` back to ${impact.earliestAffectedDate}`
-            : " — no attendance has been recorded for them yet"}
-          .
-          <Button
-            variant="link"
-            className="ml-2 h-auto p-0 font-bold underline"
-            onClick={() => setImpact(null)}
-          >
-            Dismiss
-          </Button>
-        </div>
+            ? ` back to ${impact.earliestAffectedDate}.`
+            : ". No attendance has been recorded for them yet."}
+        </PanelNotice>
       ) : null}
 
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="1.2fr 0.9fr 0.7fr 1fr 0.8fr"
         headers={["Shift", "Hours", "Grace", "Weekly off", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }, { text: "" }, { text: "" }, { text: "" }]]
-            : shifts.map((shift) => {
-                const isDefault = shift.name === DEFAULT_SHIFT_NAME
-                return [
-                  {
-                    text: shift.name,
-                    sub: isDefault ? "Company default" : undefined,
-                    weight: 600,
-                  },
-                  {
-                    text: `${shift.startTime}–${shift.endTime}`,
-                    sub: `${shift.breakMinutes} min break`,
-                  },
-                  { text: `${shift.graceMinutes} min` },
-                  { text: describeOffDays(shift.weeklyOffDays) },
-                  {
-                    node: (
-                      <div className="flex gap-3">
-                        <Button
-                          variant="link"
-                          className="h-auto p-0 text-[12px] font-bold underline"
-                          onClick={() => {
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No shifts found"
+        emptyBody="Attendance expects a shift named General to fall back to. If this list is empty the database has not been seeded."
+        emptyAction="Add shift"
+        onEmptyAction={add}
+        rows={shifts.map((shift) => {
+          const isDefault = shift.name === DEFAULT_SHIFT_NAME
+          return [
+            {
+              text: shift.name,
+              sub: isDefault ? "Company default" : undefined,
+              weight: 600,
+            },
+            {
+              text: `${shift.startTime} to ${shift.endTime}`,
+              sub: `${shift.breakMinutes} min break`,
+            },
+            { text: `${shift.graceMinutes} min` },
+            { text: describeOffDays(shift.weeklyOffDays) },
+            {
+              node: (
+                <RowActions
+                  actions={[
+                    {
+                      kind: "edit",
+                      label: "Edit",
+                      onClick: () => {
+                        setError(null)
+                        setEditing(shift)
+                      },
+                    },
+                    isDefault
+                      ? {
+                          kind: "locked",
+                          label: "Required",
+                          hint: "Attendance resolves this shift by name for everyone without an explicit shift.",
+                        }
+                      : {
+                          kind: "delete",
+                          label: "Delete",
+                          onClick: () => {
                             setError(null)
-                            setEditing(shift)
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        {isDefault ? (
-                          <span
-                            className="text-[12px] font-semibold text-[#9AA4B0]"
-                            title="Attendance resolves this shift by name for everyone without an explicit shift."
-                          >
-                            Required
-                          </span>
-                        ) : (
-                          <Button
-                            variant="link"
-                            className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                            onClick={() => {
-                              setError(null)
-                              setDeleting(shift)
-                            }}
-                          >
-                            Delete
-                          </Button>
-                        )}
-                      </div>
-                    ),
-                  },
-                ]
-              })
-        }
+                            setDeleting(shift)
+                          },
+                        },
+                  ]}
+                />
+              ),
+            },
+          ]
+        })}
       />
 
       {editing !== null ? (
@@ -224,56 +228,46 @@ function ShiftDialog({
         <DialogHeader>
           <DialogTitle>{shift ? `Edit ${shift.name}` : "Add a shift"}</DialogTitle>
           <DialogDescription>
-            Break minutes sit inside the span, so 09:00–18:00 with a 60-minute break is a nine-hour
-            day and nothing subtracts the break again downstream.
+            Break minutes sit inside the span, so 09:00 to 18:00 with a 60-minute break is a
+            nine-hour day and nothing subtracts the break again downstream.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="shift-name" className="mb-1.5 text-xs font-bold">
-              Name
-            </Label>
+          <Field
+            label="Name"
+            htmlFor="shift-name"
+            hint={
+              isDefault
+                ? "Attendance looks this shift up by name for every employee without an explicit one, so it cannot be renamed. Its hours below are yours to change."
+                : undefined
+            }
+          >
             <Input
               id="shift-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={isDefault}
             />
-            {isDefault ? (
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                Attendance looks this shift up by name for every employee without an explicit one,
-                so it cannot be renamed. Its hours below are yours to change.
-              </p>
-            ) : null}
-          </div>
+          </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="shift-start" className="mb-1.5 text-xs font-bold">
-                Start
-              </Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Start" htmlFor="shift-start">
               <Input
                 id="shift-start"
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
               />
-            </div>
-            <div>
-              <Label htmlFor="shift-end" className="mb-1.5 text-xs font-bold">
-                End
-              </Label>
+            </Field>
+            <Field label="End" htmlFor="shift-end">
               <Input
                 id="shift-end"
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
               />
-            </div>
-            <div>
-              <Label htmlFor="shift-break" className="mb-1.5 text-xs font-bold">
-                Break (minutes)
-              </Label>
+            </Field>
+            <Field label="Break (minutes)" htmlFor="shift-break">
               <Input
                 id="shift-break"
                 type="number"
@@ -282,11 +276,8 @@ function ShiftDialog({
                 value={breakMinutes}
                 onChange={(e) => setBreakMinutes(e.target.value)}
               />
-            </div>
-            <div>
-              <Label htmlFor="shift-grace" className="mb-1.5 text-xs font-bold">
-                Late allowance (minutes)
-              </Label>
+            </Field>
+            <Field label="Late allowance (minutes)" htmlFor="shift-grace">
               <Input
                 id="shift-grace"
                 type="number"
@@ -295,32 +286,52 @@ function ShiftDialog({
                 value={graceMinutes}
                 onChange={(e) => setGraceMinutes(e.target.value)}
               />
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <Label className="mb-1.5 text-xs font-bold">Weekly off days</Label>
-            <div className="flex flex-wrap gap-3">
-              {DAY_LABELS.map((label, day) => (
-                <label key={label} className="flex items-center gap-1.5 text-[12.5px]">
-                  <Checkbox checked={offDays.includes(day)} onCheckedChange={() => toggleDay(day)} />
-                  {label}
-                </label>
-              ))}
+          <div className="grid gap-1.5">
+            <Label className="text-[12px] font-bold text-[#1C2733]">Weekly off days</Label>
+            {/* Seven day toggles read as one control rather than seven stray
+                checkboxes. Buttons carrying `role="checkbox"` rather than a
+                visually-hidden Checkbox: hiding the real control would take
+                its focus ring with it. */}
+            <div role="group" aria-label="Weekly off days" className="flex flex-wrap gap-1.5">
+              {DAY_LABELS.map((label, day) => {
+                const active = offDays.includes(day)
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={active}
+                    onClick={() => toggleDay(day)}
+                    className={`rounded-md border px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors outline-none focus-visible:ring-3 focus-visible:ring-[#17191C]/25 active:translate-y-px ${
+                      active
+                        ? "border-[#17191C] bg-[#17191C] text-white hover:bg-[#0E1012]"
+                        : "border-[#E4E9EF] bg-white text-[#5F6B7C] hover:border-[#C9D2DE] hover:text-[#1C2733]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
             </div>
             {shift && offDays.join() !== shift.weeklyOffDays.join() ? (
-              <p className="mt-1.5 text-[11.5px] font-semibold text-[#9A6B10]">
+              <p className={`text-[11.5px] leading-relaxed font-semibold ${TONE.notice}`}>
                 Changing these re-derives every past attendance day for everyone on this shift.
               </p>
             ) : null}
           </div>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || name.trim().length === 0}
-              onClick={() =>
+            <DialogActions
+              pending={pending}
+              disabled={name.trim().length === 0}
+              submitLabel={shift ? "Save" : "Add shift"}
+              onCancel={onClose}
+              onSubmit={() =>
                 onSave({
                   name: name.trim(),
                   startTime,
@@ -330,10 +341,7 @@ function ShiftDialog({
                   weeklyOffDays: offDays,
                 })
               }
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : shift ? "Save" : "Add shift"}
-            </Button>
+            />
           </DialogFooter>
         </div>
       </DialogContent>

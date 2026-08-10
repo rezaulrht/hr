@@ -3,9 +3,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -15,10 +12,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { createCategory, deleteCategory, listCategories, updateCategory } from "@/lib/api/assets"
 import type { AssetCategory, CreateAssetCategoryInput } from "@/lib/api/types"
-import { ConfirmDeleteDialog, PanelFrame, toMessage } from "./settings-shared"
+import {
+  CheckboxField,
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelTable,
+  RowActions,
+  toMessage,
+} from "./settings-shared"
 
 export function AssetCategoriesPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()
@@ -26,7 +32,12 @@ export function AssetCategoriesPanel({ accessToken }: { accessToken: string }) {
   const [deleting, setDeleting] = useState<AssetCategory | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: categories = [], isLoading } = useQuery({
+  const {
+    data: categories = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["asset-categories"],
     queryFn: () => listCategories(accessToken),
   })
@@ -58,63 +69,65 @@ export function AssetCategoriesPanel({ accessToken }: { accessToken: string }) {
     },
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Asset categories"
       sub="What the register can hold. A category with assets or open requests against it cannot be deleted."
       actionLabel="Add category"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="1.2fr 0.8fr 0.8fr 0.9fr 0.8fr"
         headers={["Category", "Serial", "Consumable", "Useful life", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }, { text: "" }, { text: "" }, { text: "" }]]
-            : categories.map((category) => [
-                { text: category.name, sub: category.code, weight: 600 },
-                { text: category.requiresSerial ? "Required" : "Not tracked" },
-                { text: category.isConsumable ? "Yes" : "No" },
-                {
-                  text:
-                    category.usefulLifeMonths === null
-                      ? "—"
-                      : `${category.usefulLifeMonths} months`,
-                },
-                {
-                  node: (
-                    <div className="flex gap-3">
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold underline"
-                        onClick={() => {
-                          setError(null)
-                          setEditing(category)
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                        onClick={() => {
-                          setError(null)
-                          setDeleting(category)
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ),
-                },
-              ])
-        }
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No asset categories yet"
+        emptyBody="The register files every laptop, phone and desk under a category, so nothing can be added to it until one exists."
+        emptyAction="Add category"
+        onEmptyAction={add}
+        rows={categories.map((category) => [
+          { text: category.name, sub: category.code, weight: 600 },
+          { text: category.requiresSerial ? "Required" : "Not tracked" },
+          { text: category.isConsumable ? "Yes" : "No" },
+          {
+            text:
+              category.usefulLifeMonths === null
+                ? "Not tracked"
+                : `${category.usefulLifeMonths} months`,
+          },
+          {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "edit",
+                    label: "Edit",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(category)
+                    },
+                  },
+                  {
+                    kind: "delete",
+                    label: "Delete",
+                    onClick: () => {
+                      setError(null)
+                      setDeleting(category)
+                    },
+                  },
+                ]}
+              />
+            ),
+          },
+        ])}
       />
 
       {editing !== null ? (
@@ -174,11 +187,12 @@ function AssetCategoryDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="ac-code" className="mb-1.5 text-xs font-bold">
-                Code
-              </Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field
+              label="Code"
+              htmlFor="ac-code"
+              hint={category ? "Fixed. Rules key off the code." : undefined}
+            >
               <Input
                 id="ac-code"
                 value={code}
@@ -186,22 +200,17 @@ function AssetCategoryDialog({
                 disabled={category !== null}
                 placeholder="DOCK"
               />
-              {category ? (
-                <p className="mt-1 text-[11.5px] text-[#6B7683]">Fixed. Rules key off the code.</p>
-              ) : null}
-            </div>
-            <div>
-              <Label htmlFor="ac-name" className="mb-1.5 text-xs font-bold">
-                Name
-              </Label>
+            </Field>
+            <Field label="Name" htmlFor="ac-name">
               <Input id="ac-name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <Label htmlFor="ac-life" className="mb-1.5 text-xs font-bold">
-              Useful life (months)
-            </Label>
+          <Field
+            label="Useful life (months)"
+            htmlFor="ac-life"
+            hint="Leave blank if this category is not depreciated."
+          >
             <Input
               id="ac-life"
               type="number"
@@ -210,31 +219,30 @@ function AssetCategoryDialog({
               onChange={(e) => setUsefulLifeMonths(e.target.value)}
               placeholder="Not tracked"
             />
+          </Field>
+
+          <div className="space-y-1">
+            <CheckboxField
+              label="Serial number required"
+              checked={requiresSerial}
+              onChange={setRequiresSerial}
+            />
+            <CheckboxField
+              label="Consumable (issued and not expected back)"
+              checked={isConsumable}
+              onChange={setIsConsumable}
+            />
           </div>
 
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={requiresSerial}
-                onCheckedChange={(v) => setRequiresSerial(v === true)}
-              />
-              Serial number required
-            </label>
-            <label className="flex items-center gap-2 text-[12.5px]">
-              <Checkbox
-                checked={isConsumable}
-                onCheckedChange={(v) => setIsConsumable(v === true)}
-              />
-              Consumable — issued and not expected back
-            </label>
-          </div>
-
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || name.trim().length === 0 || code.trim().length === 0}
-              onClick={() =>
+            <DialogActions
+              pending={pending}
+              disabled={name.trim().length === 0 || code.trim().length === 0}
+              submitLabel={category ? "Save" : "Add category"}
+              onCancel={onClose}
+              onSubmit={() =>
                 onSave({
                   code: code.trim(),
                   name: name.trim(),
@@ -244,10 +252,7 @@ function AssetCategoryDialog({
                     usefulLifeMonths.trim() === "" ? null : Number(usefulLifeMonths),
                 })
               }
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : category ? "Save" : "Add category"}
-            </Button>
+            />
           </DialogFooter>
         </div>
       </DialogContent>

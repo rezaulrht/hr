@@ -3,8 +3,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { DataTable } from "@/components/dashboard/data-table"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -14,17 +12,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { createExchangeRate, listExchangeRates, updateExchangeRate } from "@/lib/api/payroll"
 import type { ExchangeRate, ExchangeRateInput } from "@/lib/api/payroll-types"
-import { PanelFrame, toMessage } from "./settings-shared"
+import {
+  DialogActions,
+  Field,
+  FormError,
+  PanelFrame,
+  PanelTable,
+  RowActions,
+  toMessage,
+} from "./settings-shared"
 
 export function ExchangeRatesPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<ExchangeRate | "new" | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const { data: rates = [], isLoading } = useQuery({
+  const {
+    data: rates = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["exchange-rates"],
     queryFn: () => listExchangeRates(accessToken),
   })
@@ -42,45 +52,51 @@ export function ExchangeRatesPanel({ accessToken }: { accessToken: string }) {
     onError: (err) => setError(toMessage(err)),
   })
 
+  const add = () => {
+    setError(null)
+    setEditing("new")
+  }
+
   return (
     <PanelFrame
       title="Exchange rates"
       sub="Payroll treats a missing rate as a hard failure and never falls back to 1.0."
       actionLabel="Add rate"
-      onAction={() => {
-        setError(null)
-        setEditing("new")
-      }}
+      onAction={add}
       error={error}
+      onDismissError={() => setError(null)}
     >
-      <DataTable
-        title=""
-        action=""
+      <PanelTable
         cols="1fr 1fr 1fr 0.7fr"
         headers={["Pair", "Rate", "Effective from", ""]}
-        rows={
-          isLoading
-            ? [[{ text: "Loading…" }, { text: "" }, { text: "" }, { text: "" }]]
-            : rates.map((rate) => [
-                { text: `${rate.base} → ${rate.quote}`, weight: 600 },
-                { text: rate.rate, sub: `1 ${rate.base} = ${rate.rate} ${rate.quote}` },
-                { text: rate.effectiveFrom.slice(0, 10) },
-                {
-                  node: (
-                    <Button
-                      variant="link"
-                      className="h-auto p-0 text-[12px] font-bold underline"
-                      onClick={() => {
-                        setError(null)
-                        setEditing(rate)
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  ),
-                },
-              ])
-        }
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => refetch()}
+        emptyTitle="No rates recorded"
+        emptyBody="A payroll run covering anyone paid in USD will fail until a rate exists for the period."
+        emptyAction="Add rate"
+        onEmptyAction={add}
+        rows={rates.map((rate) => [
+          { text: `${rate.base} to ${rate.quote}`, weight: 600 },
+          { text: rate.rate, sub: `1 ${rate.base} = ${rate.rate} ${rate.quote}` },
+          { text: rate.effectiveFrom.slice(0, 10) },
+          {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "edit",
+                    label: "Edit",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(rate)
+                    },
+                  },
+                ]}
+              />
+            ),
+          },
+        ])}
       />
 
       {editing !== null ? (
@@ -120,16 +136,13 @@ function RateDialog({
         <DialogHeader>
           <DialogTitle>{rate ? "Correct a rate" : "Add an exchange rate"}</DialogTitle>
           <DialogDescription>
-            Stored in one direction only — 1 USD in BDT. The inverse is derived rather than stored,
-            so a round trip cannot lose money. Editing a rate cannot corrupt history: every payslip
-            freezes the rate it used.
+            Stored in one direction only: 1 USD in BDT. The inverse is derived rather than stored,
+            so a round trip cannot lose money. Editing a rate cannot corrupt history, because every
+            payslip freezes the rate it used.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="rate-value" className="mb-1.5 text-xs font-bold">
-              1 USD in BDT
-            </Label>
+          <Field label="1 USD in BDT" htmlFor="rate-value">
             <Input
               id="rate-value"
               type="number"
@@ -139,11 +152,17 @@ function RateDialog({
               onChange={(e) => setValue(e.target.value)}
               placeholder="122.5"
             />
-          </div>
-          <div>
-            <Label htmlFor="rate-from" className="mb-1.5 text-xs font-bold">
-              Effective from
-            </Label>
+          </Field>
+
+          <Field
+            label="Effective from"
+            htmlFor="rate-from"
+            hint={
+              rate
+                ? "Fixed. A rate is identified by its pair and effective date, so a different date is a new rate."
+                : undefined
+            }
+          >
             <Input
               id="rate-from"
               type="date"
@@ -151,20 +170,17 @@ function RateDialog({
               onChange={(e) => setEffectiveFrom(e.target.value)}
               disabled={rate !== null}
             />
-            {rate ? (
-              <p className="mt-1 text-[11.5px] text-[#6B7683]">
-                Fixed — a rate is identified by its pair and effective date. A different date is a
-                new rate.
-              </p>
-            ) : null}
-          </div>
+          </Field>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || value.trim() === "" || effectiveFrom === ""}
-              onClick={() =>
+            <DialogActions
+              pending={pending}
+              disabled={value.trim() === "" || effectiveFrom === ""}
+              submitLabel={rate ? "Save" : "Add rate"}
+              onCancel={onClose}
+              onSubmit={() =>
                 onSave({
                   base: "USD",
                   quote: "BDT",
@@ -172,10 +188,7 @@ function RateDialog({
                   effectiveFrom,
                 })
               }
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : rate ? "Save" : "Add rate"}
-            </Button>
+            />
           </DialogFooter>
         </div>
       </DialogContent>
