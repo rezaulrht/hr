@@ -13,6 +13,7 @@ vi.mock("./cost.service", () => ({
   listCommitments: vi.fn(async () => []),
   createCommitment: vi.fn(async () => ({ id: "cm-1" })),
   updateCommitment: vi.fn(async () => ({ id: "cm-1" })),
+  deleteCategory: vi.fn(async () => undefined),
 }))
 
 vi.mock("./cost.summary", () => ({
@@ -126,5 +127,21 @@ describe("route ordering", () => {
 
     expect(res.status).toBe(200)
     expect(res.body).toEqual([])
+  })
+})
+
+describe("DELETE /api/costs/categories/:id", () => {
+  it("refuses an HR admin — cost categories are Finance's", async () => {
+    const res = await request(app).delete("/api/costs/categories/c1").set(authHeader("HR_ADMIN"))
+
+    expect(res.status).toBe(403)
+  })
+
+  it("allows FINANCE_OFFICER", async () => {
+    const res = await request(app)
+      .delete("/api/costs/categories/c1")
+      .set(authHeader("FINANCE_OFFICER"))
+
+    expect(res.status).toBe(204)
   })
 })

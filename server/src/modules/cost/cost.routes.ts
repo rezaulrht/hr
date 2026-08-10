@@ -8,6 +8,7 @@ import {
   createCategoryHandler,
   createCommitmentHandler,
   createCostHandler,
+  deleteCategoryHandler,
   deleteReceiptHandler,
   getCostHandler,
   getReceiptUrlHandler,
@@ -37,6 +38,7 @@ const READ_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN, Role.HR_ADMIN] as co
 router.get("/categories", requireAuth, requireRole(...READ_ROLES), listCategoriesHandler)
 router.post("/categories", requireAuth, requireRole(...WRITE_ROLES), createCategoryHandler)
 router.patch("/categories/:id", requireAuth, requireRole(...WRITE_ROLES), updateCategoryHandler)
+router.delete("/categories/:id", requireAuth, requireRole(...WRITE_ROLES), deleteCategoryHandler)
 
 router.get("/commitments", requireAuth, requireRole(...READ_ROLES), listCommitmentsHandler)
 router.post("/commitments", requireAuth, requireRole(...WRITE_ROLES), createCommitmentHandler)

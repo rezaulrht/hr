@@ -10,6 +10,7 @@ import prisma from "../../config/prisma"
 import type { AssetLifecycle, Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
+import { describeUsage } from "../../utils/referenceUsage"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { dec, toMoneyString } from "../payroll/payroll.money"
@@ -471,8 +472,9 @@ export async function createCategory(input: CreateCategoryInput, actor: AccessTo
 }
 
 /**
- * No delete and no deactivate: a category with history is not removable, and
- * nothing in this phase needs it to be.
+ * No deactivate: a category is either in use, in which case `deleteCategory`
+ * refuses, or it is not, in which case deleting it outright is cleaner than
+ * leaving a retired row in every picker forever.
  */
 export async function updateCategory(
   id: string,
@@ -540,5 +542,38 @@ export async function updateCategory(
     })
 
     return updated
+  })
+}
+
+export async function deleteCategory(id: string, actor: AccessTokenPayload): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.assetCategory.findUnique({ where: { id } })
+    if (!existing) throw new AppError(404, "Asset category not found")
+
+    // Both relations are required, so the database would refuse this anyway —
+    // but as a P2003 the error middleware renders as a 500. Counting first
+    // turns that into a 409 that says what to do about it.
+    const [assets, requests] = await Promise.all([
+      tx.asset.count({ where: { categoryId: id } }),
+      tx.assetRequest.count({ where: { categoryId: id } }),
+    ])
+
+    const usage = describeUsage([
+      { noun: "asset", count: assets },
+      { noun: "request", count: requests },
+    ])
+    if (usage !== null) {
+      throw new AppError(409, `This category is still in use by ${usage}. Reassign them first.`)
+    }
+
+    await tx.assetCategory.delete({ where: { id } })
+
+    await writeAudit(tx, {
+      entity: "ASSET_CATEGORY",
+      entityId: id,
+      action: "DELETE",
+      changedBy: actor.sub,
+      before: { code: existing.code, name: existing.name },
+    })
   })
 }

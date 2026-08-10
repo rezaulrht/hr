@@ -20,7 +20,10 @@ import {
   getTodayHandler,
   listApprovalsHandler,
   listHolidaysHandler,
+  createShiftHandler,
+  deleteShiftHandler,
   listShiftsHandler,
+  updateShiftHandler,
   regulariseHandler,
   rejectAttendanceHandler,
   updateHolidayHandler,
@@ -84,7 +87,14 @@ router.get("/:id/audit", requireAuth, requireRole(...HR_ROLES), getAuditTrailHan
 router.patch("/:id", requireAuth, requireRole(...HR_ROLES), correctAttendanceHandler)
 
 // The employee-create/edit forms' shift picker. Only HR assigns a shift.
+// Ordering note: `PATCH "/:id"` is registered above. It does not shadow
+// `PATCH /shifts/:id`, because `/:id` matches a single path segment and
+// `/shifts/abc` has two — the holiday routes below rely on the same property.
+// Do not move these above the `/:id` group; that is what would break them.
 router.get("/shifts", requireAuth, requireRole(...HR_ROLES), listShiftsHandler)
+router.post("/shifts", requireAuth, requireRole(...HR_ROLES), createShiftHandler)
+router.patch("/shifts/:id", requireAuth, requireRole(...HR_ROLES), updateShiftHandler)
+router.delete("/shifts/:id", requireAuth, requireRole(...HR_ROLES), deleteShiftHandler)
 
 // Everyone reads the calendar; only HR writes it.
 router.get("/holidays", requireAuth, listHolidaysHandler)

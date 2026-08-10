@@ -103,3 +103,46 @@ export const holidayUpdateSchema = holidaySchema.partial().refine(
   { message: "Provide at least one field to update" }
 )
 export type HolidayUpdateBody = z.infer<typeof holidayUpdateSchema>
+
+/**
+ * 0=Sun … 6=Sat, matching `Shift.weeklyOffDays`. Deduplicated so [5,5] cannot
+ * make a day count twice anywhere downstream.
+ */
+const weeklyOffDays = z
+  .array(z.number().int().min(0).max(6))
+  .max(7)
+  .transform((days) => [...new Set(days)].sort((a, b) => a - b))
+
+/** The field shapes, without defaults, so the update schema can reuse them. */
+const shiftFields = {
+  name: z.string().trim().min(1, "A name is required").max(100),
+  startTime: timeOfDay,
+  endTime: timeOfDay,
+  breakMinutes: z.coerce.number().int().min(0).max(480),
+  graceMinutes: z.coerce.number().int().min(0).max(240),
+  weeklyOffDays,
+}
+
+export const shiftSchema = z.object({
+  ...shiftFields,
+  breakMinutes: shiftFields.breakMinutes.default(60),
+  graceMinutes: shiftFields.graceMinutes.default(15),
+  weeklyOffDays: shiftFields.weeklyOffDays.default([5]),
+})
+export type ShiftBody = z.infer<typeof shiftSchema>
+
+/**
+ * Built from the defaults-free field set, NOT from `shiftSchema.partial()`.
+ *
+ * `.partial()` makes a field optional but keeps its `.default()`, so a PATCH
+ * carrying only `startTime` would also write breakMinutes 60, graceMinutes 15
+ * and weeklyOffDays [5] — silently resetting a shift's rest days, which
+ * re-derives every past attendance day for everyone on it.
+ */
+export const shiftUpdateSchema = z
+  .object(shiftFields)
+  .partial()
+  .refine((body) => Object.values(body).some((value) => value !== undefined), {
+    message: "Provide at least one field to update",
+  })
+export type ShiftUpdateBody = z.infer<typeof shiftUpdateSchema>

@@ -35,6 +35,11 @@ export type AuditEntity =
   | "COST"
   | "COST_COMMITMENT"
   | "COST_CATEGORY"
+  // Reference data. Editable from the Settings screens rather than the seed,
+  // so a rename or a delete needs the same trail as a payroll change.
+  | "DEPARTMENT"
+  | "SHIFT"
+  | "LEAVE_TYPE"
 
 export type AuditAction =
   | "CREATE"

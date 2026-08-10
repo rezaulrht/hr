@@ -15,6 +15,12 @@ vi.mock("./leave.service", () => ({
   getHalfDayWindow: vi.fn(),
 }))
 
+vi.mock("./leave.admin", () => ({
+  createLeaveType: vi.fn(),
+  updateLeaveType: vi.fn(),
+  deleteLeaveType: vi.fn(),
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import * as leaveService from "./leave.service"
@@ -296,5 +302,32 @@ describe("GET /api/leave/half-day-window", () => {
       .get("/api/leave/half-day-window")
       .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
     expect(res.status).toBe(400)
+  })
+})
+
+describe("leave-type writes", () => {
+  it("refuses POST /api/leave/types for a staff role", async () => {
+    const res = await request(app)
+      .post("/api/leave/types")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+      .send({ code: "STUDY", name: "Study", annualQuota: 5, eligibleFor: ["FULL_TIME"] })
+    expect(res.status).toBe(403)
+  })
+
+  it("refuses DELETE /api/leave/types/:id for a staff role", async () => {
+    const res = await request(app)
+      .delete("/api/leave/types/lt1")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(403)
+  })
+
+  // The read stays open — every leave application form needs the list.
+  it("still allows any authenticated role to GET /api/leave/types", async () => {
+    vi.mocked(leaveService.listLeaveTypes).mockResolvedValue([] as never)
+
+    const res = await request(app)
+      .get("/api/leave/types")
+      .set("Authorization", `Bearer ${tokenFor("EMPLOYEE")}`)
+    expect(res.status).toBe(200)
   })
 })

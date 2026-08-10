@@ -660,7 +660,11 @@ model AuditLog {
   //   | "EXPENSE_CLAIM" | "SETTLEMENT" | "EXCHANGE_RATE" | "EMPLOYEE_EXIT"
   //   | "EMPLOYEE_SALARY_STRUCTURE" | "EMPLOYEE_DOCUMENT" | "EMPLOYEE_PROFILE"
   //   | "ASSET" | "ASSET_CATEGORY" | "ASSET_ASSIGNMENT" | "ASSET_REQUEST"
-  //   | "ASSET_REPAIR"
+  //   | "ASSET_REPAIR" | "COST" | "COST_COMMITMENT" | "COST_CATEGORY"
+  //   | "DEPARTMENT" | "SHIFT" | "LEAVE_TYPE"
+  //
+  // The authority is `AuditEntity` in src/utils/audit.ts; this is a reader's
+  // convenience and has drifted before.
   id        String   @id @default(uuid())
   entity    String
   entityId  String

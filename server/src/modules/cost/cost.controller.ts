@@ -15,6 +15,7 @@ import {
   createCategory,
   createCommitment,
   createCost,
+  deleteCategory,
   getCost,
   listCategories,
   listCommitments,
@@ -68,6 +69,15 @@ export async function updateCategoryHandler(req: RequestWithId, res: Response, n
   try {
     const body = updateCostCategorySchema.parse(req.body)
     res.json(await updateCategory(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function deleteCategoryHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    await deleteCategory(req.params.id, req.user!)
+    res.status(204).send()
   } catch (err) {
     next(err)
   }

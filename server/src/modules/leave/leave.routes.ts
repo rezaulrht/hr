@@ -7,6 +7,8 @@ import {
   applyForLeaveHandler,
   approveLeaveRequestHandler,
   cancelLeaveRequestHandler,
+  createLeaveTypeHandler,
+  deleteLeaveTypeHandler,
   getBalancesForHandler,
   getHalfDayWindowHandler,
   getMyBalancesHandler,
@@ -15,6 +17,7 @@ import {
   listLeaveTypesHandler,
   rejectLeaveRequestHandler,
   revertLeaveRequestHandler,
+  updateLeaveTypeHandler,
 } from "./leave.controller"
 
 const router = Router()
@@ -25,7 +28,14 @@ const STAFF_ROLES = [Role.EMPLOYEE, Role.REPORTING_MANAGER] as const
 /** Roles that decide on leave. Reporting managers are read-only here. */
 const REVIEWER_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
 
+/** Who may author the catalogue. Reading it stays open — every leave
+ *  application form needs the list. */
+const CATALOGUE_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
+
 router.get("/types", requireAuth, listLeaveTypesHandler)
+router.post("/types", requireAuth, requireRole(...CATALOGUE_ROLES), createLeaveTypeHandler)
+router.patch("/types/:id", requireAuth, requireRole(...CATALOGUE_ROLES), updateLeaveTypeHandler)
+router.delete("/types/:id", requireAuth, requireRole(...CATALOGUE_ROLES), deleteLeaveTypeHandler)
 // Above any `/requests/:id` route below — Express would otherwise match
 // "half-day-window" as an id. Not role-gated beyond auth: it returns the
 // caller's own shift window and nothing else.

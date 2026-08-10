@@ -1,11 +1,12 @@
 import type { NextFunction, Request, Response } from "express"
 
+import { getEmployeeAttendance, getMyAttendance, getToday } from "./attendance.service"
 import {
-  getEmployeeAttendance,
-  getMyAttendance,
-  getToday,
+  createShift,
+  deleteShift,
   listShifts,
-} from "./attendance.service"
+  updateShift,
+} from "./attendance.shifts"
 import {
   createHoliday,
   deleteHoliday,
@@ -39,6 +40,8 @@ import {
   monthQuerySchema,
   regulariseSchema,
   rejectSchema,
+  shiftSchema,
+  shiftUpdateSchema,
   yearQuerySchema,
 } from "./attendance.validators"
 
@@ -52,6 +55,33 @@ type RequestWithId = Request<{ id: string }>
 export async function listShiftsHandler(req: Request, res: Response, next: NextFunction) {
   try {
     return res.status(200).json(await listShifts())
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function createShiftHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = shiftSchema.parse(req.body)
+    return res.status(201).json(await createShift(body, req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function updateShiftHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = shiftUpdateSchema.parse(req.body)
+    return res.json(await updateShift(req.params.id, body, req.user!))
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export async function deleteShiftHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    await deleteShift(req.params.id, req.user!)
+    return res.status(204).send()
   } catch (err) {
     return next(err)
   }
