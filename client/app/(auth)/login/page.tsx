@@ -1,70 +1,80 @@
 import type { Metadata } from "next"
 
+import { BrandLogo } from "@/components/brand/brand"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { AdminLoginForm } from "./admin-login-form"
 import { StaffLoginForm } from "./staff-login-form"
 
 export const metadata: Metadata = {
-  title: "Sign in | PeopleCore",
+  title: "Sign in | byteSpate",
 }
-
-const perks = [
-  "Payslips & attendance in one place",
-  "Approvals cleared in one click",
-  "Payroll closed in days, not weeks",
-]
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen w-full flex-col md:flex-row">
-      {/* Below md the brand panel does not disappear — it collapses to a dark
-          strip carrying just the logo, per the design reference. */}
-      <aside
-        className="flex w-full min-w-0 flex-col px-6 py-4.5 text-white md:w-[44%] md:min-w-95 md:p-10"
-        style={{ background: "#0E1012" }}
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-7.5 place-items-center rounded bg-white text-[15px] font-extrabold text-[#17191C]">
-            <span className="font-heading">P</span>
-          </div>
-          <span className="font-heading text-[15px] font-bold">PeopleCore</span>
-        </div>
+    <div className="flex min-h-[100dvh] w-full flex-col md:flex-row">
+      {/*
+        Below md this collapses to a strip carrying the brand alone. The panel
+        is not decoration: on a shared office machine it is the only thing that
+        says which system is being signed into.
+      */}
+      <aside className="relative isolate flex w-full min-w-0 flex-col overflow-hidden bg-[#0E1012] px-6 py-5 text-white md:w-[42%] md:min-w-95 md:p-10">
+        {/*
+          The source logo is a glow on black. Echoing it here in the brand's own
+          red and green keeps the panel from being a flat rectangle without
+          reaching for a stock photograph, which on an internal sign-in screen
+          would be decoration rather than information.
+        */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-32 -left-24 -z-10 size-[26rem] rounded-full opacity-45 blur-3xl"
+          style={{ background: "radial-gradient(circle, #FE0101 0%, transparent 68%)" }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-28 left-1/3 -z-10 size-72 rounded-full opacity-25 blur-3xl"
+          style={{ background: "radial-gradient(circle, #028805 0%, transparent 70%)" }}
+        />
 
-        <div className="my-auto hidden max-w-100 md:block">
-          <div className="font-heading text-[32px] font-bold tracking-tighter text-balance">
+        <BrandLogo tone="dark" width={186} className="self-start" />
+
+        <div className="my-auto hidden max-w-105 md:block">
+          <h2 className="font-heading text-[34px] leading-[1.12] font-bold tracking-tighter text-balance">
             One login. Your whole working month.
-          </div>
-          <p className="mt-4.5 text-[14.5px] leading-[1.7] text-white/60">
-            Check in, request leave, read payslips, approve claims — whatever your role, it&rsquo;s behind this door.
+          </h2>
+          <p className="mt-4.5 max-w-[46ch] text-[14.5px] leading-[1.7] text-white/60">
+            Check in, request leave, read payslips, approve claims. Whatever your role, it is behind
+            this door.
           </p>
-          <div className="mt-7.5 flex flex-col gap-3">
-            {perks.map((perk) => (
-              <div key={perk} className="flex items-center gap-2.5 text-[13.5px] font-semibold">
-                <span className="grid size-4 shrink-0 place-items-center rounded bg-white text-[10px] text-[#17191C]">
-                  ✓
-                </span>
-                {perk}
-              </div>
-            ))}
-          </div>
         </div>
 
-        <div className="hidden text-xs text-white/40 md:block">SOC 2 Type II · SSO · Two-factor enforced</div>
+        {/* No tagline line here: the lockup above already carries it, and
+            printing it twice on one panel reads as a mistake. */}
       </aside>
 
-      <main className="flex flex-1 items-start justify-center px-5 pt-9 pb-12 md:items-center md:px-7 md:py-10">
+      <main className="flex flex-1 items-start justify-center px-5 pt-10 pb-12 md:items-center md:px-7 md:py-10">
         <div className="w-full max-w-100">
           <h1 className="font-heading text-[26px] font-bold tracking-tight">Welcome back</h1>
-          <p className="mt-2 mb-6.5 text-[13.5px] text-[#55657A]">Sign in to your PeopleCore workspace.</p>
+          <p className="mt-2 mb-7 text-[13.5px] text-[#55657A]">
+            Sign in to your byteSpate workspace.
+          </p>
 
-          <Tabs defaultValue="staff" className="mb-6">
-            <TabsList className="mb-6 w-full">
-              <TabsTrigger value="staff" className="flex-1">
-                Staff Login
+          {/* A segmented control, not the page-level underline tabs used inside
+              the app: this picks which credential you are signing in with, so
+              it should read as a switch rather than as navigation. */}
+          <Tabs defaultValue="staff">
+            <TabsList className="mb-6 h-auto! w-full gap-1 rounded-lg bg-[#EFF2F6] p-1">
+              <TabsTrigger
+                value="staff"
+                className="h-9 flex-1 rounded-md text-[13px] font-semibold text-[#5F6B7C] after:hidden data-active:bg-white data-active:text-[#17191C] data-active:shadow-[0_1px_2px_rgba(28,39,51,0.10)]"
+              >
+                Staff
               </TabsTrigger>
-              <TabsTrigger value="admin" className="flex-1">
-                Administrative Login
+              <TabsTrigger
+                value="admin"
+                className="h-9 flex-1 rounded-md text-[13px] font-semibold text-[#5F6B7C] after:hidden data-active:bg-white data-active:text-[#17191C] data-active:shadow-[0_1px_2px_rgba(28,39,51,0.10)]"
+              >
+                Administrator
               </TabsTrigger>
             </TabsList>
             <TabsContent value="staff">
@@ -75,10 +85,13 @@ export default function LoginPage() {
             </TabsContent>
           </Tabs>
 
-          <p className="mt-5 text-center text-[11.5px] leading-[1.6] text-[#8B95A3]">
-            No account? Access is provisioned by your HR admin —{" "}
-            <a href="#" className="font-bold">
-              contact them
+          <p className="mt-6 border-t border-[#E4E9EF] pt-5 text-center text-[11.5px] leading-[1.6] text-[#6B7789]">
+            Access is provisioned by your HR admin.{" "}
+            <a
+              href="#"
+              className="font-bold text-[#17191C] underline underline-offset-2 hover:text-[#0E1012]"
+            >
+              Contact them
             </a>{" "}
             to get set up.
           </p>

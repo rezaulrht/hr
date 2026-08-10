@@ -7,10 +7,12 @@ import { loginStaff } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import { ROLE_ROUTES } from "@/lib/auth/role-routes"
-import { Button } from "@/components/ui/button"
+import { RiIdCardLine, RiLockLine } from "@remixicon/react"
+
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
+import { AUTH_INPUT, AUTH_INPUT_WITH_ICON, AuthError, AuthField, AuthSubmit } from "./auth-form-ui"
 
 export function StaffLoginForm() {
   const router = useRouter()
@@ -38,53 +40,45 @@ export function StaffLoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="mb-4">
-        <Label htmlFor="employee-id" className="mb-1.5 text-xs font-bold">
-          Employee ID
-        </Label>
+    <form onSubmit={handleSubmit} className="grid gap-4">
+      <AuthField label="Employee ID" htmlFor="employee-id" icon={RiIdCardLine}>
         <Input
           id="employee-id"
           type="text"
           placeholder="BS-EMP-00001"
           value={employeeId}
           // The field is styled `uppercase`, but text-transform only changes
-          // what is painted — without this the value sent stays as typed and a
+          // what is painted. Without this the value sent stays as typed and a
           // lowercase code fails an exact-match lookup while looking correct.
           onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
           autoCapitalize="characters"
           autoCorrect="off"
           spellCheck={false}
+          autoComplete="username"
           required
-          className="h-auto w-full rounded border-[#D8DCE1] bg-white px-3.5 py-2.75 text-[13.5px] uppercase focus-visible:border-[#17191C] focus-visible:ring-0"
+          className={cn(AUTH_INPUT, AUTH_INPUT_WITH_ICON, "uppercase tracking-wide")}
         />
-      </div>
-      <div className="mb-4">
-        <Label htmlFor="employee-password" className="mb-1.5 text-xs font-bold">
-          Password
-        </Label>
+      </AuthField>
+
+      <AuthField label="Password" htmlFor="employee-password" icon={RiLockLine}>
         <PasswordInput
           id="employee-password"
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           required
-          className="h-auto w-full rounded border-[#D8DCE1] bg-white px-3.5 py-2.75 text-[13.5px] focus-visible:border-[#17191C] focus-visible:ring-0"
+          className={cn(AUTH_INPUT, AUTH_INPUT_WITH_ICON)}
         />
-      </div>
+      </AuthField>
 
-      {error ? <p className="mb-4 text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+      {error ? <AuthError>{error}</AuthError> : null}
 
-      <Button
-        type="submit"
-        disabled={submitting}
-        className="block w-full rounded bg-[#17191C] py-3.5 text-center text-sm font-bold text-white hover:bg-[#33373D] disabled:opacity-60"
-      >
-        {submitting ? "Signing in…" : "Sign in"}
-      </Button>
-      <p className="mt-4 text-center text-[11.5px] leading-[1.6] text-[#8B95A3]">
-        First time signing in? Use the temporary ID and password your HR team sent you — you&rsquo;ll be asked to
-        set a new password.
+      <AuthSubmit submitting={submitting} label="Sign in" />
+
+      <p className="text-center text-[11.5px] leading-[1.6] text-[#5F6B7C]">
+        First time signing in? Use the temporary ID and password your HR team sent you. You&rsquo;ll
+        be asked to set a new password.
       </p>
     </form>
   )

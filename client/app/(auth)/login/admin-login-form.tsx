@@ -7,10 +7,12 @@ import { loginAdmin } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import { ROLE_ROUTES } from "@/lib/auth/role-routes"
-import { Button } from "@/components/ui/button"
+import { RiLockLine, RiMailLine } from "@remixicon/react"
+
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
+import { AUTH_INPUT, AUTH_INPUT_WITH_ICON, AuthError, AuthField, AuthSubmit } from "./auth-form-ui"
 
 export function AdminLoginForm() {
   const router = useRouter()
@@ -36,44 +38,43 @@ export function AdminLoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="mb-4">
-        <Label htmlFor="admin-email" className="mb-1.5 text-xs font-bold">
-          Work email
-        </Label>
+    <form onSubmit={handleSubmit} className="grid gap-4">
+      <AuthField label="Work email" htmlFor="admin-email" icon={RiMailLine}>
         <Input
           id="admin-email"
           type="email"
           placeholder="you@company.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           required
-          className="h-auto w-full rounded border-[#D8DCE1] bg-white px-3.5 py-2.75 text-[13.5px] focus-visible:border-[#17191C] focus-visible:ring-0"
+          className={cn(AUTH_INPUT, AUTH_INPUT_WITH_ICON)}
         />
-      </div>
-      <div className="mb-4">
-        <Label htmlFor="admin-password" className="mb-1.5 text-xs font-bold">
-          Password
-        </Label>
+      </AuthField>
+
+      <AuthField label="Password" htmlFor="admin-password" icon={RiLockLine}>
         <PasswordInput
           id="admin-password"
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           required
-          className="h-auto w-full rounded border-[#D8DCE1] bg-white px-3.5 py-2.75 text-[13.5px] focus-visible:border-[#17191C] focus-visible:ring-0"
+          className={cn(AUTH_INPUT, AUTH_INPUT_WITH_ICON)}
         />
-      </div>
+      </AuthField>
 
-      {error ? <p className="mb-4 text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+      {error ? <AuthError>{error}</AuthError> : null}
 
-      <Button
-        type="submit"
-        disabled={submitting}
-        className="block w-full rounded bg-[#17191C] py-3.5 text-center text-sm font-bold text-white hover:bg-[#33373D] disabled:opacity-60"
-      >
-        {submitting ? "Signing in…" : "Sign in"}
-      </Button>
+      <AuthSubmit submitting={submitting} label="Sign in" />
+
+      <p className="text-center text-[11.5px] leading-[1.6] text-[#5F6B7C]">
+        Administrator accounts sign in with a work email. Staff use their employee ID on the other
+        tab.
+      </p>
     </form>
   )
 }
