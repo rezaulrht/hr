@@ -4,9 +4,6 @@ import {
   AnnouncementAudience,
   PrismaClient,
   Role,
-  type ComponentCalc,
-  type ComponentKind,
-  type Currency,
   type HolidayType,
 } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
@@ -24,68 +21,6 @@ async function seedAdminUser(email: string, role: Role) {
     update: {},
     create: { email, passwordHash, role, mustChangePassword: false },
   })
-}
-
-/**
- * Demo staff account with an Employee profile. Unlike the administrative
- * logins, these roles hold leave of their own, so leave can't be exercised
- * without them.
- *
- * Staff sign in with their employee code, never their email, so the code is
- * the credential that matters here — hence the readable `BS-EMP-DEMO` rather
- * than a serial. The IdCounter only ever emits zero-padded digits, so a
- * `DEMO` suffix can never collide with a real hire's generated code.
- */
-async function seedStaffAccount(input: {
-  email: string
-  role: Extract<Role, "EMPLOYEE" | "REPORTING_MANAGER">
-  employeeCode: string
-  fullName: string
-  designation: string
-  departmentName: string
-  reportingManagerId?: string
-  salaryStructureId: string
-}) {
-  const passwordHash = await hashPassword(SEED_PASSWORD)
-  const user = await prisma.user.upsert({
-    where: { email: input.email },
-    update: {},
-    create: { email: input.email, passwordHash, role: input.role, mustChangePassword: false },
-  })
-
-  const department = await prisma.department.findUniqueOrThrow({
-    where: { name: input.departmentName },
-  })
-
-  const employee = await prisma.employee.upsert({
-    where: { userId: user.id },
-    // Keep the sign-in code and the reporting line current. Without
-    // employeeCode here, a demo account seeded under an older code would keep
-    // it forever and the documented login would simply not work.
-    update: {
-      employeeCode: input.employeeCode,
-      reportingManagerId: input.reportingManagerId ?? null,
-      // Kept current on re-seed too. An unassigned structure is payroll
-      // preflight blocker 3, so a demo account without one makes the very
-      // first run unprocessable and reads as a bug rather than as the gate
-      // working.
-      salaryStructureId: input.salaryStructureId,
-    },
-    create: {
-      userId: user.id,
-      employeeCode: input.employeeCode,
-      salaryStructureId: input.salaryStructureId,
-      fullName: input.fullName,
-      designation: input.designation,
-      departmentId: department.id,
-      employmentType: "FULL_TIME",
-      // A prior-year joining date means a full, un-pro-rated entitlement.
-      joiningDate: new Date(Date.UTC(new Date().getUTCFullYear() - 1, 0, 6)),
-      reportingManagerId: input.reportingManagerId,
-    },
-  })
-
-  return employee
 }
 
 /**
@@ -135,84 +70,6 @@ const HOLIDAYS_2026 = [
 ] as const satisfies ReadonlyArray<readonly [string, string, HolidayType]>
 
 /**
- * Two structures, so the multi-currency payroll path is exercisable without
- * hand data entry. Percent-of-basic house rent is the Bangladeshi norm and is
- * exactly the case the old `allowances Json` blob could not express.
- *
- * `countsAsWages` is false for the deduction lines: §119 leave pay and the
- * §2(10) gratuity base are built from earnings, and a deduction has no
- * business in either.
- */
-const SALARY_STRUCTURES = [
-  {
-    name: "Standard (BDT)",
-    currency: "BDT",
-    basic: 50000,
-    components: [
-      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
-      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 3000, sortOrder: 2, countsAsWages: true },
-      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 2000, sortOrder: 3, countsAsWages: true },
-      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
-      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 2500, sortOrder: 2, countsAsWages: false },
-    ],
-  },
-  {
-    name: "Standard (USD)",
-    currency: "USD",
-    basic: 2000,
-    // FIXED values are in the structure's own currency, so these are dollars.
-    // Entering the BDT figures here would overpay by roughly 122×, which is
-    // the whole reason currency lives on the structure.
-    components: [
-      { code: "HOUSE_RENT", label: "House rent", kind: "EARNING", calc: "PERCENT_OF_BASIC", value: 50, sortOrder: 1, countsAsWages: true },
-      { code: "MEDICAL", label: "Medical", kind: "EARNING", calc: "FIXED", value: 120, sortOrder: 2, countsAsWages: true },
-      { code: "CONVEYANCE", label: "Conveyance", kind: "EARNING", calc: "FIXED", value: 80, sortOrder: 3, countsAsWages: true },
-      { code: "PF", label: "Provident fund", kind: "DEDUCTION", calc: "PERCENT_OF_BASIC", value: 10, sortOrder: 1, countsAsWages: false },
-      { code: "TAX", label: "Income tax", kind: "DEDUCTION", calc: "FIXED", value: 100, sortOrder: 2, countsAsWages: false },
-    ],
-  },
-] as const satisfies ReadonlyArray<{
-  name: string
-  currency: Currency
-  basic: number
-  components: ReadonlyArray<{
-    code: string
-    label: string
-    kind: ComponentKind
-    calc: ComponentCalc
-    value: number
-    sortOrder: number
-    countsAsWages: boolean
-  }>
-}>
-
-async function seedSalaryStructures() {
-  for (const structure of SALARY_STRUCTURES) {
-    const { components, ...head } = structure
-
-    const saved = await prisma.salaryStructure.upsert({
-      where: { name: head.name },
-      // Filled in, not `{}` — an empty update makes re-seeding silently skip
-      // rows that already exist, so a corrected basic would never take
-      // effect. `currency` is deliberately absent: it is immutable after
-      // creation, because changing it re-denominates every figure at once.
-      update: { basic: head.basic },
-      create: head,
-    })
-
-    for (const component of components) {
-      await prisma.salaryComponent.upsert({
-        // By (structure, code), never by label — renaming a payslip line must
-        // not create a second component alongside the original.
-        where: { salaryStructureId_code: { salaryStructureId: saved.id, code: component.code } },
-        update: component,
-        create: { ...component, salaryStructureId: saved.id },
-      })
-    }
-  }
-}
-
-/**
  * Three announcements covering the three states the read filter produces:
  * live and company-wide, live and department-scoped, and scheduled.
  *
@@ -224,7 +81,7 @@ async function seedSalaryStructures() {
  * and inventing a unique constraint on `title` to make the seed convenient
  * would forbid HR from ever reusing a subject line.
  */
-async function seedAnnouncements(hrUserId: string, managerUserId: string) {
+async function seedAnnouncements(hrUserId: string) {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
   const announcements = [
@@ -238,7 +95,12 @@ async function seedAnnouncements(hrUserId: string, managerUserId: string) {
     {
       title: "Engineering: sprint demo moved to Thursday",
       body: "This week's demo moves to Thursday 15:00 to avoid the release window.",
-      publishedBy: managerUserId,
+      // Published by HR rather than by an Engineering manager: the seed creates
+      // no staff accounts. The row is kept because it is the only one with a
+      // DEPARTMENT audience, and the three rows exist to cover the three states
+      // the read filter produces. The author is incidental to that; the
+      // audience is not.
+      publishedBy: hrUserId,
       audience: AnnouncementAudience.DEPARTMENT,
       departmentName: "Engineering",
       publishedAt: new Date(),
@@ -409,8 +271,6 @@ async function main() {
     })
   }
 
-  await seedSalaryStructures()
-
   // One demo rate, so the USD path is walkable without data entry. Stored in
   // the single canonical direction (base USD, quote BDT); the inverse is
   // derived as 1/rate and never stored, so a round trip cannot lose money.
@@ -438,45 +298,19 @@ async function main() {
     create: { ...rate, createdBy: superAdmin.id },
   })
 
-  const bdtStructure = await prisma.salaryStructure.findUniqueOrThrow({
-    where: { name: "Standard (BDT)" },
-  })
-
-  // The manager must exist first — the employee's reporting line points at it.
-  const manager = await seedStaffAccount({
-    email: "manager@demo.com",
-    role: Role.REPORTING_MANAGER,
-    employeeCode: "BS-MNG-DEMO",
-    fullName: "Daniel Kim",
-    designation: "Engineering Manager",
-    departmentName: "Engineering",
-    salaryStructureId: bdtStructure.id,
-  })
-
-  await seedStaffAccount({
-    email: "employee@demo.com",
-    role: Role.EMPLOYEE,
-    employeeCode: "BS-EMP-DEMO",
-    fullName: "Ayesha Rahman",
-    designation: "Software Engineer",
-    departmentName: "Engineering",
-    reportingManagerId: manager.id,
-    salaryStructureId: bdtStructure.id,
-  })
-
-  await seedAnnouncements(hrAdmin.id, manager.userId)
+  await seedAnnouncements(hrAdmin.id)
 
   console.log("Seed complete. All demo logins use the password: Demo@12345\n")
   console.log("Administrative roles sign in with an EMAIL:")
   console.log("  Super Admin:        admin@demo.com")
   console.log("  HR Admin:           hr@demo.com")
   console.log("  Finance Officer:    finance@demo.com\n")
-  console.log("Staff roles sign in with an EMPLOYEE ID (email is not accepted):")
-  console.log("  Reporting Manager:  BS-MNG-DEMO   Daniel Kim")
-  console.log("  Employee:           BS-EMP-DEMO   Ayesha Rahman, reports to Daniel Kim\n")
-  console.log("Additional staff accounts are created via POST /api/employees/staff.\n")
-  console.log("Payroll: both staff accounts are on 'Standard (BDT)' (basic 50,000).")
-  console.log("  'Standard (USD)' (basic 2,000) exists to exercise the currency path.")
+  console.log("No staff accounts are seeded. Employees and reporting managers")
+  console.log("are created through the app — POST /api/employees/staff — and sign")
+  console.log("in with their employee code, never their email.\n")
+  console.log("Payroll: no salary structure is seeded. Finance authors one and HR")
+  console.log("  assigns it before a run can process anyone — an unassigned")
+  console.log("  structure is payroll preflight blocker 3.")
   console.log("  Exchange rate: 1 USD = 122.500000 BDT, effective 2026-01-01.")
 }
 
