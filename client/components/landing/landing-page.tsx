@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Public_Sans, Sora } from "next/font/google"
 
 import { cn } from "@/lib/utils"
+import { BrandLogo } from "@/components/brand/brand"
 import {
   bandStats,
   features,
@@ -45,12 +46,7 @@ export function LandingPage() {
     <div className={cn(publicSans.variable, sora.variable, "font-sans flex min-h-screen flex-col bg-[#FBFBFC] text-[#17191C]")}>
       <header className="sticky top-0 z-10 border-b border-[#E7E9EC] bg-[#FBFBFC]/92 backdrop-blur-sm">
         <div className="mx-auto flex h-15.5 max-w-290 items-center gap-7 px-7">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-7.5 place-items-center rounded bg-[#17191C] text-[15px] font-extrabold text-white">
-              <span className="font-heading">P</span>
-            </div>
-            <div className="font-heading text-[15px] font-bold">PeopleCore</div>
-          </div>
+          <BrandLogo width={150} />
           <nav className="ml-3 hidden gap-5.5 sm:flex">
             {navLinks.map((link) => (
               <a key={link.label} href={link.href} className="text-[13.5px] font-semibold text-[#55657A]">
@@ -150,7 +146,7 @@ export function LandingPage() {
 
       <section className="bg-[#0E1012] text-white">
         <div className="mx-auto flex max-w-290 flex-wrap items-center justify-between gap-6 px-7 py-6.5">
-          <div className="text-[13px] font-semibold text-white/60">Next payroll run across PeopleCore</div>
+          <div className="text-[13px] font-semibold text-white/60">Next payroll run across byteSpate</div>
           <div className="flex items-baseline gap-5.5">
             <div className="font-heading text-2xl font-bold tracking-wide tabular-nums">{countdownToPayday()}</div>
             <div className="text-xs text-white/45">until Aug 1 · 1,248 payslips queued</div>
@@ -266,12 +262,7 @@ export function LandingPage() {
 
       <footer className="bg-[#0E1012] text-white/60">
         <div className="mx-auto flex max-w-290 flex-wrap items-center justify-between gap-5 px-7 py-9">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-6.5 place-items-center rounded bg-white text-[13px] font-extrabold text-[#17191C]">
-              <span className="font-heading">P</span>
-            </div>
-            <span className="font-heading text-[13px] font-bold text-white">PeopleCore</span>
-          </div>
+          <BrandLogo tone="dark" width={132} />
           <nav className="flex flex-wrap gap-5.5">
             {footerLinks.map((link) => (
               <a key={link.label} href={link.href} className="text-[12.5px] hover:text-white">
@@ -279,7 +270,7 @@ export function LandingPage() {
               </a>
             ))}
           </nav>
-          <div className="text-xs">© 2026 PeopleCore, Inc.</div>
+          <div className="text-xs">© 2026 byteSpate</div>
         </div>
       </footer>
     </div>

@@ -18,7 +18,7 @@ const sora = Sora({
 })
 
 export const metadata: Metadata = {
-  title: "Admin Dashboard | PeopleCore",
+  title: "Admin Dashboard | byteSpate",
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

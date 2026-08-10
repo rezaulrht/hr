@@ -18,7 +18,7 @@ const sora = Sora({
 })
 
 export const metadata: Metadata = {
-  title: "Finance Dashboard | PeopleCore",
+  title: "Finance Dashboard | byteSpate",
 }
 
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {

@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { RiLoader4Line, RiLogoutBoxRLine } from "@remixicon/react"
 
 import { cn } from "@/lib/utils"
+import { BrandLogo } from "@/components/brand/brand"
 import { icons } from "@/components/dashboard/icons"
 import { getDashboard } from "@/lib/api/dashboard"
 import { useSession } from "@/lib/auth/session-context"
@@ -79,14 +80,11 @@ export function Sidebar({
     <UiSidebar collapsible="offcanvas" className="border-r-0">
       <div className="flex h-full flex-col bg-linear-to-b from-[#17191C] to-[#0B0D0F] px-3 pt-[18px] pb-3.5 text-white">
         <SidebarHeader className="mb-1.5 gap-4 p-0 px-2.5 pt-1 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="font-heading grid size-8.5 shrink-0 place-items-center rounded bg-linear-to-br from-white to-[#D4D9DE] text-base font-extrabold text-[#17191C]">
-              P
-            </div>
-            <div className="leading-tight">
-              <div className="font-heading text-[14.5px] font-bold tracking-wide">PeopleCore</div>
-              <div className="text-[10.5px] tracking-widest text-white/50">HR &amp; Payroll</div>
-            </div>
+          {/* The lockup already carries the tagline, so the only line worth
+              adding here is which system you are in. */}
+          <div className="grid gap-2">
+            <BrandLogo tone="dark" width={172} />
+            <div className="px-0.5 text-[10.5px] tracking-widest text-white/50">HR &amp; Payroll</div>
           </div>
           <Separator className="bg-white/10" />
         </SidebarHeader>

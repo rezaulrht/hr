@@ -18,7 +18,7 @@ const sora = Sora({
 })
 
 export const metadata: Metadata = {
-  title: "HR Dashboard | PeopleCore",
+  title: "HR Dashboard | byteSpate",
 }
 
 export default function HrLayout({ children }: { children: React.ReactNode }) {

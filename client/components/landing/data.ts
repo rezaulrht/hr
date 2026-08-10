@@ -108,7 +108,7 @@ export type Quote = { text: string; who: string; org: string }
 
 export const quotes: Quote[] = [
   {
-    text: "We closed July payroll in two days. Before PeopleCore it took our finance team the better part of two weeks.",
+    text: "We closed July payroll in two days. Before byteSpate it took our finance team the better part of two weeks.",
     who: "Head of Finance",
     org: "1,200-person logistics company",
   },
@@ -125,7 +125,7 @@ export const quotes: Quote[] = [
 ]
 
 export const bandStats = [
-  { value: "$12.6M", label: "Disbursed through PeopleCore this year" },
+  { value: "$12.6M", label: "Disbursed through byteSpate this year" },
   { value: "2 days", label: "Median payroll close, down from 11" },
   { value: "99.98%", label: "Payslip accuracy across audited runs" },
   { value: "SOC 2", label: "Type II certified · SSO + 2FA enforced" },
