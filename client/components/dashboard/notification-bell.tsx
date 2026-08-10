@@ -51,7 +51,7 @@ export function NotificationBell() {
           {isDecider ? "Awaiting your decision" : "Your leave updates"}
         </div>
         {items.length === 0 ? (
-          <div className="px-3.5 py-4 text-[12.5px] text-[#7A8698]">Nothing to show yet.</div>
+          <div className="px-3.5 py-4 text-[12.5px] text-[#5F6B7C]">Nothing to show yet.</div>
         ) : (
           <ul>
             {items.map((r) => (
@@ -59,7 +59,7 @@ export function NotificationBell() {
                 <div className="text-[13px] font-semibold">
                   {isDecider ? r.employee.fullName : r.leaveType.name}
                 </div>
-                <div className="text-[11.5px] text-[#7A8698]">
+                <div className="text-[11.5px] text-[#5F6B7C]">
                   {isDecider ? r.leaveType.name : STATUS_LABEL[r.status]} ·{" "}
                   {formatRange(r.startDate, r.endDate)}
                 </div>
@@ -67,7 +67,7 @@ export function NotificationBell() {
             ))}
           </ul>
         )}
-        <div className="border-t border-[#EEF1F5] bg-[#F4F6F9] px-3.5 py-2.5 text-[11.5px] text-[#7A8698]">
+        <div className="border-t border-[#EEF1F5] bg-[#F4F6F9] px-3.5 py-2.5 text-[11.5px] text-[#5F6B7C]">
           Delivery isn&apos;t enabled yet — this list is a preview.
         </div>
       </DropdownMenuContent>

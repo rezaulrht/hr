@@ -16,9 +16,9 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-4 pt-5 pb-4 sm:items-end sm:pt-7 sm:pb-5.5">
       <div>
-        <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">{kicker}</div>
+        <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#5F6B7C] uppercase">{kicker}</div>
         <h1 className="font-heading mb-1 text-[20px] font-bold tracking-tight sm:text-[23px]">{title}</h1>
-        <div className="text-[13px] text-[#7A8698]">{sub}</div>
+        <div className="text-[13px] text-[#5F6B7C]">{sub}</div>
       </div>
       {cta ? (
         <Button className="h-auto rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white hover:bg-[#0E1012]">
@@ -32,9 +32,9 @@ export function PageHeader({
 export function MiniStat({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="rounded-md border border-[#E4E9EF] bg-white px-5 py-4">
-      <div className="text-[11.5px] font-bold tracking-wide text-[#7A8698] uppercase">{label}</div>
+      <div className="text-[11.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">{label}</div>
       <div className="font-heading mt-1.5 text-[22px] font-bold tracking-tight">{value}</div>
-      <div className="mt-0.5 text-xs text-[#7A8698]">{sub}</div>
+      <div className="mt-0.5 text-xs text-[#5F6B7C]">{sub}</div>
     </div>
   )
 }

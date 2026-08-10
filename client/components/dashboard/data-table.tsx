@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { Tag } from "@/components/dashboard/tag"
 import type { SubpageData, TableCell } from "@/components/dashboard/types"
 
@@ -34,7 +36,14 @@ export function DataTable({
   headers,
   rows,
   action = "Export",
-}: Pick<SubpageData, "cols" | "headers" | "rows"> & { title: string; action?: string }) {
+  actionHref,
+}: Pick<SubpageData, "cols" | "headers" | "rows"> & {
+  title: string
+  action?: string
+  /** Makes the action label navigate. Without it the label stays inert text,
+      which is what every existing caller expects. */
+  actionHref?: string
+}) {
   return (
     <div className="rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:px-5.5 sm:py-5">
       {/* Callers that own their own heading (the settings panels, four of the
@@ -43,7 +52,16 @@ export function DataTable({
       {title || action ? (
         <div className="mb-2.5 flex items-center justify-between gap-3">
           <div className="text-[15px] font-bold">{title}</div>
-          <span className="shrink-0 text-[12.5px] font-semibold">{action}</span>
+          {actionHref ? (
+            <Link
+              href={actionHref}
+              className="shrink-0 text-[12.5px] font-semibold hover:underline"
+            >
+              {action}
+            </Link>
+          ) : (
+            <span className="shrink-0 text-[12.5px] font-semibold">{action}</span>
+          )}
         </div>
       ) : null}
 
@@ -53,7 +71,7 @@ export function DataTable({
         {headers.map((header) => (
           <div
             key={header}
-            className="border-b border-[#E4E9EF] py-2.5 text-[11px] font-bold tracking-wide text-[#7A8698] uppercase"
+            className="border-b border-[#E4E9EF] py-2.5 text-[11px] font-bold tracking-wide text-[#5F6B7C] uppercase"
           >
             {header}
           </div>
@@ -83,7 +101,7 @@ export function DataTable({
                 return (
                   <div key={c} className="flex items-start justify-between gap-3">
                     {/* `c + 1`, not `c`: slice(1) dropped the title cell. */}
-                    <span className="shrink-0 pt-px text-[10.5px] font-bold tracking-wide text-[#7A8698] uppercase">
+                    <span className="shrink-0 pt-px text-[10.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">
                       {headers[c + 1]}
                     </span>
                     <div className="min-w-0 text-right">

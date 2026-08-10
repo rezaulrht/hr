@@ -54,7 +54,7 @@ export function Header({
               screens and the avatar carries the identity on its own. */}
           <div className="hidden leading-tight lg:block">
             <div className="text-[13px] font-semibold">{userName}</div>
-            <div className="text-[11px] text-[#7A8698]">{userEmail}</div>
+            <div className="text-[11px] text-[#5F6B7C]">{userEmail}</div>
           </div>
         </div>
       </div>

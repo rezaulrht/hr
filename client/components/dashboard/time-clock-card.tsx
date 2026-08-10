@@ -52,7 +52,7 @@ export function TimeClockCard({
   const checkedInAt = clock(state.checkIn)
 
   return (
-    <div className="flex max-w-90 min-w-0 flex-1 flex-col gap-3.5 rounded-md bg-linear-to-br from-[#17191C] to-[#0E1012] p-4 text-white sm:min-w-70 sm:p-5.5">
+    <div className="flex min-w-0 flex-col gap-3.5 rounded-md bg-linear-to-br from-[#17191C] to-[#0E1012] p-4 text-white sm:p-5.5">
       <div className="flex items-center justify-between">
         <div className="text-[13px] font-semibold text-white/75">Time clock</div>
         <span
@@ -86,9 +86,13 @@ export function TimeClockCard({
         {pending ? "Saving…" : state.canCheckOut ? "Check out" : "Check in"}
       </Button>
 
-      <div className="flex justify-between border-t border-white/15 pt-3 text-xs text-white/65">
-        <span>{state.shift}</span>
-        <span>{state.hoursToday === null ? "—" : `${state.hoursToday}h today`}</span>
+      <div className="flex justify-between gap-3 border-t border-white/15 pt-3 text-xs text-white/70">
+        <span className="truncate">{state.shift}</span>
+        {/* Was an em-dash standing in for "no hours yet", which reads as a
+            missing value rather than a real state. */}
+        <span className="shrink-0">
+          {state.hoursToday === null ? "Not started" : `${state.hoursToday}h today`}
+        </span>
       </div>
     </div>
   )
