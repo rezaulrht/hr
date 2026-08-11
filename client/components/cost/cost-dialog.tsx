@@ -223,7 +223,8 @@ function BillForm({
 
         {bill ? (
           <p className="text-[11px] text-muted-foreground">
-            {monthName(bill.periodMonth)} {bill.periodYear} — the period and commitment link cannot change here.
+            Recorded against {monthName(bill.periodMonth)} {bill.periodYear}. The period and the
+            commitment it is linked to cannot change here.
           </p>
         ) : null}
       </div>

@@ -81,7 +81,7 @@ export function PayDialog({
         <div className="space-y-4">
           <div>
             <Label htmlFor="pay-date" className="mb-1.5 text-xs font-bold">
-              Paid on <span className="font-normal text-muted-foreground">(optional — defaults to today)</span>
+              Paid on <span className="font-normal text-muted-foreground">(optional, defaults to today)</span>
             </Label>
             <Input id="pay-date" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
           </div>

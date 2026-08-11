@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useMutation } from "@tanstack/react-query"
+import { RiCheckLine } from "@remixicon/react"
 
 import { commitCostImport, previewCostImport } from "@/lib/api/costs"
 import { ApiError } from "@/lib/api/client"
@@ -91,17 +92,24 @@ function PreviewTable({
             return (
               <TableRow key={rowNumber}>
                 <TableCell className="font-medium">{rowNumber}</TableCell>
-                <TableCell>{category?.name ?? "—"}</TableCell>
-                <TableCell>{row?.label ?? "—"}</TableCell>
-                <TableCell>{row?.payee ?? "—"}</TableCell>
+                <TableCell>{category?.name ?? ""}</TableCell>
+                <TableCell>{row?.label ?? ""}</TableCell>
+                <TableCell>{row?.payee ?? ""}</TableCell>
                 <TableCell>
-                  {row?.periodMonth && row?.periodYear ? `${row.periodMonth}/${row.periodYear}` : "—"}
+                  {row?.periodMonth && row?.periodYear ? `${row.periodMonth}/${row.periodYear}` : ""}
                 </TableCell>
-                <TableCell>{row?.amount ?? "—"}</TableCell>
-                <TableCell>{row?.paidAt ? "Paid" : row ? "Pending" : "—"}</TableCell>
+                <TableCell>{row?.amount ?? ""}</TableCell>
+                <TableCell>{row?.paidAt ? "Paid" : row ? "Pending" : ""}</TableCell>
                 <TableCell>
                   {rowIssues.length === 0 ? (
-                    <span className="text-muted-foreground">—</span>
+                    // A glyph rather than a dash or a blank. Most rows pass, so
+                    // repeating "No issues" down the column is noise, but an
+                    // empty cell beside red ones reads as "not checked".
+                    <RiCheckLine
+                      className="size-4 text-[#1E7A55]"
+                      aria-label="No issues"
+                      role="img"
+                    />
                   ) : (
                     <ul className="space-y-0.5">
                       {rowIssues.map((issue, i) => (

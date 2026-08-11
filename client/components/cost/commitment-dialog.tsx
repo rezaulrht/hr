@@ -7,6 +7,8 @@ import { createCostCommitment, updateCostCommitment } from "@/lib/api/costs"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { Currency, CostCategory, CostCommitment } from "@/lib/api/types"
+import { ConfirmDialog } from "@/components/dashboard/record-kit"
+import { todayLocalDate } from "@/components/cost/cost-shared"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -56,6 +58,7 @@ export function CommitmentDialog({
   const [startedOn, setStartedOn] = useState(existing?.startedOn ? existing.startedOn.slice(0, 10) : "")
   const [notes, setNotes] = useState(existing?.notes ?? "")
   const [formError, setFormError] = useState<string | null>(null)
+  const [confirmEnd, setConfirmEnd] = useState(false)
 
   function resetForm() {
     setCategoryId(existing?.categoryId ?? "")
@@ -124,8 +127,32 @@ export function CommitmentDialog({
   const endMutation = useMutation({
     mutationFn: () =>
       updateCostCommitment(accessToken!, existing!.id, {
-        endedOn: new Date().toISOString().slice(0, 10),
+        // Local calendar date, not `toISOString().slice(0, 10)`. Dhaka runs
+        // UTC+6, so before 6am local that shortcut stamps yesterday and ends
+        // the commitment a day before Finance actually ended it.
+        endedOn: todayLocalDate(),
       }),
+    onSuccess: () => {
+      setConfirmEnd(false)
+      onOpenChange(false)
+      invalidate()
+      onSuccess()
+    },
+    onError: (err) => {
+      setConfirmEnd(false)
+      setFormError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
+  })
+
+  /**
+   * Ending is reversible on the server: `endedOn` is `.nullable()` in
+   * `updateCommitmentSchema` and `cost.service.ts` clears the column when it
+   * receives null. Nothing in the UI ever sent that, so an accidental end was
+   * permanent, and with it the monthly "no rent recorded" prompt that is the
+   * only reason a commitment record exists.
+   */
+  const reopenMutation = useMutation({
+    mutationFn: () => updateCostCommitment(accessToken!, existing!.id, { endedOn: null }),
     onSuccess: () => {
       onOpenChange(false)
       invalidate()
@@ -136,7 +163,11 @@ export function CommitmentDialog({
     },
   })
 
-  const pending = createMutation.isPending || updateMutation.isPending || endMutation.isPending
+  const pending =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    endMutation.isPending ||
+    reopenMutation.isPending
   const canSubmit =
     !!categoryId && label.trim().length > 0 && payee.trim().length > 0 && (isEdit || startedOn.length > 0)
 
@@ -180,7 +211,7 @@ export function CommitmentDialog({
             </Label>
             <Input
               id="commitment-label"
-              placeholder="Office rent — Banani"
+              placeholder="Office rent, Banani"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
             />
@@ -274,22 +305,60 @@ export function CommitmentDialog({
               variant="outline"
               className="mr-auto text-destructive"
               disabled={pending}
-              onClick={() => endMutation.mutate()}
+              onClick={() => setConfirmEnd(true)}
             >
-              {endMutation.isPending ? "Ending…" : "End commitment"}
+              End commitment
+            </Button>
+          ) : null}
+          {isEdit && existing?.endedOn ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="mr-auto"
+              disabled={pending}
+              onClick={() => reopenMutation.mutate()}
+            >
+              {reopenMutation.isPending ? "Reopening…" : "Reopen"}
             </Button>
           ) : null}
           <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={pending}>
             Cancel
           </Button>
+          {/*
+            No longer disabled once ended. The server accepts edits to an ended
+            commitment, and freezing the form meant a typo in the label of a
+            closed contract could never be corrected: the bills it explains
+            still carry that label in every report.
+          */}
           <Button
-            disabled={!canSubmit || pending || !!existing?.endedOn}
+            disabled={!canSubmit || pending}
             onClick={() => (isEdit ? updateMutation.mutate() : createMutation.mutate())}
           >
             {pending ? "Saving…" : isEdit ? "Save changes" : "Create commitment"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/*
+        Ending stops the monthly "no rent recorded for March" prompt for good,
+        which is the whole reason a commitment exists. It is reversible through
+        Reopen, so this is the softer confirm and not the delete one.
+      */}
+      <ConfirmDialog
+        open={confirmEnd}
+        title="End this commitment?"
+        body={
+          <>
+            {existing ? `${existing.label} ` : "This commitment "}
+            stops being expected from today, so no further months will prompt you for a missing
+            bill. Bills already recorded against it are untouched, and you can reopen it later.
+          </>
+        }
+        confirmLabel={endMutation.isPending ? "Ending…" : "End it"}
+        pending={endMutation.isPending}
+        onCancel={() => setConfirmEnd(false)}
+        onConfirm={() => endMutation.mutate()}
+      />
     </Dialog>
   )
 }
