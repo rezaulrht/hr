@@ -548,6 +548,54 @@ export function DialogActions({
 /* -------------------------------------------------------------------------- */
 
 /**
+ * A confirm for an action that is consequential but not a delete: withdrawing
+ * a request, cancelling a run, releasing a hold. Kept separate from
+ * ConfirmDeleteDialog because that one is red, says "cannot be undone", and
+ * carries a bin glyph, none of which is true of an action the user could
+ * simply do again.
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  body,
+  confirmLabel,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean
+  title: string
+  body: ReactNode
+  confirmLabel: string
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => !next && onCancel()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{body}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel} disabled={pending}>
+            Keep it
+          </AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={onConfirm}
+            className="bg-[#17191C] text-white hover:bg-[#0E1012]"
+          >
+            {pending ? "Working…" : confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
  * Deleting reference data is irreversible: there is no soft delete and no
  * restore anywhere in the system. The server refuses a row that something
  * still references; it says nothing about a row nothing references yet, and
