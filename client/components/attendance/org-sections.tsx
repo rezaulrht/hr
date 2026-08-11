@@ -8,6 +8,7 @@ import {
   correctAttendance,
   createHoliday,
   deleteHoliday,
+  updateHoliday,
   getAuditTrail,
   getDailySummary,
   getEmployeeAttendance,
@@ -633,6 +634,7 @@ function HolidayPanel({
 }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<HolidayItem | null>(null)
   const [deleting, setDeleting] = useState<HolidayItem | null>(null)
   const [impact, setImpact] = useState<ImpactBlock | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -651,6 +653,38 @@ function HolidayPanel({
       setAdding(false)
       setError(null)
       setImpact(result.impact ?? null)
+      refresh()
+    },
+    onError: (err) => setError(toMessage(err)),
+  })
+
+  /**
+   * Correcting a holiday in place.
+   *
+   * `updateHoliday` existed on both sides with no caller, so the calendar was
+   * add-and-delete only. A misspelt name or a gazette amendment meant deleting
+   * the row and recreating it, and each of those re-derives attendance for
+   * every employee on that date. Two full re-derivations to fix one letter.
+   */
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      body,
+      derivationChanged,
+    }: {
+      id: string
+      body: { name?: string; date?: string; type?: HolidayType }
+      /** Whether the edit touched anything a derived day is computed from. */
+      derivationChanged: boolean
+    }) =>
+      updateHoliday(accessToken, id, body).then((result) => ({ result, derivationChanged })),
+    onSuccess: ({ result, derivationChanged }) => {
+      setEditing(null)
+      setError(null)
+      // The server returns an impact block for every update, a rename
+      // included. Renaming a holiday changes a label and nothing else, so
+      // announcing that somebody's attendance totals moved would be false.
+      setImpact(derivationChanged ? (result.impact ?? null) : null)
       refresh()
     },
     onError: (err) => setError(toMessage(err)),
@@ -719,6 +753,14 @@ function HolidayPanel({
               <RowActions
                 actions={[
                   {
+                    kind: "edit",
+                    label: "Edit",
+                    onClick: () => {
+                      setError(null)
+                      setEditing(holiday)
+                    },
+                  },
+                  {
                     kind: "delete",
                     label: "Delete",
                     onClick: () => {
@@ -757,37 +799,75 @@ function HolidayPanel({
       />
 
       {adding ? (
-        <AddHolidayDialog
+        <HolidayDialog
+          holiday={null}
           onClose={() => setAdding(false)}
           pending={createMutation.isPending}
           error={error}
           onConfirm={(body) => createMutation.mutate(body)}
         />
       ) : null}
+
+      {editing ? (
+        <HolidayDialog
+          // Keyed so opening a different row remounts and re-seeds the fields
+          // from that holiday rather than keeping the previous one's.
+          key={editing.id}
+          holiday={editing}
+          onClose={() => setEditing(null)}
+          pending={updateMutation.isPending}
+          error={error}
+          onConfirm={(body) =>
+            updateMutation.mutate({
+              id: editing.id,
+              body,
+              // A rename alone changes no derived day. Only a date or type
+              // edit does, and that decides whether the impact notice is
+              // shown at all.
+              derivationChanged: body.date !== editing.date || body.type !== editing.type,
+            })
+          }
+        />
+      ) : null}
     </>
   )
 }
 
-function AddHolidayDialog({
+/**
+ * One dialog, both modes. `holiday` is null to add and a row to correct.
+ *
+ * Kept as one component because the field set is identical and the rules
+ * attached to those fields (a date re-derives, a working day cancels the
+ * weekly off) would otherwise have to be written twice and kept in step.
+ */
+function HolidayDialog({
+  holiday,
   onClose,
   pending,
   error,
   onConfirm,
 }: {
+  holiday: HolidayItem | null
   onClose: () => void
   pending: boolean
   error: string | null
   onConfirm: (body: { name: string; date: string; type: HolidayType }) => void
 }) {
-  const [name, setName] = useState("")
-  const [date, setDate] = useState("")
-  const [type, setType] = useState<HolidayType>("GENERAL")
+  // `HolidayItem.date` is a date-only string already, so no slicing.
+  const [name, setName] = useState(holiday?.name ?? "")
+  const [date, setDate] = useState(holiday?.date ?? "")
+  const [type, setType] = useState<HolidayType>(holiday?.type ?? "GENERAL")
+
+  const editing = !!holiday
+  const moved = editing && date !== holiday.date
+  const unchanged =
+    editing && name.trim() === holiday.name && date === holiday.date && type === holiday.type
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a holiday</DialogTitle>
+          <DialogTitle>{editing ? "Edit this holiday" : "Add a holiday"}</DialogTitle>
           <DialogDescription>
             Two different holidays may share a date. A working day cancels the weekly off instead
             of taking a day away.
@@ -809,7 +889,14 @@ function AddHolidayDialog({
 
           <Field
             label="Type"
-            hint="A backdated date re-derives attendance for everyone on that day."
+            hint={
+              // Moving a holiday is a two-date event: the old date stops being
+              // one and the new date starts, so both re-derive. The server
+              // reports both in its impact, and the form says so beforehand.
+              moved
+                ? `Moving this re-derives attendance on both ${formatDayLabel(holiday.date)} and ${formatDayLabel(date)}.`
+                : "A backdated date re-derives attendance for everyone on that day."
+            }
           >
             <Select value={type} onValueChange={(v) => setType(v as HolidayType)}>
               <SelectTrigger id="holiday-type" className="w-full">
@@ -830,8 +917,11 @@ function AddHolidayDialog({
           <DialogFooter>
             <DialogActions
               pending={pending}
-              submitLabel="Add holiday"
-              disabled={!name.trim() || !date}
+              submitLabel={editing ? "Save changes" : "Add holiday"}
+              // Nothing edited means nothing to send. Submitting an unchanged
+              // form would still return an impact block and announce that
+              // everyone's totals moved.
+              disabled={!name.trim() || !date || unchanged}
               onCancel={onClose}
               onSubmit={() => onConfirm({ name: name.trim(), date, type })}
             />
