@@ -156,19 +156,27 @@ export function PanelNotice({
   onDismiss,
 }: {
   children: ReactNode
-  onDismiss: () => void
+  /**
+   * Optional, like PanelAlert's. Some notices restate live data rather than
+   * reporting a one-off write: the attendance leave-conflict banner is
+   * recomputed on every poll, so a dismiss button there would either lie or
+   * undo itself a minute later.
+   */
+  onDismiss?: () => void
 }) {
   return (
     <div className="flex items-start gap-2.5 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#8A5E0C]">
       <RiAlertLine className="mt-px size-4 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1">{children}</span>
-      <Button
-        variant="link"
-        onClick={onDismiss}
-        className="h-auto shrink-0 p-0 text-[12px] font-bold text-[#8A5E0C] underline"
-      >
-        Dismiss
-      </Button>
+      {onDismiss ? (
+        <Button
+          variant="link"
+          onClick={onDismiss}
+          className="h-auto shrink-0 p-0 text-[12px] font-bold text-[#8A5E0C] underline"
+        >
+          Dismiss
+        </Button>
+      ) : null}
     </div>
   )
 }

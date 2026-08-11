@@ -1,3 +1,5 @@
+import type { ReactNode } from "react"
+
 import { Button } from "@/components/ui/button"
 
 export function PageHeader({
@@ -6,6 +8,7 @@ export function PageHeader({
   sub,
   cta,
   onCta,
+  aside,
 }: {
   kicker: string
   title: string
@@ -21,6 +24,13 @@ export function PageHeader({
    * what that caller expects.
    */
   onCta?: () => void
+  /**
+   * A control that belongs to the whole page rather than to one section: the
+   * attendance month stepper, and whatever the period pickers turn out to be
+   * elsewhere. Rendered in the same slot as `cta`, which is why the two are
+   * not both shown.
+   */
+  aside?: ReactNode
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4 pt-5 pb-4 sm:items-end sm:pt-7 sm:pb-5.5">
@@ -29,7 +39,9 @@ export function PageHeader({
         <h1 className="font-heading mb-1 text-[20px] font-bold tracking-tight sm:text-[23px]">{title}</h1>
         <div className="text-[13px] text-[#5F6B7C]">{sub}</div>
       </div>
-      {cta ? (
+      {aside ? (
+        <div className="shrink-0">{aside}</div>
+      ) : cta ? (
         <Button
           onClick={onCta}
           className="h-auto shrink-0 rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white transition-transform hover:bg-[#0E1012] active:translate-y-px motion-reduce:transition-none"
