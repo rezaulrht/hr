@@ -21,10 +21,72 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import { formatAssetDate } from "@/components/asset/asset-shared"
 
 /** `<input type="date">` wants YYYY-MM-DD; the API sends a full ISO string. */
 function toDateInput(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : ""
+}
+
+/**
+ * Who is holding this asset — read-only, above the editable fields.
+ *
+ * Custody is deliberately not a field on the asset. A handover is its own
+ * record: a condition it went out in, optional photographs, an acknowledgement
+ * from the person who took it, and later a return with the condition it came
+ * back in. Making it a dropdown on this form would throw all of that away and
+ * would let someone silently rewrite who was responsible for a laptop last
+ * March.
+ *
+ * The strip exists because saying nothing about custody here read as *the
+ * register does not track that*, which is what sends people to type "assign to
+ * Reza" into Notes — a sentence nothing can act on, and one that leaves the
+ * asset still AVAILABLE for the next person to hand out.
+ */
+function CustodyStrip({
+  asset,
+  onHandOver,
+  onReturn,
+}: {
+  asset: AssetDetail
+  /** HR / Super Admin only, matching the guards on the assign and return routes. */
+  onHandOver?: () => void
+  onReturn?: () => void
+}) {
+  const heldBy = asset.heldBy
+  const action = heldBy ? onReturn : onHandOver
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md bg-[#F1F4F8] px-3.5 py-2.5 text-[12.5px] text-[#5F6B7C]">
+      <span className="min-w-0 flex-1">
+        {heldBy ? (
+          <>
+            Held by{" "}
+            <span className="font-semibold text-[#1C2733]">
+              {heldBy.fullName} ({heldBy.employeeCode})
+            </span>{" "}
+            since {formatAssetDate(heldBy.assignedAt)}
+            {heldBy.acknowledgedAt === null ? ", not yet acknowledged" : ""}.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-[#1C2733]">Not handed to anyone.</span> Recording a
+            handover is a separate step — it captures the condition and asks the holder to confirm.
+          </>
+        )}
+      </span>
+      {action ? (
+        <Button
+          type="button"
+          variant="link"
+          onClick={action}
+          className="h-auto shrink-0 p-0 text-[12px] font-bold text-[#1C2733] underline"
+        >
+          {heldBy ? "Take it back" : "Hand it over"}
+        </Button>
+      ) : null}
+    </div>
+  )
 }
 
 /**
@@ -44,11 +106,15 @@ function AssetForm({
   asset,
   onOpenChange,
   onSuccess,
+  onHandOver,
+  onReturn,
 }: {
   /** null creates; non-null edits. */
   asset: AssetDetail | null
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
+  onHandOver?: (assetId: string) => void
+  onReturn?: (assetId: string) => void
 }) {
   const { accessToken } = useSession()
   const queryClient = useQueryClient()
@@ -119,6 +185,19 @@ function AssetForm({
       <DialogHeader>
         <DialogTitle>{asset ? "Edit asset" : "Add an asset"}</DialogTitle>
       </DialogHeader>
+
+      {/* Edit only. A brand-new asset has no custody yet by definition, and
+          offering a handover before the record exists would need the create to
+          have already run. */}
+      {asset ? (
+        <CustodyStrip
+          asset={asset}
+          // Same rules the detail sheet applies: only an AVAILABLE asset can
+          // go out, and only one that is out can come back.
+          onHandOver={asset.status === "AVAILABLE" && onHandOver ? () => onHandOver(asset.id) : undefined}
+          onReturn={asset.heldBy && onReturn ? () => onReturn(asset.id) : undefined}
+        />
+      ) : null}
 
       <div className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -314,12 +393,21 @@ export function CreateAssetDialog({
   assetId,
   onOpenChange,
   onSuccess,
+  onHandOver,
+  onReturn,
 }: {
   open: boolean
   /** Non-null puts the dialog in edit mode. */
   assetId?: string | null
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
+  /**
+   * Handing over and taking back are the parent's dialogs, not this one's —
+   * the page owns every asset mutation so there is one place that invalidates
+   * the queries a write affects. Absent for viewers who may not do either.
+   */
+  onHandOver?: (assetId: string) => void
+  onReturn?: (assetId: string) => void
 }) {
   const { accessToken } = useSession()
 
@@ -350,6 +438,8 @@ export function CreateAssetDialog({
             asset={assetQuery.data ?? null}
             onOpenChange={onOpenChange}
             onSuccess={onSuccess}
+            onHandOver={onHandOver}
+            onReturn={onReturn}
           />
         )}
       </DialogContent>

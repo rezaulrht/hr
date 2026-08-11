@@ -53,9 +53,12 @@ export const canDispose = (role: Role) =>
   role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "FINANCE_OFFICER"
 export const isStaff = (role: Role) => role === "EMPLOYEE" || role === "REPORTING_MANAGER"
 
-/** "Aug 10, 2026" — a table cell needs the year; leave's SHORT_DATE does not. */
+/** "Aug 10, 2026". A table cell needs the year; leave's SHORT_DATE does not. */
 export function formatAssetDate(iso: string | null): string {
-  if (!iso) return "—"
+  // "Not set" rather than a dash. This lands in a warranty-expiry field and
+  // an expected-back column, where the absence is itself the answer: no
+  // warranty on record, no date promised by the vendor.
+  if (!iso) return "Not set"
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",

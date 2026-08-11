@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   acknowledgeAssignment,
   approveAssetRequest,
+  cancelAssetRequest,
   getMyHoldings,
   listAssetRequests,
   listAssets,
@@ -20,36 +21,25 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { Asset, AssetAssignment, AssetRepair, AssetRequest } from "@/lib/api/types"
 import { formatMoney } from "@/lib/money"
+import { ALL, FilterBar, FilterSelect } from "@/components/dashboard/filter-bar"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { PanelAlert, PanelTable } from "@/components/dashboard/record-kit"
+import type { TableCell } from "@/components/dashboard/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { AssetDetail } from "@/components/asset/asset-detail"
 import { AssignDialog } from "@/components/asset/assign-dialog"
 import { CreateAssetDialog } from "@/components/asset/create-asset-dialog"
+import { FulfilDialog } from "@/components/asset/fulfil-dialog"
 import { ImportWizard } from "@/components/asset/import-wizard"
+import { ReceiveRepairDialog } from "@/components/asset/receive-repair-dialog"
 import { RepairDialog } from "@/components/asset/repair-dialog"
 import { RequestDialog } from "@/components/asset/request-dialog"
 import { ReturnDialog } from "@/components/asset/return-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
+import { ConfirmDialog } from "@/components/dashboard/record-kit"
 import {
   canDispose,
   canManageAssets,
@@ -68,29 +58,42 @@ interface Filters {
   q?: string
 }
 
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "ALL", label: "All statuses" },
-  { value: "AVAILABLE", label: STATUS_LABEL.AVAILABLE },
-  { value: "ASSIGNED", label: STATUS_LABEL.ASSIGNED },
-  { value: "IN_REPAIR", label: STATUS_LABEL.IN_REPAIR },
-  { value: "LOST", label: STATUS_LABEL.LOST },
-  { value: "RETIRED", label: STATUS_LABEL.RETIRED },
-]
-
-function LoadError({ label, onRetry }: { label: string; onRetry: () => void }) {
-  return (
-    <div className="rounded-md border p-4 text-sm text-destructive">
-      Failed to load {label}.{" "}
-      <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={onRetry}>
-        Retry
-      </Button>
-    </div>
-  )
-}
+/** Options for the register's status filter. `ALL` is the shared sentinel from
+ *  filter-bar, so the "no filter" value means the same thing on every page. */
+const STATUS_OPTIONS = (["AVAILABLE", "ASSIGNED", "IN_REPAIR", "LOST", "RETIRED"] as const).map(
+  (value) => ({ value, label: STATUS_LABEL[value] })
+)
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="mb-2 text-[15px] font-bold">{children}</div>
 }
+
+/**
+ * The shape every table on this page now takes.
+ *
+ * Each of the five used to be `rows.length === 0 ? <p/> : <Table/>`, wrapped
+ * at the call site in `isPending ? <Skeleton/> : isError ? <LoadError/> : …`.
+ * That was eight copies of the same three-way branch, a local LoadError
+ * duplicating the kit's, and a single grey block standing in for a table.
+ * PanelTable holds all four states, so the branch and the duplicate are gone.
+ */
+interface TableState {
+  isLoading: boolean
+  isError: boolean
+  onRetry: () => void
+}
+
+/** A cell that renders a status pill. Kept as a node rather than PanelTable's
+ *  own `tag`, because the asset tones are Tailwind class strings carrying
+ *  dark-mode variants and the kit's `Tone` union has no equivalent. */
+const badgeCell = (className: string, label: string, sub?: string): TableCell => ({
+  node: (
+    <div className="flex flex-col items-start gap-1">
+      <Badge className={className}>{label}</Badge>
+      {sub ? <span className="text-xs text-muted-foreground">{sub}</span> : null}
+    </div>
+  ),
+})
 
 /** The register: every asset row, tag-first. Cost only renders when the
  *  server actually sent it — never from a role check re-derived here. */
@@ -98,208 +101,244 @@ function AssetTable({
   assets,
   onView,
   onEdit,
-  emptyLabel,
-}: {
+  emptyTitle,
+  emptyBody,
+  emptyAction,
+  onEmptyAction,
+  ...state
+}: TableState & {
   assets: Asset[]
   onView: (id: string) => void
   /** HR / Super Admin only — absent for Finance and managers, matching the
    *  server's HR_ROLES on PATCH /api/assets/:id. */
   onEdit?: (id: string) => void
-  emptyLabel: string
+  emptyTitle: string
+  emptyBody: string
+  emptyAction: string
+  onEmptyAction: () => void
 }) {
-  if (assets.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-  }
+  // Presence of the key, not a role check re-derived here: the server omits
+  // the field entirely for viewers who may not see cost.
   const showCost = assets.some((a) => "purchaseCost" in a)
 
+  const headers = [
+    "Tag",
+    "Name",
+    "Category",
+    "Status",
+    "Serial",
+    "Location",
+    ...(showCost ? ["Cost"] : []),
+    "",
+  ]
+  const cols = showCost ? "0.9fr 1.3fr 0.9fr 1fr 0.9fr 0.9fr 0.9fr 0.9fr" : "0.9fr 1.3fr 0.9fr 1fr 0.9fr 0.9fr 0.9fr"
+
+  const rows: TableCell[][] = assets.map((asset) => [
+    { text: asset.assetTag, weight: 600 },
+    { text: asset.name },
+    { text: asset.category.name },
+    // The holder is shown whenever there is one, IN_REPAIR included: a named
+    // person can still be responsible while the asset sits at the vendor, and
+    // collapsing that to one word loses the answer the register exists to give.
+    badgeCell(
+      STATUS_TONE[asset.status],
+      STATUS_LABEL[asset.status],
+      asset.heldBy ? `Held by ${asset.heldBy.fullName}` : undefined
+    ),
+    { text: asset.serialNumber ?? "" },
+    { text: asset.location ?? "" },
+    ...(showCost
+      ? [
+          {
+            text:
+              "purchaseCost" in asset && asset.purchaseCost
+                ? formatMoney(asset.purchaseCost, asset.currency)
+                : "",
+          },
+        ]
+      : []),
+    {
+      node: (
+        <div className="flex justify-end gap-2 whitespace-nowrap">
+          {onEdit ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => onEdit(asset.id)}>
+              Edit
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" variant="outline" onClick={() => onView(asset.id)}>
+            View
+          </Button>
+        </div>
+      ),
+    },
+  ])
+
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Tag</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Serial</TableHead>
-            <TableHead>Location</TableHead>
-            {showCost ? <TableHead>Cost</TableHead> : null}
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {assets.map((asset) => (
-            <TableRow key={asset.id}>
-              <TableCell className="font-medium">{asset.assetTag}</TableCell>
-              <TableCell>{asset.name}</TableCell>
-              <TableCell>{asset.category.name}</TableCell>
-              <TableCell>
-                <div className="flex flex-col items-start gap-1">
-                  <Badge className={STATUS_TONE[asset.status]}>{STATUS_LABEL[asset.status]}</Badge>
-                  {/* Rendered whenever there is a holder, IN_REPAIR included:
-                      a named person can still be responsible while the asset
-                      sits at the vendor, and collapsing that to one word
-                      loses the answer the register exists to give. */}
-                  {asset.heldBy ? (
-                    <span className="text-xs text-muted-foreground">Held by {asset.heldBy.fullName}</span>
-                  ) : null}
-                </div>
-              </TableCell>
-              <TableCell>{asset.serialNumber ?? "—"}</TableCell>
-              <TableCell>{asset.location ?? "—"}</TableCell>
-              {showCost ? (
-                <TableCell>
-                  {"purchaseCost" in asset && asset.purchaseCost
-                    ? formatMoney(asset.purchaseCost, asset.currency)
-                    : "—"}
-                </TableCell>
-              ) : null}
-              <TableCell>
-                <div className="flex justify-end gap-2 whitespace-nowrap">
-                  {onEdit ? (
-                    <Button type="button" size="sm" variant="outline" onClick={() => onEdit(asset.id)}>
-                      Edit
-                    </Button>
-                  ) : null}
-                  <Button type="button" size="sm" variant="outline" onClick={() => onView(asset.id)}>
-                    View
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <PanelTable
+      cols={cols}
+      headers={headers}
+      rows={rows}
+      emptyTitle={emptyTitle}
+      emptyBody={emptyBody}
+      emptyAction={emptyAction}
+      onEmptyAction={onEmptyAction}
+      {...state}
+    />
   )
 }
 
 /** "What I'm holding" — the caller's own open and past custody. */
+/** The asset a row is about, tag first, falling back to the raw id when the
+ *  server did not expand the relation. */
+const assetLabel = (a: { asset?: { assetTag: string; name: string } | null; assetId: string }) =>
+  a.asset ? `${a.asset.assetTag} · ${a.asset.name}` : a.assetId
+
 function HoldingsTable({
   assignments,
   onAcknowledge,
   acknowledgingId,
-}: {
+  ...state
+}: TableState & {
   assignments: AssetAssignment[]
   onAcknowledge?: (assignmentId: string) => void
   acknowledgingId: string | null
 }) {
   const open = assignments.filter((a) => a.returnedAt === null)
-  if (open.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nothing is currently assigned to you.</p>
-  }
+
+  const rows: TableCell[][] = open.map((a) => [
+    { text: assetLabel(a), weight: 600 },
+    { text: a.asset?.category.name ?? "" },
+    { text: formatAssetDate(a.assignedAt) },
+    { text: CONDITION_LABEL[a.conditionOut] },
+    ...(onAcknowledge
+      ? [
+          {
+            node:
+              a.acknowledgedAt === null ? (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={acknowledgingId === a.id}
+                    onClick={() => onAcknowledge(a.id)}
+                  >
+                    {acknowledgingId === a.id ? "Acknowledging…" : "Acknowledge"}
+                  </Button>
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground">Acknowledged</span>
+              ),
+          },
+        ]
+      : []),
+  ])
+
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Asset</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Assigned</TableHead>
-            <TableHead>Condition out</TableHead>
-            {onAcknowledge ? <TableHead /> : null}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {open.map((a) => (
-            <TableRow key={a.id}>
-              <TableCell className="font-medium">
-                {a.asset ? `${a.asset.assetTag} · ${a.asset.name}` : a.assetId}
-              </TableCell>
-              <TableCell>{a.asset?.category.name ?? "—"}</TableCell>
-              <TableCell>{formatAssetDate(a.assignedAt)}</TableCell>
-              <TableCell>{CONDITION_LABEL[a.conditionOut]}</TableCell>
-              {onAcknowledge ? (
-                <TableCell>
-                  {a.acknowledgedAt === null ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={acknowledgingId === a.id}
-                      onClick={() => onAcknowledge(a.id)}
-                    >
-                      {acknowledgingId === a.id ? "Acknowledging…" : "Acknowledge"}
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Acknowledged</span>
-                  )}
-                </TableCell>
-              ) : null}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <PanelTable
+      cols={onAcknowledge ? "1.5fr 0.9fr 0.9fr 0.9fr 1fr" : "1.5fr 0.9fr 0.9fr 0.9fr"}
+      headers={[
+        "Asset",
+        "Category",
+        "Assigned",
+        "Condition out",
+        ...(onAcknowledge ? [""] : []),
+      ]}
+      rows={rows}
+      emptyTitle="Nothing assigned to you"
+      emptyBody="Anything handed to you appears here, with the condition it was in when you received it."
+      emptyAction="Refresh"
+      onEmptyAction={state.onRetry}
+      {...state}
+    />
   )
 }
 
-function UnacknowledgedTable({ assignments }: { assignments: AssetAssignment[] }) {
-  if (assignments.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nothing outstanding.</p>
-  }
+function UnacknowledgedTable({
+  assignments,
+  ...state
+}: TableState & { assignments: AssetAssignment[] }) {
+  const rows: TableCell[][] = assignments.map((a) => [
+    { text: assetLabel(a), weight: 600 },
+    {
+      text: a.employee ? a.employee.fullName : a.employeeId,
+      sub: a.employee?.employeeCode,
+    },
+    { text: formatAssetDate(a.assignedAt) },
+    { text: CONDITION_LABEL[a.conditionOut] },
+  ])
+
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Asset</TableHead>
-            <TableHead>Employee</TableHead>
-            <TableHead>Assigned</TableHead>
-            <TableHead>Condition out</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {assignments.map((a) => (
-            <TableRow key={a.id}>
-              <TableCell className="font-medium">
-                {a.asset ? `${a.asset.assetTag} · ${a.asset.name}` : a.assetId}
-              </TableCell>
-              <TableCell>
-                {a.employee ? `${a.employee.fullName} (${a.employee.employeeCode})` : a.employeeId}
-              </TableCell>
-              <TableCell>{formatAssetDate(a.assignedAt)}</TableCell>
-              <TableCell>{CONDITION_LABEL[a.conditionOut]}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <PanelTable
+      cols="1.5fr 1.2fr 0.9fr 0.9fr"
+      headers={["Asset", "Employee", "Assigned", "Condition out"]}
+      rows={rows}
+      // An empty queue here is the good outcome, so it reads as one rather
+      // than inviting the reader to go and create something.
+      emptyTitle="Every handover is acknowledged"
+      emptyBody="Assets handed over but not yet confirmed by the holder show up here."
+      emptyAction="Refresh"
+      onEmptyAction={state.onRetry}
+      {...state}
+    />
   )
 }
 
-function RepairsTable({ repairs }: { repairs: AssetRepair[] }) {
-  if (repairs.length === 0) {
-    return <p className="text-sm text-muted-foreground">No assets are currently in repair.</p>
-  }
+function RepairsTable({
+  repairs,
+  onReceive,
+  ...state
+}: TableState & {
+  repairs: AssetRepair[]
+  /** HR / Super Admin only, matching the server's guard on the receive route. */
+  onReceive?: (repair: AssetRepair) => void
+}) {
+  const rows: TableCell[][] = repairs.map((r) => [
+    { text: assetLabel(r), weight: 600 },
+    { text: r.vendor ?? "Not recorded" },
+    { text: r.fault },
+    { text: formatAssetDate(r.sentAt) },
+    { text: formatAssetDate(r.expectedBack) },
+    { text: r.isWarranty ? "Yes" : "No" },
+    // Without this the flow was one-way: an asset could be sent to a vendor
+    // and never came back, staying IN_REPAIR forever and unavailable to assign.
+    ...(onReceive
+      ? [
+          {
+            node: (
+              <div className="flex justify-end whitespace-nowrap">
+                <Button type="button" size="sm" variant="outline" onClick={() => onReceive(r)}>
+                  Book back in
+                </Button>
+              </div>
+            ),
+          },
+        ]
+      : []),
+  ])
+
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Asset</TableHead>
-            <TableHead>Vendor</TableHead>
-            <TableHead>Fault</TableHead>
-            <TableHead>Sent</TableHead>
-            <TableHead>Expected back</TableHead>
-            <TableHead>Warranty</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {repairs.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell className="font-medium">
-                {r.asset ? `${r.asset.assetTag} · ${r.asset.name}` : r.assetId}
-              </TableCell>
-              <TableCell>{r.vendor ?? "—"}</TableCell>
-              <TableCell className="max-w-55 truncate">{r.fault}</TableCell>
-              <TableCell>{formatAssetDate(r.sentAt)}</TableCell>
-              <TableCell>{formatAssetDate(r.expectedBack)}</TableCell>
-              <TableCell>{r.isWarranty ? "Yes" : "No"}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <PanelTable
+      cols={
+        onReceive
+          ? "1.3fr 0.9fr 1.4fr 0.8fr 0.9fr 0.6fr 1fr"
+          : "1.3fr 0.9fr 1.4fr 0.8fr 0.9fr 0.6fr"
+      }
+      headers={[
+        "Asset",
+        "Vendor",
+        "Fault",
+        "Sent",
+        "Expected back",
+        "Warranty",
+        ...(onReceive ? [""] : []),
+      ]}
+      rows={rows}
+      emptyTitle="Nothing is in repair"
+      emptyBody="Assets sent to a vendor appear here until they are booked back in."
+      emptyAction="Refresh"
+      onEmptyAction={state.onRetry}
+      {...state}
+    />
   )
 }
 
@@ -309,139 +348,152 @@ function RequestsTable({
   canDecide,
   onApprove,
   onReject,
+  onFulfil,
+  onWithdraw,
   approvingId,
-}: {
+  emptyTitle,
+  emptyBody,
+  ...state
+}: TableState & {
   requests: AssetRequest[]
   ownEmployeeCode?: string
   canDecide: boolean
   onApprove: (id: string) => void
   onReject: (id: string) => void
+  /** HR / Super Admin only: the step that turns an approval into custody. */
+  onFulfil?: (request: AssetRequest) => void
+  /** The requester's own way out, before anybody has decided. */
+  onWithdraw?: (request: AssetRequest) => void
   approvingId: string | null
+  emptyTitle: string
+  emptyBody: string
 }) {
-  if (requests.length === 0) {
-    return <p className="text-sm text-muted-foreground">No requests yet.</p>
-  }
-  return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Employee</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Reason</TableHead>
-            <TableHead>Status</TableHead>
-            {canDecide ? <TableHead /> : null}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {requests.map((r) => {
-            // Nobody decides their own request — matching the server, so the
-            // button never appears only to 403 when pressed.
-            const isOwn = !!ownEmployeeCode && r.employee?.employeeCode === ownEmployeeCode
-            return (
-              <TableRow key={r.id}>
-                <TableCell className="font-medium">
-                  {r.employee ? `${r.employee.fullName} (${r.employee.employeeCode})` : r.employeeId}
-                </TableCell>
-                <TableCell>{r.category?.name ?? "—"}</TableCell>
-                <TableCell className="max-w-55 truncate">{r.reason}</TableCell>
-                <TableCell>
-                  <Badge className={REQUEST_STATUS_TONE[r.status]}>{REQUEST_STATUS_LABEL[r.status]}</Badge>
-                  {r.status === "REJECTED" && r.decisionNote ? (
-                    <div className="mt-1 text-xs text-muted-foreground">{r.decisionNote}</div>
+  const showActions = canDecide || !!onWithdraw
+
+  const rows: TableCell[][] = requests.map((r) => {
+    // Nobody decides their own request — matching the server, so the button
+    // never appears only to 403 when pressed.
+    const isOwn = !!ownEmployeeCode && r.employee?.employeeCode === ownEmployeeCode
+    return [
+      {
+        text: r.employee ? r.employee.fullName : r.employeeId,
+        sub: r.employee?.employeeCode,
+        weight: 600,
+      },
+      { text: r.category?.name ?? "No category" },
+      { text: r.reason },
+      badgeCell(
+        REQUEST_STATUS_TONE[r.status],
+        REQUEST_STATUS_LABEL[r.status],
+        r.status === "REJECTED" && r.decisionNote ? r.decisionNote : undefined
+      ),
+      ...(showActions
+        ? [
+            {
+              node: (
+                <div className="flex justify-end gap-2 whitespace-nowrap">
+                  {canDecide && r.status === "PENDING" && !isOwn ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={approvingId === r.id}
+                        onClick={() => onApprove(r.id)}
+                      >
+                        Approve
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => onReject(r.id)}>
+                        Reject
+                      </Button>
+                    </>
                   ) : null}
-                </TableCell>
-                {canDecide ? (
-                  <TableCell>
-                    {r.status === "PENDING" && !isOwn ? (
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={approvingId === r.id}
-                          onClick={() => onApprove(r.id)}
-                        >
-                          Approve
-                        </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => onReject(r.id)}>
-                          Reject
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                ) : null}
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+
+                  {/* An approved request used to stop here. The employee saw
+                      "Approved" and received nothing, because the only way to
+                      hand anything over was to assign it from the register and
+                      leave this row open forever. */}
+                  {onFulfil && r.status === "APPROVED" ? (
+                    <Button type="button" size="sm" onClick={() => onFulfil(r)}>
+                      Hand over
+                    </Button>
+                  ) : null}
+
+                  {onWithdraw && r.status === "PENDING" && isOwn ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => onWithdraw(r)}>
+                      Withdraw
+                    </Button>
+                  ) : null}
+                </div>
+              ),
+            },
+          ]
+        : []),
+    ]
+  })
+
+  return (
+    <PanelTable
+      cols={showActions ? "1.3fr 0.9fr 1.6fr 1fr 1.2fr" : "1.3fr 0.9fr 1.6fr 1fr"}
+      headers={["Employee", "Category", "Reason", "Status", ...(showActions ? [""] : [])]}
+      rows={rows}
+      emptyTitle={emptyTitle}
+      emptyBody={emptyBody}
+      emptyAction="Refresh"
+      onEmptyAction={state.onRetry}
+      {...state}
+    />
   )
 }
 
+/**
+ * The register's filters, on the shared bar.
+ *
+ * These were three labelled controls in a row with no result count, so a
+ * filter that matched nothing looked the same as a register that was empty.
+ * Unlike the other pages this one filters on the **server** (the query key
+ * includes `filters`), so `shown` and `total` are the same number: the count
+ * reports what came back, and the empty state is what distinguishes a narrow
+ * filter from an empty register.
+ */
 function RegisterFilters({
   filters,
   onChange,
   categories,
+  shown,
 }: {
   filters: Filters
   onChange: (next: Filters) => void
   categories: Array<{ id: string; name: string }>
+  shown: number
 }) {
+  const active = !!filters.status || !!filters.categoryId || !!filters.q
+
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <div>
-        <Label className="mb-1.5 text-xs font-bold">Status</Label>
-        <Select
-          value={filters.status ?? "ALL"}
-          onValueChange={(v) => onChange({ ...filters, status: v && v !== "ALL" ? v : undefined })}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue>{(v: string | null) => STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <Label className="mb-1.5 text-xs font-bold">Category</Label>
-        <Select
-          value={filters.categoryId ?? "ALL"}
-          onValueChange={(v) => onChange({ ...filters, categoryId: v && v !== "ALL" ? v : undefined })}
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue>
-              {(v: string | null) =>
-                v === "ALL" || !v ? "All categories" : (categories.find((c) => c.id === v)?.name ?? v)
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All categories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="min-w-50 flex-1">
-        <Label className="mb-1.5 text-xs font-bold">Search</Label>
-        <Input
-          placeholder="Tag, name or serial"
-          value={filters.q ?? ""}
-          onChange={(e) => onChange({ ...filters, q: e.target.value || undefined })}
-        />
-      </div>
-    </div>
+    <FilterBar
+      search={filters.q ?? ""}
+      onSearch={(q) => onChange({ ...filters, q: q || undefined })}
+      placeholder="Search tag, name or serial"
+      shown={shown}
+      total={shown}
+      noun={shown === 1 ? "asset" : "assets"}
+      active={active}
+      onClear={() => onChange({})}
+    >
+      <FilterSelect
+        label="Filter by status"
+        value={filters.status ?? ALL}
+        onChange={(v) => onChange({ ...filters, status: v === ALL ? undefined : v })}
+        allLabel="All statuses"
+        options={STATUS_OPTIONS}
+      />
+      <FilterSelect
+        label="Filter by category"
+        value={filters.categoryId ?? ALL}
+        onChange={(v) => onChange({ ...filters, categoryId: v === ALL ? undefined : v })}
+        allLabel="All categories"
+        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+      />
+    </FilterBar>
   )
 }
 
@@ -473,6 +525,9 @@ export function AssetPage() {
   const [requestOpen, setRequestOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [editAssetId, setEditAssetId] = useState<string | null>(null)
+  const [fulfilling, setFulfilling] = useState<AssetRequest | null>(null)
+  const [receiving, setReceiving] = useState<AssetRepair | null>(null)
+  const [withdrawing, setWithdrawing] = useState<AssetRequest | null>(null)
 
   const categoriesQuery = useQuery({
     queryKey: ["asset-categories"],
@@ -567,6 +622,19 @@ export function AssetPage() {
     onError: handleError,
   })
 
+  const withdrawMutation = useMutation({
+    mutationFn: (id: string) => cancelAssetRequest(accessToken!, id),
+    onSuccess: () => {
+      setWithdrawing(null)
+      setError(null)
+      queryClient.invalidateQueries({ queryKey: ["assets", "requests"] })
+    },
+    onError: (err) => {
+      setWithdrawing(null)
+      handleError(err)
+    },
+  })
+
   if (sessionStatus === "loading") {
     return (
       <div className="pt-7">
@@ -576,6 +644,9 @@ export function AssetPage() {
   }
 
   const categories = categoriesQuery.data ?? []
+  // Filtering happens on the server here, so an empty result means either a
+  // narrow filter or an empty register, and only this tells the two apart.
+  const filtersActive = !!filters.status || !!filters.categoryId || !!filters.q
   const acknowledgingId = acknowledgeMutation.isPending ? (acknowledgeMutation.variables ?? null) : null
   const approvingId = approveRequestMutation.isPending ? (approveRequestMutation.variables ?? null) : null
 
@@ -584,13 +655,22 @@ export function AssetPage() {
       <PageHeader kicker="Workspace" title="Assets" sub="Company equipment, custody and repairs" />
 
       {error ? (
-        <div className="mb-4 rounded-md border px-5 py-3.5 text-[12.5px] text-destructive">{error}</div>
+        <div className="mb-4">
+          <PanelAlert onDismiss={() => setError(null)}>{error}</PanelAlert>
+        </div>
       ) : null}
 
       {manage ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <RegisterFilters filters={filters} onChange={setFilters} categories={categories} />
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <RegisterFilters
+                filters={filters}
+                onChange={setFilters}
+                categories={categories}
+                shown={registerQuery.data?.length ?? 0}
+              />
+            </div>
             <Button type="button" onClick={() => setCreateOpen(true)}>
               Add asset
             </Button>
@@ -611,58 +691,62 @@ export function AssetPage() {
             </TabsList>
 
             <TabsContent value="register" className="pt-3">
-              {registerQuery.isPending ? (
-                <Skeleton className="h-40 w-full" />
-              ) : registerQuery.isError ? (
-                <LoadError label="the register" onRetry={() => registerQuery.refetch()} />
-              ) : (
-                <AssetTable
-                  assets={registerQuery.data ?? []}
-                  onView={setSelectedAssetId}
-                  onEdit={setEditAssetId}
-                  emptyLabel="No assets match these filters."
-                />
-              )}
+              <AssetTable
+                assets={registerQuery.data ?? []}
+                isLoading={registerQuery.isPending}
+                isError={registerQuery.isError}
+                onRetry={() => registerQuery.refetch()}
+                onView={setSelectedAssetId}
+                onEdit={setEditAssetId}
+                emptyTitle={filtersActive ? "No assets match" : "The register is empty"}
+                emptyBody={
+                  filtersActive
+                    ? "Nothing in the register matches this search and these filters together."
+                    : "Add the first asset, or bring the existing register in from a spreadsheet on the Import tab."
+                }
+                emptyAction={filtersActive ? "Clear filters" : "Add asset"}
+                onEmptyAction={filtersActive ? () => setFilters({}) : () => setCreateOpen(true)}
+              />
             </TabsContent>
 
             <TabsContent value="unacknowledged" className="pt-3">
-              {unacknowledgedQuery.isPending ? (
-                <Skeleton className="h-32 w-full" />
-              ) : unacknowledgedQuery.isError ? (
-                <LoadError label="unacknowledged handovers" onRetry={() => unacknowledgedQuery.refetch()} />
-              ) : (
-                <UnacknowledgedTable assignments={unacknowledgedQuery.data ?? []} />
-              )}
+              <UnacknowledgedTable
+                assignments={unacknowledgedQuery.data ?? []}
+                isLoading={unacknowledgedQuery.isPending}
+                isError={unacknowledgedQuery.isError}
+                onRetry={() => unacknowledgedQuery.refetch()}
+              />
             </TabsContent>
 
             <TabsContent value="repairs" className="pt-3">
-              {repairsQuery.isPending ? (
-                <Skeleton className="h-32 w-full" />
-              ) : repairsQuery.isError ? (
-                <LoadError label="open repairs" onRetry={() => repairsQuery.refetch()} />
-              ) : (
-                <RepairsTable repairs={repairsQuery.data ?? []} />
-              )}
+              <RepairsTable
+                repairs={repairsQuery.data ?? []}
+                isLoading={repairsQuery.isPending}
+                isError={repairsQuery.isError}
+                onRetry={() => repairsQuery.refetch()}
+                onReceive={manage ? setReceiving : undefined}
+              />
             </TabsContent>
 
             <TabsContent value="requests" className="pt-3">
-              {requestsQuery.isPending ? (
-                <Skeleton className="h-32 w-full" />
-              ) : requestsQuery.isError ? (
-                <LoadError label="asset requests" onRetry={() => requestsQuery.refetch()} />
-              ) : (
-                <RequestsTable
-                  requests={requestsQuery.data ?? []}
-                  ownEmployeeCode={ownEmployeeCode}
-                  canDecide
-                  onApprove={(id) => approveRequestMutation.mutate(id)}
-                  onReject={(id) => {
-                    setError(null)
-                    setRejecting(id)
-                  }}
-                  approvingId={approvingId}
-                />
-              )}
+              <RequestsTable
+                requests={requestsQuery.data ?? []}
+                isLoading={requestsQuery.isPending}
+                isError={requestsQuery.isError}
+                onRetry={() => requestsQuery.refetch()}
+                ownEmployeeCode={ownEmployeeCode}
+                canDecide
+                onApprove={(id) => approveRequestMutation.mutate(id)}
+                onReject={(id) => {
+                  setError(null)
+                  setRejecting(id)
+                }}
+                onFulfil={setFulfilling}
+                onWithdraw={staff ? setWithdrawing : undefined}
+                approvingId={approvingId}
+                emptyTitle="No requests yet"
+                emptyBody="Requests raised by staff land here for a decision, and stay until one is handed over."
+              />
             </TabsContent>
 
             <TabsContent value="import" className="pt-3">
@@ -674,18 +758,27 @@ export function AssetPage() {
 
       {!manage && role === "FINANCE_OFFICER" ? (
         <div className="space-y-4">
-          <RegisterFilters filters={filters} onChange={setFilters} categories={categories} />
-          {registerQuery.isPending ? (
-            <Skeleton className="h-40 w-full" />
-          ) : registerQuery.isError ? (
-            <LoadError label="the register" onRetry={() => registerQuery.refetch()} />
-          ) : (
-            <AssetTable
-              assets={registerQuery.data ?? []}
-              onView={setSelectedAssetId}
-              emptyLabel="No assets match these filters."
-            />
-          )}
+          <RegisterFilters
+            filters={filters}
+            onChange={setFilters}
+            categories={categories}
+            shown={registerQuery.data?.length ?? 0}
+          />
+          <AssetTable
+            assets={registerQuery.data ?? []}
+            isLoading={registerQuery.isPending}
+            isError={registerQuery.isError}
+            onRetry={() => registerQuery.refetch()}
+            onView={setSelectedAssetId}
+            emptyTitle={filtersActive ? "No assets match" : "The register is empty"}
+            emptyBody={
+              filtersActive
+                ? "Nothing in the register matches this search and these filters together."
+                : "Nothing has been added to the asset register yet."
+            }
+            emptyAction={filtersActive ? "Clear filters" : "Reload"}
+            onEmptyAction={filtersActive ? () => setFilters({}) : () => registerQuery.refetch()}
+          />
         </div>
       ) : null}
 
@@ -698,53 +791,52 @@ export function AssetPage() {
                 Request an asset
               </Button>
             </div>
-            {holdingsQuery.isPending ? (
-              <Skeleton className="h-32 w-full" />
-            ) : holdingsQuery.isError ? (
-              <LoadError label="your holdings" onRetry={() => holdingsQuery.refetch()} />
-            ) : (
-              <HoldingsTable
-                assignments={holdingsQuery.data ?? []}
-                onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
-                acknowledgingId={acknowledgingId}
-              />
-            )}
+            <HoldingsTable
+              assignments={holdingsQuery.data ?? []}
+              isLoading={holdingsQuery.isPending}
+              isError={holdingsQuery.isError}
+              onRetry={() => holdingsQuery.refetch()}
+              onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
+              acknowledgingId={acknowledgingId}
+            />
           </section>
 
           <section>
             <SectionTitle>My team&apos;s holdings</SectionTitle>
-            {registerQuery.isPending ? (
-              <Skeleton className="h-32 w-full" />
-            ) : registerQuery.isError ? (
-              <LoadError label="your team's holdings" onRetry={() => registerQuery.refetch()} />
-            ) : (
-              <AssetTable
-                assets={registerQuery.data ?? []}
-                onView={setSelectedAssetId}
-                emptyLabel="Nobody on your team is holding an asset right now."
-              />
-            )}
+            <AssetTable
+              assets={registerQuery.data ?? []}
+              isLoading={registerQuery.isPending}
+              isError={registerQuery.isError}
+              onRetry={() => registerQuery.refetch()}
+              onView={setSelectedAssetId}
+              emptyTitle="Nobody on your team holds an asset"
+              emptyBody="Anything assigned to someone reporting to you appears here."
+              emptyAction="Refresh"
+              onEmptyAction={() => registerQuery.refetch()}
+            />
           </section>
 
           <section>
             <SectionTitle>Approvals</SectionTitle>
-            {requestsQuery.isPending ? (
-              <Skeleton className="h-32 w-full" />
-            ) : requestsQuery.isError ? (
-              <LoadError label="requests" onRetry={() => requestsQuery.refetch()} />
-            ) : (
-              <RequestsTable
-                requests={requestsQuery.data ?? []}
-                ownEmployeeCode={ownEmployeeCode}
-                canDecide
-                onApprove={(id) => approveRequestMutation.mutate(id)}
-                onReject={(id) => {
-                  setError(null)
-                  setRejecting(id)
-                }}
-                approvingId={approvingId}
-              />
-            )}
+            <RequestsTable
+              requests={requestsQuery.data ?? []}
+              isLoading={requestsQuery.isPending}
+              isError={requestsQuery.isError}
+              onRetry={() => requestsQuery.refetch()}
+              ownEmployeeCode={ownEmployeeCode}
+              canDecide
+              onApprove={(id) => approveRequestMutation.mutate(id)}
+              onReject={(id) => {
+                setError(null)
+                setRejecting(id)
+              }}
+              // No onFulfil: handing an asset over is HR / Super Admin on the
+              // server, so a manager approving is where their part ends.
+              onWithdraw={setWithdrawing}
+              approvingId={approvingId}
+              emptyTitle="Nothing needs your decision"
+              emptyBody="Requests from your team appear here until you approve or reject them."
+            />
           </section>
         </div>
       ) : null}
@@ -758,34 +850,34 @@ export function AssetPage() {
                 Request an asset
               </Button>
             </div>
-            {holdingsQuery.isPending ? (
-              <Skeleton className="h-32 w-full" />
-            ) : holdingsQuery.isError ? (
-              <LoadError label="your holdings" onRetry={() => holdingsQuery.refetch()} />
-            ) : (
-              <HoldingsTable
-                assignments={holdingsQuery.data ?? []}
-                onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
-                acknowledgingId={acknowledgingId}
-              />
-            )}
+            <HoldingsTable
+              assignments={holdingsQuery.data ?? []}
+              isLoading={holdingsQuery.isPending}
+              isError={holdingsQuery.isError}
+              onRetry={() => holdingsQuery.refetch()}
+              onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
+              acknowledgingId={acknowledgingId}
+            />
           </section>
 
           <section>
             <SectionTitle>My requests</SectionTitle>
-            {requestsQuery.isPending ? (
-              <Skeleton className="h-32 w-full" />
-            ) : requestsQuery.isError ? (
-              <LoadError label="your requests" onRetry={() => requestsQuery.refetch()} />
-            ) : (
-              <RequestsTable
-                requests={requestsQuery.data ?? []}
-                canDecide={false}
-                onApprove={() => {}}
-                onReject={() => {}}
-                approvingId={null}
-              />
-            )}
+            <RequestsTable
+              requests={requestsQuery.data ?? []}
+              isLoading={requestsQuery.isPending}
+              isError={requestsQuery.isError}
+              onRetry={() => requestsQuery.refetch()}
+              ownEmployeeCode={ownEmployeeCode}
+              canDecide={false}
+              onApprove={() => {}}
+              onReject={() => {}}
+              // The requester's own way out. Without it a request typed by
+              // mistake sat in somebody's queue until they rejected it.
+              onWithdraw={setWithdrawing}
+              approvingId={null}
+              emptyTitle="You have not requested anything"
+              emptyBody="Use Request an asset above, and the decision appears here."
+            />
           </section>
         </div>
       ) : null}
@@ -820,6 +912,25 @@ export function AssetPage() {
         assetId={editAssetId}
         onOpenChange={(next) => !next && setEditAssetId(null)}
         onSuccess={invalidateAssets}
+        // Closed first, deliberately: the two dialogs would otherwise stack,
+        // and any unsaved edits behind the handover form would be discarded on
+        // its success anyway, without the reader being told.
+        onHandOver={
+          manage
+            ? (id) => {
+                setEditAssetId(null)
+                setAssignTarget(id)
+              }
+            : undefined
+        }
+        onReturn={
+          manage
+            ? (id) => {
+                setEditAssetId(null)
+                setReturnTarget(id)
+              }
+            : undefined
+        }
       />
 
       <AssignDialog
@@ -850,6 +961,32 @@ export function AssetPage() {
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["assets", "requests"] })}
         />
       ) : null}
+
+      <FulfilDialog
+        request={fulfilling}
+        onOpenChange={(next) => !next && setFulfilling(null)}
+        onSuccess={invalidateAssets}
+      />
+
+      <ReceiveRepairDialog
+        repair={receiving}
+        onOpenChange={(next) => !next && setReceiving(null)}
+        onSuccess={invalidateAssets}
+      />
+
+      <ConfirmDialog
+        open={!!withdrawing}
+        title="Withdraw this request?"
+        body={
+          withdrawing
+            ? `Your request for ${withdrawing.category?.name ?? "an asset"} will be cancelled and leave the approver's queue. You can raise it again.`
+            : ""
+        }
+        confirmLabel="Withdraw request"
+        pending={withdrawMutation.isPending}
+        onCancel={() => setWithdrawing(null)}
+        onConfirm={() => withdrawing && withdrawMutation.mutate(withdrawing.id)}
+      />
 
       {dispose ? (
         <DecisionDialog

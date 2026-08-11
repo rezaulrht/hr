@@ -78,10 +78,10 @@ function PreviewTable({ rows, issues }: { rows: ImportRow[]; issues: AssetImport
             return (
               <TableRow key={rowNumber}>
                 <TableCell className="font-medium">{rowNumber}</TableCell>
-                <TableCell>{row?.assetTag ?? "—"}</TableCell>
-                <TableCell>{row?.name ?? "—"}</TableCell>
-                <TableCell>{row?.serialNumber ?? "—"}</TableCell>
-                <TableCell>{row?.assignedToEmployeeId ? "Yes" : "—"}</TableCell>
+                <TableCell>{row?.assetTag ?? ""}</TableCell>
+                <TableCell>{row?.name ?? ""}</TableCell>
+                <TableCell>{row?.serialNumber ?? ""}</TableCell>
+                <TableCell>{row?.assignedToEmployeeId ? "Yes" : "No"}</TableCell>
                 <TableCell>
                   {rowIssues.length === 0 ? (
                     <span className="text-muted-foreground">—</span>

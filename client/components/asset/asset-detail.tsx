@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AttachmentGallery } from "@/components/asset/attachment-gallery"
+import { AttachmentGallery, AttachmentUploader } from "@/components/asset/attachment-gallery"
 import { CONDITION_LABEL, formatAssetDate, STATUS_LABEL, STATUS_TONE } from "@/components/asset/asset-shared"
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -131,18 +131,18 @@ export function AssetDetail({
               </div>
 
               <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-                <Field label="Serial number" value={asset.serialNumber ?? "—"} />
-                <Field label="Model" value={asset.model ?? "—"} />
-                <Field label="Location" value={asset.location ?? "—"} />
-                <Field label="Department" value={asset.department?.name ?? "—"} />
+                <Field label="Serial number" value={asset.serialNumber ?? "Not recorded"} />
+                <Field label="Model" value={asset.model ?? "Not recorded"} />
+                <Field label="Location" value={asset.location ?? "Not recorded"} />
+                <Field label="Department" value={asset.department?.name ?? "Unassigned"} />
                 <Field label="Warranty expiry" value={formatAssetDate(asset.warrantyExpiry)} />
                 {hasCosts ? (
                   <>
                     <Field
                       label="Purchase cost"
-                      value={asset.purchaseCost ? formatMoney(asset.purchaseCost, asset.currency) : "—"}
+                      value={asset.purchaseCost ? formatMoney(asset.purchaseCost, asset.currency) : "Not recorded"}
                     />
-                    <Field label="Vendor" value={asset.vendor ?? "—"} />
+                    <Field label="Vendor" value={asset.vendor ?? "Not recorded"} />
                   </>
                 ) : null}
               </div>
@@ -186,12 +186,25 @@ export function AssetDetail({
                 ) : null}
               </div>
 
-              {assetAttachments.length > 0 ? (
+              {/* Rendered even with nothing in it, so long as the viewer can
+                  add one. Hiding the section when empty is what made adding
+                  the first invoice impossible. */}
+              {assetAttachments.length > 0 || onAssign ? (
                 <div>
                   <div className="mb-1.5 text-xs font-bold text-muted-foreground uppercase">
                     Photos &amp; documents
                   </div>
-                  <AttachmentGallery attachments={assetAttachments} accessToken={accessToken!} />
+                  <AttachmentGallery
+                    attachments={assetAttachments}
+                    accessToken={accessToken!}
+                    emptyLabel="Nothing attached to this asset yet."
+                    // onAssign is the existing HR / Super Admin signal on this
+                    // sheet, and it matches the server's guard on both the
+                    // upload and the delete routes.
+                    canDelete={!!onAssign}
+                    onChanged={() => assetQuery.refetch()}
+                  />
+                  {onAssign ? <AttachmentUploader assetId={asset.id} onChanged={() => assetQuery.refetch()} /> : null}
                 </div>
               ) : null}
 
