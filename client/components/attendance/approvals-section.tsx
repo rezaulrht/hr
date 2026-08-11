@@ -5,9 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { bulkDecideAttendance, getApprovals } from "@/lib/api/attendance"
 import { ApiError } from "@/lib/api/client"
-import { DataTable } from "@/components/dashboard/data-table"
+import { PanelAlert, PanelTable } from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { cn } from "@/lib/utils"
 import type { TableCell } from "@/components/dashboard/types"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
 import {
@@ -16,11 +17,13 @@ import {
   formatDayLabel,
   formatHours,
 } from "@/components/attendance/attendance-shared"
-import {
-  LoadError,
-  SectionHeading,
-  TableSkeleton,
-} from "@/components/attendance/attendance-ui"
+import { SectionHeading } from "@/components/attendance/attendance-ui"
+
+const TAB_LABEL = {
+  PENDING: "Needs review",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+} as const
 
 /**
  * The manager's queue. **Every closed day lands here** — nothing approves
@@ -107,13 +110,26 @@ export function ApprovalsSection({
     },
     {
       // The reason leads, not the date: it is what the decision turns on.
-      text: item.exceptions.map((code) => EXCEPTION_LABEL[code]).join(" · ") || "—",
+      // A day with no flags is still reviewed, so it says which kind of day
+      // it is rather than leaving the column looking unpopulated.
+      text: item.exceptions.map((code) => EXCEPTION_LABEL[code]).join(", ") || "Routine day",
       weight: 600,
       sub: item.regularisedNote ?? undefined,
     },
     { text: item.employee.fullName, sub: item.employee.employeeCode },
     { text: formatDayLabel(item.date) },
-    { text: `${formatClock(item.checkIn)} – ${formatClock(item.checkOut)}` },
+    // Built as a sentence rather than joined with a separator: a missing
+    // check-out is the single most common reason a record reaches this queue,
+    // and "9:00 AM to " with nothing after it is the case that matters most.
+    {
+      text:
+        item.checkIn && item.checkOut
+          ? `${formatClock(item.checkIn)} to ${formatClock(item.checkOut)}`
+          : item.checkIn
+            ? formatClock(item.checkIn)
+            : "Nothing recorded",
+      sub: item.checkIn && !item.checkOut ? "No check-out" : undefined,
+    },
     { text: formatHours(item.workedHours) },
     item.stalled
       ? { tag: `${item.agingDays}d waiting`, tone: "red" }
@@ -127,21 +143,28 @@ export function ApprovalsSection({
           title={isHr ? "Attendance approvals" : "Approvals for my team"}
           sub="Every closed day waits here for a named person to sign it off. Flags mark the ones worth a harder look."
         />
-        <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
+        <div
+          role="group"
+          aria-label="Queue shown"
+          className="mb-3.5 flex shrink-0 rounded-md border border-[#E4E9EF] bg-white p-0.5"
+        >
           {(["PENDING", "APPROVED", "REJECTED"] as const).map((mode) => (
             <Button
               key={mode}
+              type="button"
+              aria-pressed={tab === mode}
               onClick={() => {
                 setTab(mode)
                 setSelected(new Set())
               }}
-              className={
+              className={cn(
+                "rounded px-3 py-1 text-[12px] transition-colors",
                 tab === mode
-                  ? "rounded bg-[#17191C] px-3 py-1 text-[12px] font-bold text-white"
-                  : "rounded px-3 py-1 text-[12px] font-semibold text-[#7A8698]"
-              }
+                  ? "bg-[#17191C] font-bold text-white"
+                  : "font-semibold text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
+              )}
             >
-              {mode === "PENDING" ? "Needs review" : mode === "APPROVED" ? "Approved" : "Rejected"}
+              {TAB_LABEL[mode]}
             </Button>
           ))}
         </div>
@@ -185,31 +208,35 @@ export function ApprovalsSection({
       ) : null}
 
       {actionError ? (
-        <div className="mb-3 rounded-md border border-[#F0D2D2] bg-[#FDF6F6] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#B03A3A]">
-          {actionError}
+        <div className="mb-3">
+          <PanelAlert onDismiss={() => setActionError(null)}>{actionError}</PanelAlert>
         </div>
       ) : null}
 
-      {approvalsQuery.isPending ? (
-        <TableSkeleton />
-      ) : approvalsQuery.isError ? (
-        <LoadError label="the approvals queue" onRetry={() => approvalsQuery.refetch()} />
-      ) : items.length === 0 ? (
-        <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
-          {isPending
-            ? "Nothing needs your review."
+      <PanelTable
+        cols="0.3fr 1.3fr 1.1fr 0.9fr 1.1fr 0.7fr 0.7fr"
+        headers={["", "Why", "Employee", "Date", "In and out", "Hours", "Waiting"]}
+        rows={rows}
+        isLoading={approvalsQuery.isPending}
+        isError={approvalsQuery.isError}
+        onRetry={() => approvalsQuery.refetch()}
+        // An empty queue is the good outcome here, not a gap to fill, so the
+        // action reloads rather than inviting the reader to create something.
+        emptyTitle={
+          isPending
+            ? "Nothing needs your review"
             : tab === "APPROVED"
-              ? "You haven't approved anything yet."
-              : "Nothing has been rejected."}
-        </div>
-      ) : (
-        <DataTable
-          title=""
-          cols="0.3fr 1.3fr 1.1fr 0.9fr 1.1fr 0.7fr 0.7fr"
-          headers={["", "Why", "Employee", "Date", "In – Out", "Hours", "Waiting"]}
-          rows={rows}
-        />
-      )}
+              ? "Nothing approved yet"
+              : "Nothing rejected"
+        }
+        emptyBody={
+          isPending
+            ? "Every closed day has been signed off. New ones appear here as they close."
+            : `Records you ${tab === "APPROVED" ? "approve" : "reject"} are listed here.`
+        }
+        emptyAction="Refresh"
+        onEmptyAction={() => approvalsQuery.refetch()}
+      />
 
       {rejecting ? (
         <DecisionDialog

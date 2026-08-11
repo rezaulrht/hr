@@ -83,16 +83,20 @@ export function formatMonthLabel(month: number, year: number): string {
  * never is for deciding a date.
  */
 export function formatClock(iso: string | null): string {
-  if (!iso) return "—"
+  // Empty, not a dash. These sit in a table beside a Status column that
+  // already says Absent, On leave or Not in yet, so a glyph here would be a
+  // second, vaguer answer to a question already answered. An empty cell reads
+  // as "nothing recorded" without competing for attention on every absent row.
+  if (!iso) return ""
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   })
 }
 
-/** 9.08 → "9h 05m" */
+/** 9.08 → "9h 05m". Empty when there are no hours, for the reason above. */
 export function formatHours(hours: number | null): string {
-  if (hours === null) return "—"
+  if (hours === null) return ""
   const whole = Math.floor(hours)
   const minutes = Math.round((hours - whole) * 60)
   return `${whole}h ${String(minutes).padStart(2, "0")}m`
@@ -107,7 +111,7 @@ export function formatElapsed(ms: number): string {
   return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`
 }
 
-/** "9:00 AM – 6:00 PM (incl. 1h break)" */
+/** "9:00 AM to 6:00 PM (incl. 1h break)" */
 export function formatShiftSpan(
   startTime: string,
   endTime: string,
@@ -123,7 +127,7 @@ export function formatShiftSpan(
     breakMinutes > 0
       ? ` (incl. ${breakMinutes % 60 === 0 ? `${breakMinutes / 60}h` : `${breakMinutes}m`} break)`
       : ""
-  return `${label(startTime)} – ${label(endTime)}${breakLabel}`
+  return `${label(startTime)} to ${label(endTime)}${breakLabel}`
 }
 
 /** Minutes past the shift start plus grace, for a "Late by 14 min" note. */

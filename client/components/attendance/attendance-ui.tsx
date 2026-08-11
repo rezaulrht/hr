@@ -1,38 +1,29 @@
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 /**
  * Small presentational pieces shared by the page and its sections. They live
  * here rather than in attendance-page.tsx so a section importing them does
  * not create a cycle back to the page that renders it.
+ *
+ * `TableSkeleton` and `LoadError` used to live here too: three grey bars and
+ * a one-line sentence, repeated at four call sites. Both are now PanelTable's
+ * job (components/dashboard/record-kit.tsx), which draws a skeleton shaped
+ * like the grid it replaces and gives a failed load somewhere to retry from.
  */
 
-export function TableSkeleton() {
+export function SectionHeading({
+  title,
+  sub,
+  className,
+}: {
+  title: string
+  sub?: string
+  className?: string
+}) {
   return (
-    <div className="space-y-2 rounded-md border border-[#E4E9EF] bg-white p-5.5">
-      <Skeleton className="h-6 w-full" />
-      <Skeleton className="h-6 w-full" />
-      <Skeleton className="h-6 w-full" />
-    </div>
-  )
-}
-
-export function LoadError({ label, onRetry }: { label: string; onRetry: () => void }) {
-  return (
-    <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
-      Failed to load {label}.{" "}
-      <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={onRetry}>
-        Retry
-      </Button>
-    </div>
-  )
-}
-
-export function SectionHeading({ title, sub }: { title: string; sub?: string }) {
-  return (
-    <div className="pt-7 pb-3.5">
+    <div className={cn("pt-7 pb-3.5", className)}>
       <h2 className="font-heading text-[16px] font-bold tracking-tight">{title}</h2>
-      {sub ? <div className="mt-0.5 max-w-xl text-[12.5px] text-[#7A8698]">{sub}</div> : null}
+      {sub ? <div className="mt-0.5 max-w-xl text-[12.5px] text-[#5F6B7C]">{sub}</div> : null}
     </div>
   )
 }

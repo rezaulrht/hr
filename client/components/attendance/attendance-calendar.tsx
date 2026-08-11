@@ -70,7 +70,7 @@ export function AttendanceCalendar({
         />
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-[#EEF1F5] pt-3">
           {LEGEND.map((item) => (
-            <div key={item.key} className="flex items-center gap-1.5 text-[11.5px] text-[#7A8698]">
+            <div key={item.key} className="flex items-center gap-1.5 text-[11.5px] text-[#5F6B7C]">
               <span
                 className="size-2.5 rounded-full"
                 style={{ background: item.swatch }}
@@ -85,13 +85,13 @@ export function AttendanceCalendar({
       <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5">
         <div className="text-[13px] font-bold">Holidays this month</div>
         {monthHolidays.length === 0 ? (
-          <div className="mt-2 text-[12.5px] text-[#7A8698]">No holidays this month.</div>
+          <div className="mt-2 text-[12.5px] text-[#5F6B7C]">No holidays this month.</div>
         ) : (
           <ul className="mt-2.5 space-y-2">
             {monthHolidays.map((holiday) => (
               <li key={holiday.id} className="flex items-baseline justify-between gap-3">
                 <span className="text-[13px] font-semibold">{holiday.name}</span>
-                <span className="shrink-0 text-[11.5px] text-[#7A8698]">
+                <span className="shrink-0 text-[11.5px] text-[#5F6B7C]">
                   {formatDayLabel(holiday.date)}
                   {holiday.type !== "GENERAL" ? ` · ${HOLIDAY_TYPE_LABEL[holiday.type]}` : ""}
                 </span>

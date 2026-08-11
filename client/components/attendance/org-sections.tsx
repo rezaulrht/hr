@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { RiHistoryLine, RiPencilLine } from "@remixicon/react"
 
 import {
   correctAttendance,
@@ -9,19 +10,31 @@ import {
   deleteHoliday,
   getAuditTrail,
   getDailySummary,
+  getEmployeeAttendance,
 } from "@/lib/api/attendance"
-import { ApiError } from "@/lib/api/client"
 import type {
+  AttendanceEmployeeRef,
+  AttendanceStatus,
   HolidayItem,
   HolidayType,
   ImpactBlock,
   MonthlyAttendanceSummary,
 } from "@/lib/api/types"
-import { DataTable } from "@/components/dashboard/data-table"
+import { ALL, FilterBar, FilterSelect } from "@/components/dashboard/filter-bar"
 import { MiniStat } from "@/components/dashboard/page-header"
+import {
+  ConfirmDeleteDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelAlert,
+  PanelNotice,
+  PanelTable,
+  RowActions,
+  toMessage,
+} from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -31,14 +44,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { TableCell } from "@/components/dashboard/types"
 import { TimeAmendmentDialog } from "@/components/attendance/time-amendment-dialog"
+import { SectionHeading } from "@/components/attendance/attendance-ui"
 import {
-  LoadError,
-  SectionHeading,
-  TableSkeleton,
-} from "@/components/attendance/attendance-ui"
-import {
+  APPROVAL_LABEL,
   HOLIDAY_TYPE_LABEL,
   STATUS_LABEL,
   STATUS_TONE,
@@ -48,6 +59,20 @@ import {
   formatMonthLabel,
 } from "@/components/attendance/attendance-shared"
 
+const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as AttendanceStatus[])
+  // NOT_TRACKED is a projection artefact rather than something a day can be
+  // to a reader, and it never reaches these boards.
+  .filter((s) => s !== "NOT_TRACKED")
+  .map((value) => ({ value, label: STATUS_LABEL[value] }))
+
+/** Matches whichever of the four identifiers the reader happens to know. */
+function matches(employee: AttendanceEmployeeRef, needle: string): boolean {
+  if (!needle) return true
+  return [employee.fullName, employee.employeeCode, employee.designation].some((field) =>
+    field.toLowerCase().includes(needle)
+  )
+}
+
 export function OrgSections({
   accessToken,
   role,
@@ -56,6 +81,8 @@ export function OrgSections({
   holidays,
   summaries,
   summaryPending,
+  summaryError,
+  onRetrySummary,
   onChanged,
 }: {
   accessToken: string
@@ -65,6 +92,8 @@ export function OrgSections({
   holidays: HolidayItem[]
   summaries: MonthlyAttendanceSummary[]
   summaryPending: boolean
+  summaryError: boolean
+  onRetrySummary: () => void
   onChanged: () => void
 }) {
   const isFinance = role === "FINANCE_OFFICER"
@@ -78,10 +107,12 @@ export function OrgSections({
           queue, no corrections. A non-zero pending count is the condition
           that will stop a payroll run, so it reads as a block, not a note. */}
       {isFinance && pendingTotal > 0 ? (
-        <div className="mt-6 rounded-md border border-[#F0D2D2] bg-[#FDF6F6] px-4 py-3 text-[13px] font-semibold text-[#B03A3A]">
-          {pendingTotal} attendance record{pendingTotal === 1 ? "" : "s"} across the org are still
-          awaiting review. Payroll cannot run for {formatMonthLabel(month, year)} until they are
-          decided.
+        <div className="mt-6">
+          <PanelAlert>
+            {pendingTotal} attendance record{pendingTotal === 1 ? "" : "s"} across the org are
+            still awaiting review. Payroll cannot run for {formatMonthLabel(month, year)} until
+            they are decided.
+          </PanelAlert>
         </div>
       ) : null}
 
@@ -93,6 +124,8 @@ export function OrgSections({
         year={year}
         summaries={summaries}
         pending={summaryPending}
+        isError={summaryError}
+        onRetry={onRetrySummary}
         isHr={isHr}
         onChanged={onChanged}
       />
@@ -109,7 +142,14 @@ export function OrgSections({
   )
 }
 
+/* -------------------------------------------------------------------------- */
+/* Today                                                                       */
+/* -------------------------------------------------------------------------- */
+
 function DailyBoard({ accessToken }: { accessToken: string }) {
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState<string>(ALL)
+
   const dailyQuery = useQuery({
     queryKey: ["attendance", "daily", "today"],
     queryFn: () => getDailySummary(accessToken),
@@ -119,22 +159,52 @@ function DailyBoard({ accessToken }: { accessToken: string }) {
   })
 
   const summary = dailyQuery.data
-  const rows: TableCell[][] =
-    summary?.rows.map((row) => [
-      { text: row.employee.fullName, sub: row.employee.designation, weight: 600 },
-      { tag: STATUS_LABEL[row.status], tone: STATUS_TONE[row.status], sub: row.detail ?? undefined },
-      { text: formatClock(row.checkIn) },
-      { text: formatClock(row.checkOut) },
-      { text: formatHours(row.workedHours) },
-    ]) ?? []
+  const all = useMemo(() => summary?.rows ?? [], [summary])
+
+  const active = search.trim() !== "" || status !== ALL
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return all.filter((row) => {
+      if (status !== ALL && row.status !== status) return false
+      return matches(row.employee, needle)
+    })
+  }, [all, search, status])
+
+  const rows: TableCell[][] = filtered.map((row) => [
+    { text: row.employee.fullName, sub: row.employee.designation, weight: 600 },
+    { tag: STATUS_LABEL[row.status], tone: STATUS_TONE[row.status], sub: row.detail ?? undefined },
+    { text: formatClock(row.checkIn) },
+    { text: formatClock(row.checkOut) },
+    { text: formatHours(row.workedHours) },
+  ])
+
+  function clear() {
+    setSearch("")
+    setStatus(ALL)
+  }
 
   return (
     <>
       <SectionHeading title="Today" sub="Live board, refreshed every minute." />
 
-      {summary ? (
+      {dailyQuery.isPending ? (
         <div className="mb-3.5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-          <MiniStat label="Present" value={String(summary.totals.present)} sub={`${summary.totals.late} late`} />
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="rounded-md border border-[#E4E9EF] bg-white px-5 py-4">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-2.5 h-6 w-10" />
+              <Skeleton className="mt-2 h-3 w-24" />
+            </div>
+          ))}
+        </div>
+      ) : summary ? (
+        <div className="mb-3.5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+          <MiniStat
+            label="Present"
+            value={String(summary.totals.present)}
+            sub={summary.totals.late === 0 ? "None late" : `${summary.totals.late} late`}
+          />
           <MiniStat label="Absent" value={String(summary.totals.absent)} sub="No record today" />
           <MiniStat label="On leave" value={String(summary.totals.onLeave)} sub="Approved leave" />
           <MiniStat
@@ -146,31 +216,65 @@ function DailyBoard({ accessToken }: { accessToken: string }) {
       ) : null}
 
       {summary && summary.conflicts.length > 0 ? (
-        <div className="mb-3.5 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] text-[#9A6B10]">
-          <strong>
-            {summary.conflicts.length} person
-            {summary.conflicts.length === 1 ? "" : "s"} checked in while on approved leave:
-          </strong>{" "}
-          {summary.conflicts.map((c) => c.fullName).join(", ")}. The check-in was recorded rather
-          than blocked — decide whether the leave should be cancelled.
+        <div className="mb-3.5">
+          {/* No dismiss: this is recomputed from the board on every poll, so
+              hiding it would either be undone a minute later or hide a
+              conflict that is still live. */}
+          <PanelNotice>
+            <strong>
+              {summary.conflicts.length} person
+              {summary.conflicts.length === 1 ? "" : "s"} checked in while on approved leave:
+            </strong>{" "}
+            {summary.conflicts.map((c) => c.fullName).join(", ")}. The check-in was recorded
+            rather than blocked. Decide whether the leave should be cancelled.
+          </PanelNotice>
         </div>
       ) : null}
 
-      {dailyQuery.isPending ? (
-        <TableSkeleton />
-      ) : dailyQuery.isError ? (
-        <LoadError label="today's board" onRetry={() => dailyQuery.refetch()} />
-      ) : (
-        <DataTable
-          title=""
-          cols="1.4fr 1fr 0.8fr 0.8fr 0.7fr"
-          headers={["Employee", "Status", "Check in", "Check out", "Hours"]}
-          rows={rows}
-        />
-      )}
+      {!dailyQuery.isPending && !dailyQuery.isError ? (
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Search name, code or role"
+          shown={filtered.length}
+          total={all.length}
+          noun={all.length === 1 ? "person" : "people"}
+          active={active}
+          onClear={clear}
+        >
+          <FilterSelect
+            label="Filter by status"
+            value={status}
+            onChange={setStatus}
+            allLabel="All statuses"
+            options={STATUS_OPTIONS}
+          />
+        </FilterBar>
+      ) : null}
+
+      <PanelTable
+        cols="1.4fr 1fr 0.8fr 0.8fr 0.7fr"
+        headers={["Employee", "Status", "Check in", "Check out", "Hours"]}
+        rows={rows}
+        isLoading={dailyQuery.isPending}
+        isError={dailyQuery.isError}
+        onRetry={() => dailyQuery.refetch()}
+        emptyTitle={active ? "Nobody matches" : "Nobody on the board"}
+        emptyBody={
+          active
+            ? "No one on today's board matches this search and this status together."
+            : "Today is not a working day for anyone, or no employees have been added yet."
+        }
+        emptyAction={active ? "Clear filters" : "Refresh"}
+        onEmptyAction={active ? clear : () => dailyQuery.refetch()}
+      />
     </>
   )
 }
+
+/* -------------------------------------------------------------------------- */
+/* Monthly summary                                                             */
+/* -------------------------------------------------------------------------- */
 
 function MonthlyTable({
   accessToken,
@@ -178,6 +282,8 @@ function MonthlyTable({
   year,
   summaries,
   pending,
+  isError,
+  onRetry,
   isHr,
   onChanged,
 }: {
@@ -186,146 +292,250 @@ function MonthlyTable({
   year: number
   summaries: MonthlyAttendanceSummary[]
   pending: boolean
+  isError: boolean
+  onRetry: () => void
   isHr: boolean
   onChanged: () => void
 }) {
-  const rows: TableCell[][] = summaries.map((s) => [
+  const [search, setSearch] = useState("")
+  const [open, setOpen] = useState<AttendanceEmployeeRef | null>(null)
+
+  const active = search.trim() !== ""
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return summaries.filter((s) => matches(s.employee, needle))
+  }, [summaries, search])
+
+  const rows: TableCell[][] = filtered.map((s) => [
     { text: s.employee.fullName, sub: s.employee.employeeCode, weight: 600 },
     { text: `${s.present} / ${s.workingDays}` },
     { text: String(s.absent) },
     { text: String(s.onLeave) },
     { text: String(s.late) },
     { text: formatHours(s.workedHours), sub: `of ${formatHours(s.expectedHours)}` },
-    s.shortfallHours > 0 ? { text: formatHours(s.shortfallHours), tone: "yellow" } : { text: "—" },
+    // A zero shortfall is a good outcome, not a missing value, so it says so
+    // rather than leaving the cell to be read as "not calculated".
+    s.shortfallHours > 0
+      ? { text: formatHours(s.shortfallHours), tone: "yellow" }
+      : { text: "None" },
     s.pendingApproval > 0
       ? { tag: `${s.pendingApproval} pending`, tone: "yellow" }
-      : { text: s.approved > 0 ? `${s.approved} approved` : "—" },
+      : { text: s.approved > 0 ? `${s.approved} approved` : "Nothing to review" },
+    isHr
+      ? {
+          node: (
+            <RowActions
+              actions={[
+                {
+                  kind: "custom",
+                  label: "Open days",
+                  icon: <RiPencilLine className="size-3.5" aria-hidden />,
+                  onClick: () => setOpen(s.employee),
+                },
+              ]}
+            />
+          ),
+        }
+      : { text: "" },
   ])
 
   return (
     <>
       <SectionHeading
-        title={`Monthly summary — ${formatMonthLabel(month, year)}`}
+        title={`Monthly summary, ${formatMonthLabel(month, year)}`}
         sub={
           isHr
-            ? "The figures payroll will consume. Shortfall is time owed against the shift, not absence."
+            ? "The figures payroll will consume. Shortfall is time owed against the shift, not absence. Open a row to correct a day."
             : "The figures payroll will consume."
         }
       />
-      {pending ? (
-        <TableSkeleton />
-      ) : summaries.length === 0 ? (
-        <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#7A8698]">
-          No attendance recorded for this month.
-        </div>
-      ) : (
-        <DataTable
-          title=""
-          cols="1.4fr 0.8fr 0.6fr 0.7fr 0.6fr 1fr 0.8fr 0.9fr"
-          headers={[
-            "Employee",
-            "Present",
-            "Absent",
-            "Leave",
-            "Late",
-            "Hours",
-            "Shortfall",
-            "Approval",
-          ]}
-          rows={rows}
+
+      {!pending && !isError ? (
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Search name, code or role"
+          shown={filtered.length}
+          total={summaries.length}
+          noun={summaries.length === 1 ? "employee" : "employees"}
+          active={active}
+          onClear={() => setSearch("")}
         />
-      )}
-      {isHr ? <CorrectionTools accessToken={accessToken} onChanged={onChanged} /> : null}
+      ) : null}
+
+      <PanelTable
+        cols="1.4fr 0.8fr 0.6fr 0.7fr 0.6fr 1fr 0.8fr 0.9fr 0.8fr"
+        headers={[
+          "Employee",
+          "Present",
+          "Absent",
+          "Leave",
+          "Late",
+          "Hours",
+          "Shortfall",
+          "Approval",
+          "",
+        ]}
+        rows={rows}
+        isLoading={pending}
+        isError={isError}
+        onRetry={onRetry}
+        emptyTitle={active ? "Nobody matches" : "Nothing recorded this month"}
+        emptyBody={
+          active
+            ? "No employee in this month's summary matches that search."
+            : `No attendance has been recorded for ${formatMonthLabel(month, year)}. Check the month above, or whether the go-live date is later than this.`
+        }
+        emptyAction={active ? "Clear filters" : "Reload"}
+        onEmptyAction={active ? () => setSearch("") : onRetry}
+      />
+
+      {open ? (
+        <EmployeeDaysDialog
+          key={open.id}
+          accessToken={accessToken}
+          employee={open}
+          month={month}
+          year={year}
+          onClose={() => setOpen(null)}
+          onChanged={onChanged}
+        />
+      ) : null}
     </>
   )
 }
 
+/* -------------------------------------------------------------------------- */
+/* HR's per-day tools                                                          */
+/* -------------------------------------------------------------------------- */
+
 /**
- * HR's per-record tools, driven by an id rather than a row click: the
- * monthly table is per-employee-per-month, while a correction and its audit
- * trail are per-day, so the two do not line up on one grid.
+ * One employee's days for the month, so a correction starts from the record
+ * rather than from its id.
+ *
+ * This replaces a box that asked HR to paste an "attendance record id" copied
+ * "from the employee's log". No screen in the app displayed one: the daily
+ * board carries no id at all, and the monthly summary is per-employee-per-
+ * month while a correction is per-day. The endpoint behind this dialog
+ * already existed and returns days with their ids on them; nothing called it.
  */
-function CorrectionTools({
+function EmployeeDaysDialog({
   accessToken,
+  employee,
+  month,
+  year,
+  onClose,
   onChanged,
 }: {
   accessToken: string
+  employee: AttendanceEmployeeRef
+  month: number
+  year: number
+  onClose: () => void
   onChanged: () => void
 }) {
-  const [recordId, setRecordId] = useState("")
-  const [correcting, setCorrecting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [correcting, setCorrecting] = useState<string | null>(null)
   const [auditFor, setAuditFor] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const auditQuery = useQuery({
-    queryKey: ["attendance", "audit", auditFor],
-    queryFn: () => getAuditTrail(accessToken, auditFor!),
-    enabled: !!auditFor,
+  const from = `${year}-${String(month).padStart(2, "0")}-01`
+  const to = `${year}-${String(month).padStart(2, "0")}-${new Date(year, month, 0).getDate()}`
+
+  const daysQuery = useQuery({
+    queryKey: ["attendance", "history", employee.id, year, month],
+    queryFn: () => getEmployeeAttendance(accessToken, employee.id, from, to),
   })
 
   const correctMutation = useMutation({
     mutationFn: (body: { checkIn?: string; checkOut?: string; note: string }) =>
-      correctAttendance(accessToken, recordId, body),
+      correctAttendance(accessToken, correcting!, body),
     onSuccess: () => {
-      setCorrecting(false)
+      setCorrecting(null)
       setError(null)
+      daysQuery.refetch()
       onChanged()
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."),
+    onError: (err) => setError(toMessage(err)),
   })
 
-  return (
-    <div className="mt-3.5 rounded-md border border-[#E4E9EF] bg-white p-5.5">
-      <div className="text-[13px] font-bold">Correct a record</div>
-      <p className="mt-0.5 text-[12px] text-[#7A8698]">
-        A correction settles the record immediately — HR outranks the manager in this chain.
-        Every change is kept in the record&apos;s history.
-      </p>
-      <div className="mt-3 flex flex-wrap items-end gap-2.5">
-        <div className="min-w-[260px] flex-1">
-          <Label htmlFor="record-id" className="mb-1.5 text-xs font-bold">
-            Attendance record id
-          </Label>
-          <Input
-            id="record-id"
-            value={recordId}
-            onChange={(e) => setRecordId(e.target.value)}
-            placeholder="Paste the id from the employee's log"
-          />
-        </div>
-        <Button
-          variant="outline"
-          disabled={!recordId}
-          onClick={() => {
-            setError(null)
-            setCorrecting(true)
-          }}
-          className="h-auto rounded-md px-4 py-2 text-[12.5px] font-bold"
-        >
-          Log correction
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!recordId}
-          onClick={() => setAuditFor(recordId)}
-          className="h-auto rounded-md px-4 py-2 text-[12.5px] font-bold"
-        >
-          View history
-        </Button>
-      </div>
+  const rows: TableCell[][] = (daysQuery.data ?? [])
+    .filter((day) => day.status !== "NOT_TRACKED")
+    .map((day) => [
+      { text: formatDayLabel(day.date), weight: 600 },
+      { text: formatClock(day.checkIn) },
+      { text: formatClock(day.checkOut) },
+      { tag: STATUS_LABEL[day.status], tone: STATUS_TONE[day.status] },
+      {
+        text: day.approval ? APPROVAL_LABEL[day.approval] : "Not raised",
+        sub: day.corrected ? "Corrected by HR" : day.regularised ? "Employee amended" : undefined,
+      },
+      // Only a day with a stored record can be corrected. A derived absence
+      // has nothing to edit, which is why the action is absent rather than
+      // present and failing.
+      day.attendanceId
+        ? {
+            node: (
+              <RowActions
+                actions={[
+                  {
+                    kind: "custom",
+                    label: "Correct",
+                    icon: <RiPencilLine className="size-3.5" aria-hidden />,
+                    onClick: () => {
+                      setError(null)
+                      setCorrecting(day.attendanceId)
+                    },
+                  },
+                  {
+                    kind: "custom",
+                    label: "History",
+                    icon: <RiHistoryLine className="size-3.5" aria-hidden />,
+                    onClick: () => setAuditFor(day.attendanceId),
+                  },
+                ]}
+              />
+            ),
+          }
+        : { text: "" },
+    ])
 
-      {error ? (
-        <p className="mt-2.5 text-[12.5px] font-semibold text-[#B03A3A]">{error}</p>
-      ) : null}
+  return (
+    <>
+      <Dialog open onOpenChange={(next) => !next && onClose()}>
+        <DialogContent className="sm:max-w-3xl!">
+          <DialogHeader>
+            <DialogTitle>
+              {employee.fullName}, {formatMonthLabel(month, year)}
+            </DialogTitle>
+            <DialogDescription>
+              A correction settles the record immediately. HR outranks the manager in this chain,
+              and every change is kept in the record&apos;s history.
+            </DialogDescription>
+          </DialogHeader>
+
+          {error ? <PanelAlert onDismiss={() => setError(null)}>{error}</PanelAlert> : null}
+
+          <PanelTable
+            cols="1fr 0.7fr 0.7fr 0.8fr 1fr 1fr"
+            headers={["Date", "Check in", "Check out", "Status", "Approval", ""]}
+            rows={rows}
+            isLoading={daysQuery.isPending}
+            isError={daysQuery.isError}
+            onRetry={() => daysQuery.refetch()}
+            emptyTitle="No days recorded"
+            emptyBody={`${employee.fullName} has no attendance rows for ${formatMonthLabel(month, year)}.`}
+            emptyAction="Reload"
+            onEmptyAction={() => daysQuery.refetch()}
+          />
+        </DialogContent>
+      </Dialog>
 
       {correcting ? (
         <TimeAmendmentDialog
-          key={recordId}
+          key={correcting}
           open
-          onOpenChange={(open) => {
-            if (!open) setCorrecting(false)
-          }}
+          onOpenChange={(next) => !next && setCorrecting(null)}
           title="Log a correction"
           description="This settles the record as approved and is written to its history with your name against it."
           confirmLabel="Save correction"
@@ -336,39 +546,77 @@ function CorrectionTools({
       ) : null}
 
       {auditFor ? (
-        <Dialog open onOpenChange={(open) => !open && setAuditFor(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Record history</DialogTitle>
-              <DialogDescription>
-                Every change, oldest first. This is what settles a dispute.
-              </DialogDescription>
-            </DialogHeader>
-            {auditQuery.isPending ? (
-              <TableSkeleton />
-            ) : auditQuery.isError ? (
-              <p className="text-[13px] text-[#B03A3A]">Could not load the history.</p>
-            ) : (
-              <ol className="space-y-2.5">
-                {(auditQuery.data ?? []).map((entry) => (
-                  <li key={entry.id} className="border-l-2 border-[#E4E9EF] pl-3">
-                    <div className="text-[12.5px] font-bold">{entry.action}</div>
-                    <div className="text-[11.5px] text-[#7A8698]">
-                      {new Date(entry.changedAt).toLocaleString()}
-                    </div>
-                    {entry.note ? (
-                      <div className="mt-0.5 text-[12px] text-[#3D4756]">{entry.note}</div>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </DialogContent>
-        </Dialog>
+        <AuditDialog accessToken={accessToken} id={auditFor} onClose={() => setAuditFor(null)} />
       ) : null}
-    </div>
+    </>
   )
 }
+
+function AuditDialog({
+  accessToken,
+  id,
+  onClose,
+}: {
+  accessToken: string
+  id: string
+  onClose: () => void
+}) {
+  const auditQuery = useQuery({
+    queryKey: ["attendance", "audit", id],
+    queryFn: () => getAuditTrail(accessToken, id),
+  })
+
+  const entries = auditQuery.data ?? []
+
+  return (
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record history</DialogTitle>
+          <DialogDescription>
+            Every change, oldest first. This is what settles a dispute.
+          </DialogDescription>
+        </DialogHeader>
+
+        {auditQuery.isPending ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="border-l-2 border-[#E4E9EF] pl-3">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="mt-1.5 h-3 w-40" />
+              </div>
+            ))}
+          </div>
+        ) : auditQuery.isError ? (
+          <PanelAlert>That history could not be loaded. Nothing has changed.</PanelAlert>
+        ) : entries.length === 0 ? (
+          <p className="text-[12.5px] text-[#5F6B7C]">
+            Nothing has been changed on this record since it was created.
+          </p>
+        ) : (
+          <ol className="space-y-2.5">
+            {entries.map((entry) => (
+              <li key={entry.id} className="border-l-2 border-[#E4E9EF] pl-3">
+                <div className="text-[12.5px] font-bold">{entry.action}</div>
+                <div className="text-[11.5px] text-[#5F6B7C]">
+                  {new Date(entry.changedAt).toLocaleString()}
+                  {entry.changedBy ? ` by ${entry.changedBy}` : ""}
+                </div>
+                {entry.note ? (
+                  <div className="mt-0.5 text-[12px] text-[#3D4756]">{entry.note}</div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Holidays                                                                    */
+/* -------------------------------------------------------------------------- */
 
 const HOLIDAY_TYPES: HolidayType[] = ["GENERAL", "EXECUTIVE_ORDER", "OPTIONAL", "WORKING_DAY"]
 
@@ -385,6 +633,7 @@ function HolidayPanel({
 }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
+  const [deleting, setDeleting] = useState<HolidayItem | null>(null)
   const [impact, setImpact] = useState<ImpactBlock | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -404,25 +653,27 @@ function HolidayPanel({
       setImpact(result.impact ?? null)
       refresh()
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."),
+    onError: (err) => setError(toMessage(err)),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteHoliday(accessToken, id),
     onSuccess: (result) => {
+      setDeleting(null)
       setImpact(result.impact ?? null)
       refresh()
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."),
+    onError: (err) => {
+      setDeleting(null)
+      setError(toMessage(err))
+    },
   })
 
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeading
-          title={`Holiday calendar — ${year}`}
+          title={`Holiday calendar, ${year}`}
           sub="Lunar dates move and the gazette gets amended, so this is yours to keep current."
         />
         <Button
@@ -430,7 +681,7 @@ function HolidayPanel({
             setError(null)
             setAdding(true)
           }}
-          className="h-auto rounded-md bg-[#17191C] px-4 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"
+          className="mb-3.5 h-auto shrink-0 rounded-md bg-[#17191C] px-4 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"
         >
           Add holiday
         </Button>
@@ -439,24 +690,22 @@ function HolidayPanel({
       {/* The consequence of a backdated edit is invisible on this screen and
           lands in a different module, so it is stated rather than implied. */}
       {impact ? (
-        <div className="mb-3.5 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3 text-[12.5px] text-[#9A6B10]">
-          This affected <strong>{impact.affectedEmployees}</strong> employees across{" "}
-          {impact.monthsTouched.join(", ")}. Their attendance totals have changed.
-          <Button variant="link" className="h-auto p-0 ml-2 font-bold underline" onClick={() => setImpact(null)}>
-            Dismiss
-          </Button>
+        <div className="mb-3.5">
+          <PanelNotice onDismiss={() => setImpact(null)}>
+            This affected <strong>{impact.affectedEmployees}</strong> employees across{" "}
+            {impact.monthsTouched.join(", ")}. Their attendance totals have changed.
+          </PanelNotice>
         </div>
       ) : null}
 
       {error ? (
-        <div className="mb-3.5 rounded-md border border-[#F0D2D2] bg-[#FDF6F6] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#B03A3A]">
-          {error}
+        <div className="mb-3.5">
+          <PanelAlert onDismiss={() => setError(null)}>{error}</PanelAlert>
         </div>
       ) : null}
 
-      <DataTable
-        title=""
-        cols="1.6fr 0.9fr 0.9fr 0.5fr"
+      <PanelTable
+        cols="1.6fr 0.9fr 0.9fr 0.6fr"
         headers={["Holiday", "Date", "Type", ""]}
         rows={holidays.map((holiday) => [
           { text: holiday.name, weight: 600 },
@@ -467,16 +716,44 @@ function HolidayPanel({
           },
           {
             node: (
-              <Button
-                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline disabled:opacity-40"
-                disabled={deleteMutation.isPending}
-                onClick={() => deleteMutation.mutate(holiday.id)}
-              >
-                Delete
-              </Button>
+              <RowActions
+                actions={[
+                  {
+                    kind: "delete",
+                    label: "Delete",
+                    onClick: () => {
+                      setError(null)
+                      setDeleting(holiday)
+                    },
+                  },
+                ]}
+              />
             ),
           },
         ])}
+        // The list arrives with the page, so by the time this renders it has
+        // either loaded or the page itself failed.
+        isLoading={false}
+        isError={false}
+        onRetry={onChanged}
+        emptyTitle={`No holidays set for ${year}`}
+        emptyBody="Until one is added, every weekday counts as a working day and absences derive against it."
+        emptyAction="Add holiday"
+        onEmptyAction={() => {
+          setError(null)
+          setAdding(true)
+        }}
+      />
+
+      {/* Deleting a holiday is not a list edit. It re-derives attendance for
+          every employee on that date, which is why the confirm names the
+          consequence rather than asking "are you sure". */}
+      <ConfirmDeleteDialog
+        open={!!deleting}
+        what={deleting ? `${deleting.name} on ${formatDayLabel(deleting.date)}` : "this holiday"}
+        pending={deleteMutation.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
       />
 
       {adding ? (
@@ -507,7 +784,7 @@ function AddHolidayDialog({
   const [type, setType] = useState<HolidayType>("GENERAL")
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add a holiday</DialogTitle>
@@ -517,30 +794,26 @@ function AddHolidayDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="holiday-name" className="mb-1.5 text-xs font-bold">
-              Name
-            </Label>
+          <Field label="Name" htmlFor="holiday-name">
             <Input id="holiday-name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="holiday-date" className="mb-1.5 text-xs font-bold">
-              Date
-            </Label>
+          </Field>
+
+          <Field label="Date" htmlFor="holiday-date">
             <Input
               id="holiday-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
-          </div>
-          <div>
-            <Label htmlFor="holiday-type" className="mb-1.5 text-xs font-bold">
-              Type
-            </Label>
+          </Field>
+
+          <Field
+            label="Type"
+            hint="A backdated date re-derives attendance for everyone on that day."
+          >
             <Select value={type} onValueChange={(v) => setType(v as HolidayType)}>
               <SelectTrigger id="holiday-type" className="w-full">
-                <SelectValue />
+                <SelectValue>{(v: string | null) => HOLIDAY_TYPE_LABEL[v as HolidayType]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {HOLIDAY_TYPES.map((option) => (
@@ -550,18 +823,18 @@ function AddHolidayDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Field>
 
-          {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
 
           <DialogFooter>
-            <Button
-              disabled={pending || !name.trim() || !date}
-              onClick={() => onConfirm({ name: name.trim(), date, type })}
-              className="bg-[#17191C] text-white hover:bg-[#0E1012]"
-            >
-              {pending ? "Saving…" : "Add holiday"}
-            </Button>
+            <DialogActions
+              pending={pending}
+              submitLabel="Add holiday"
+              disabled={!name.trim() || !date}
+              onCancel={onClose}
+              onSubmit={() => onConfirm({ name: name.trim(), date, type })}
+            />
           </DialogFooter>
         </div>
       </DialogContent>

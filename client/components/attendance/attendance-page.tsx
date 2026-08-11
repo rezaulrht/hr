@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RiArrowLeftSLine, RiArrowRightSLine } from "@remixicon/react"
+import { RiArrowLeftSLine, RiArrowRightSLine, RiPencilLine } from "@remixicon/react"
 
 import {
   checkIn as checkInApi,
@@ -16,16 +16,16 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { AttendanceDay } from "@/lib/api/types"
-import { DataTable } from "@/components/dashboard/data-table"
-import { MiniStat } from "@/components/dashboard/page-header"
+import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
+import { PanelTable, RowActions } from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 import type { TableCell } from "@/components/dashboard/types"
 import { AttendanceCalendar } from "@/components/attendance/attendance-calendar"
 import { PunchCard } from "@/components/attendance/punch-card"
 import { TimeAmendmentDialog } from "@/components/attendance/time-amendment-dialog"
 import { ApprovalsSection } from "@/components/attendance/approvals-section"
-import { LoadError, TableSkeleton } from "@/components/attendance/attendance-ui"
 import { OrgSections } from "@/components/attendance/org-sections"
 import {
   APPROVAL_LABEL,
@@ -114,10 +114,14 @@ export function AttendancePage() {
         invalidateAll()
         return
       }
+      // Says what is true now rather than shouting. The old copy was
+      // "Check-in failed - you are NOT checked in", which is both a dash and
+      // a capitalised word doing the work a plain sentence does better, and
+      // it named check-in on a button that also checks out.
       setPunchError(
         err instanceof ApiError
           ? err.message
-          : "Check-in failed — you are NOT checked in. Please try again."
+          : "That did not go through. Nothing was recorded. Please try again."
       )
     },
   })
@@ -164,21 +168,28 @@ export function AttendancePage() {
         sub: day.isLate ? "Late" : day.isEarlyOut ? "Left early" : (day.detail ?? undefined),
       },
       {
-        text: day.approval ? APPROVAL_LABEL[day.approval] : "—",
+        // "Not raised" rather than a dash: most days never need a review, so
+        // this cell is blank on the majority of rows and a glyph there reads
+        // as a missing value rather than a normal one.
+        text: day.approval ? APPROVAL_LABEL[day.approval] : "Not raised",
         sub: day.corrected ? "Edited by HR" : day.regularised ? "You amended this" : undefined,
       },
       canAmend(day)
         ? {
             node: (
-              <Button
-                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#17191C] underline"
-                onClick={() => {
-                  setAmendError(null)
-                  setAmending(day)
-                }}
-              >
-                Fix this day
-              </Button>
+              <RowActions
+                actions={[
+                  {
+                    kind: "custom",
+                    label: "Fix this day",
+                    icon: <RiPencilLine className="size-3.5" aria-hidden />,
+                    onClick: () => {
+                      setAmendError(null)
+                      setAmending(day)
+                    },
+                  },
+                ]}
+              />
             ),
           }
         : { text: "" },
@@ -195,39 +206,43 @@ export function AttendancePage() {
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4 pt-7 pb-5.5">
-        <div>
-          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">
-            Workspace
-          </div>
-          <h1 className="font-heading mb-1 text-[23px] font-bold tracking-tight">Attendance</h1>
-          <div className="text-[13px] text-[#7A8698]">
-            Daily check-ins, hours, and exceptions
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Button
-            variant="ghost"
-            aria-label="Previous month"
-            onClick={() => shiftMonth(-1)}
-            className="size-8 p-0"
+      <PageHeader
+        kicker="Workspace"
+        title="Attendance"
+        sub="Daily check-ins, hours, and exceptions"
+        aside={
+          // A group, not two loose buttons: the label between them is the
+          // control's value, so it is announced with them rather than read as
+          // stray text sitting between two arrows.
+          <div
+            role="group"
+            aria-label="Month shown"
+            className="flex items-center gap-0.5 rounded-md border border-[#E4E9EF] bg-white p-0.5"
           >
-            <RiArrowLeftSLine className="size-4" />
-          </Button>
-          <span className="min-w-[130px] text-center text-[13px] font-bold">
-            {formatMonthLabel(month, year)}
-          </span>
-          <Button
-            variant="ghost"
-            aria-label="Next month"
-            onClick={() => shiftMonth(1)}
-            className="size-8 p-0"
-          >
-            <RiArrowRightSLine className="size-4" />
-          </Button>
-        </div>
-      </div>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label="Previous month"
+              onClick={() => shiftMonth(-1)}
+              className="size-8 rounded p-0 text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
+            >
+              <RiArrowLeftSLine className="size-4" aria-hidden />
+            </Button>
+            <span aria-live="polite" className="min-w-[130px] text-center text-[13px] font-bold">
+              {formatMonthLabel(month, year)}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label="Next month"
+              onClick={() => shiftMonth(1)}
+              className="size-8 rounded p-0 text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
+            >
+              <RiArrowRightSLine className="size-4" aria-hidden />
+            </Button>
+          </div>
+        }
+      />
 
       {isStaff ? (
         <>
@@ -241,63 +256,89 @@ export function AttendancePage() {
             onDayRollover={() => todayQuery.refetch()}
           />
 
+          {/* Skeletons rather than dashes while the month loads. A card
+              reading "—" over "No data yet" is a value the reader has to
+              decide about; a skeleton is not. */}
           <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-            <MiniStat
-              label="This month"
-              value={
-                ownSummary && ownSummary.workingDays > 0
-                  ? `${Math.round((ownSummary.present / ownSummary.workingDays) * 100)}%`
-                  : "—"
-              }
-              sub={
-                ownSummary
-                  ? `${ownSummary.present} of ${ownSummary.workingDays} working days`
-                  : "No data yet"
-              }
-            />
-            <MiniStat
-              label="Late check-ins"
-              value={ownSummary ? String(ownSummary.late) : "—"}
-              sub={`Grace ${todayQuery.data?.shift.graceMinutes ?? 15} minutes`}
-            />
-            <MiniStat
-              label="Avg hours / day"
-              value={
-                ownSummary && ownSummary.present > 0
-                  ? formatHours(ownSummary.workedHours / ownSummary.present)
-                  : "—"
-              }
-              sub={
-                todayQuery.data
-                  ? `Expected ${formatHours(todayQuery.data.shift.expectedHours)}`
-                  : "—"
-              }
-            />
-            {/* Only rendered when there is something to act on. A silent
-                exception is what surprises somebody on payday. */}
-            {ownSummary && (ownSummary.missingCheckOut > 0 || ownSummary.pendingApproval > 0) ? (
-              <MiniStat
-                label="Needs attention"
-                value={String(ownSummary.missingCheckOut + ownSummary.pendingApproval)}
-                sub={`${ownSummary.missingCheckOut} missing check-out · ${ownSummary.pendingApproval} awaiting review`}
-              />
-            ) : null}
+            {summaryQuery.isPending ? (
+              [0, 1, 2].map((i) => (
+                <div key={i} className="rounded-md border border-[#E4E9EF] bg-white px-5 py-4">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="mt-2.5 h-6 w-12" />
+                  <Skeleton className="mt-2 h-3 w-28" />
+                </div>
+              ))
+            ) : (
+              <>
+                <MiniStat
+                  label="This month"
+                  value={
+                    ownSummary && ownSummary.workingDays > 0
+                      ? `${Math.round((ownSummary.present / ownSummary.workingDays) * 100)}%`
+                      : "0%"
+                  }
+                  sub={
+                    ownSummary
+                      ? `${ownSummary.present} of ${ownSummary.workingDays} working days`
+                      : "Nothing recorded this month"
+                  }
+                />
+                <MiniStat
+                  label="Late check-ins"
+                  value={String(ownSummary?.late ?? 0)}
+                  sub={`Grace ${todayQuery.data?.shift.graceMinutes ?? 15} minutes`}
+                />
+                <MiniStat
+                  label="Avg hours / day"
+                  value={
+                    ownSummary && ownSummary.present > 0
+                      ? formatHours(ownSummary.workedHours / ownSummary.present)
+                      : "None yet"
+                  }
+                  sub={
+                    todayQuery.data
+                      ? `Expected ${formatHours(todayQuery.data.shift.expectedHours)}`
+                      : "Against your shift"
+                  }
+                />
+                {/* Only rendered when there is something to act on. A silent
+                    exception is what surprises somebody on payday. */}
+                {ownSummary &&
+                (ownSummary.missingCheckOut > 0 || ownSummary.pendingApproval > 0) ? (
+                  <MiniStat
+                    label="Needs attention"
+                    value={String(ownSummary.missingCheckOut + ownSummary.pendingApproval)}
+                    sub={`${ownSummary.missingCheckOut} missing check-out, ${ownSummary.pendingApproval} awaiting review`}
+                  />
+                ) : null}
+              </>
+            )}
           </div>
 
-          <div className="flex items-center justify-between pt-7 pb-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-7 pb-3.5">
             <h2 className="font-heading text-[16px] font-bold tracking-tight">
-              Attendance log — {formatMonthLabel(month, year)}
+              Attendance log, {formatMonthLabel(month, year)}
             </h2>
-            <div className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5">
+            {/* aria-pressed, because these are two toggles over one view and
+                not two links. Without it a screen reader announces "list" and
+                "calendar" with no indication which one is showing. */}
+            <div
+              role="group"
+              aria-label="Log view"
+              className="flex rounded-md border border-[#E4E9EF] bg-white p-0.5"
+            >
               {(["list", "calendar"] as const).map((mode) => (
                 <Button
                   key={mode}
+                  type="button"
+                  aria-pressed={view === mode}
                   onClick={() => setView(mode)}
-                  className={
+                  className={cn(
+                    "rounded px-3 py-1 text-[12px] capitalize transition-colors",
                     view === mode
-                      ? "rounded bg-[#17191C] px-3 py-1 text-[12px] font-bold text-white capitalize"
-                      : "rounded px-3 py-1 text-[12px] font-semibold text-[#7A8698] capitalize"
-                  }
+                      ? "bg-[#17191C] font-bold text-white"
+                      : "font-semibold text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
+                  )}
                 >
                   {mode}
                 </Button>
@@ -305,23 +346,25 @@ export function AttendancePage() {
             </div>
           </div>
 
-          {daysQuery.isPending ? (
-            <TableSkeleton />
-          ) : daysQuery.isError ? (
-            <LoadError label="your attendance" onRetry={() => daysQuery.refetch()} />
-          ) : view === "list" ? (
-            <DataTable
-              title=""
-              cols="1.1fr 0.8fr 0.8fr 0.7fr 1fr 1.1fr 0.7fr"
-              headers={["Date", "Check in", "Check out", "Hours", "Status", "Approval", ""]}
-              rows={rows}
-            />
-          ) : (
+          {view === "calendar" && !daysQuery.isPending && !daysQuery.isError ? (
             <AttendanceCalendar
               days={days}
               holidays={holidaysQuery.data ?? []}
               month={month}
               year={year}
+            />
+          ) : (
+            <PanelTable
+              cols="1.1fr 0.8fr 0.8fr 0.7fr 1fr 1.1fr 0.9fr"
+              headers={["Date", "Check in", "Check out", "Hours", "Status", "Approval", ""]}
+              rows={rows}
+              isLoading={daysQuery.isPending}
+              isError={daysQuery.isError}
+              onRetry={() => daysQuery.refetch()}
+              emptyTitle="Nothing recorded this month"
+              emptyBody={`You have no tracked days in ${formatMonthLabel(month, year)}. If that looks wrong, check the month above.`}
+              emptyAction="Reload"
+              onEmptyAction={() => daysQuery.refetch()}
             />
           )}
         </>
@@ -338,6 +381,8 @@ export function AttendancePage() {
           holidays={holidaysQuery.data ?? []}
           summaries={summaryQuery.data ?? []}
           summaryPending={summaryQuery.isPending}
+          summaryError={summaryQuery.isError}
+          onRetrySummary={() => summaryQuery.refetch()}
           onChanged={invalidateAll}
         />
       ) : null}

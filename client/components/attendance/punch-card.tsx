@@ -61,7 +61,7 @@ export function PunchCard({
     <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-[11.5px] font-bold tracking-wide text-[#7A8698] uppercase">
+          <div className="text-[11.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">
             {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </div>
           <div className="font-heading mt-1 text-[28px] font-bold tracking-tight tabular-nums">
@@ -71,7 +71,7 @@ export function PunchCard({
               second: "2-digit",
             })}
           </div>
-          <div className="mt-0.5 text-xs text-[#7A8698]">
+          <div className="mt-0.5 text-xs text-[#5F6B7C]">
             {today.shift.name} · {formatShiftSpan(
               today.shift.startTime,
               today.shift.endTime,
@@ -165,7 +165,7 @@ export function PunchCard({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] font-bold tracking-wide text-[#7A8698] uppercase">{label}</div>
+      <div className="text-[11px] font-bold tracking-wide text-[#5F6B7C] uppercase">{label}</div>
       <div className="mt-0.5 text-[13.5px] font-semibold tabular-nums">{value}</div>
     </div>
   )

@@ -89,7 +89,7 @@ export function TimeAmendmentDialog({
               />
             </div>
           </div>
-          <p className="text-[11.5px] text-[#7A8698]">
+          <p className="text-[11.5px] text-[#5F6B7C]">
             Office local time. Leave a field blank to keep what is already recorded.
           </p>
 
