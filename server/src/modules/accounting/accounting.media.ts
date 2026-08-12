@@ -120,8 +120,23 @@ export async function deleteJournalAttachment(
   attachmentId: string,
   actor: AccessTokenPayload
 ): Promise<void> {
-  const attachment = await prisma.journalAttachment.findUnique({ where: { id: attachmentId } })
+  const attachment = await prisma.journalAttachment.findUnique({
+    where: { id: attachmentId },
+    include: { journal: { select: { journalNo: true, status: true } } },
+  })
   if (!attachment) throw new AppError(404, "Attachment not found")
+
+  // Adding evidence to a posted journal is normal — a receipt often arrives
+  // after the entry. Taking it away again is not: the entry it supports can
+  // no longer be changed, so removing its support is the one edit to a posted
+  // journal that would still be possible. Checked before destroyAsset, so a
+  // refusal cannot leave the blob destroyed and the row behind.
+  if (attachment.journal.status === "POSTED" || attachment.journal.status === "REVERSED") {
+    throw new AppError(
+      409,
+      `${attachment.journal.journalNo} is posted. Its supporting documents can be added to but not removed.`
+    )
+  }
 
   await destroyAsset(attachment.publicId)
 

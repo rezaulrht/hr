@@ -140,6 +140,41 @@ export async function createAccount(
   })
 }
 
+/**
+ * Refuse a re-parent that would put an account inside its own branch.
+ *
+ * Rejecting `parentId === id` catches only the one-step case. Two steps is
+ * just as reachable: park A under B, then B under A. Nothing about either
+ * write is individually suspicious, and the result is a loop that belongs to
+ * no root — `listAccounts` attaches every node to its parent, so a cycle
+ * attaches to nothing and both accounts *vanish from the chart* with no
+ * error. Their balances go with them: they stay in the trial balance, which
+ * is flat, while dropping out of whichever statement total they belonged to.
+ *
+ * Walks up from the proposed parent. The `seen` set is not redundant — it is
+ * what stops this looping forever if a cycle already exists.
+ */
+async function assertNoCycle(
+  tx: Prisma.TransactionClient,
+  id: string,
+  parentId: string
+): Promise<void> {
+  const seen = new Set<string>([id])
+  let cursor: string | null = parentId
+
+  while (cursor) {
+    if (seen.has(cursor)) {
+      throw new AppError(400, "That would put the account inside its own branch")
+    }
+    seen.add(cursor)
+    const row: { parentId: string | null } | null = await tx.account.findUnique({
+      where: { id: cursor },
+      select: { parentId: true },
+    })
+    cursor = row?.parentId ?? null
+  }
+}
+
 /** Only the fields that actually changed, matching the house audit style. */
 function diff<T extends Record<string, unknown>>(
   before: T,
@@ -173,6 +208,31 @@ export function updateAccount(
       if (parent.type !== existing.type) {
         throw new AppError(400, `A ${existing.type} account cannot sit under a ${parent.type} group`)
       }
+      await assertNoCycle(tx, id, input.parentId)
+    }
+
+    // Converting between a header and a postable account, which
+    // `createAccount`'s "convert it to a group first" advice assumes exists.
+    // Both directions are guarded by what already points at the account:
+    // lines make it a leaf forever, children make it a group forever.
+    if (input.isGroup !== undefined && input.isGroup !== existing.isGroup) {
+      if (input.isGroup) {
+        const lines = await tx.journalLine.count({ where: { accountId: id } })
+        if (lines > 0) {
+          throw new AppError(
+            409,
+            `${existing.name} has ${lines} journal line(s) posted to it and cannot become a group — nothing may be posted to a group.`
+          )
+        }
+      } else {
+        const children = await tx.account.count({ where: { parentId: id } })
+        if (children > 0) {
+          throw new AppError(
+            409,
+            `${existing.name} has ${children} account(s) under it and must stay a group. Move them first.`
+          )
+        }
+      }
     }
 
     const updated = await tx.account.update({
@@ -180,6 +240,7 @@ export function updateAccount(
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+        ...(input.isGroup !== undefined ? { isGroup: input.isGroup } : {}),
         ...(input.cashKind !== undefined ? { cashKind: input.cashKind } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),

@@ -35,7 +35,7 @@ import { writeAudit } from "../../utils/audit"
 import { nextJournalNo } from "./accounting.journal.service"
 import { resolveOpenPeriod } from "./accounting.period.service"
 import type { SystemJournalInput } from "./accounting.types"
-import { assertBalanced } from "./accounting.utils"
+import { assertBalanced, toLedgerDate } from "./accounting.utils"
 
 const ZERO = new P.Decimal(0)
 
@@ -82,7 +82,11 @@ export async function postSystemJournal(
   // can, because nobody is looking.
   assertBalanced(lineData)
 
-  const period = await resolveOpenPeriod(tx, input.date)
+  // Truncated, not trusted. Callers hold real timestamps — a payroll run's
+  // `createdAt`, a disbursement's `new Date()` — and an instant carrying a
+  // time of day resolves to no period at all on the last day of a month.
+  const date = toLedgerDate(input.date)
+  const period = await resolveOpenPeriod(tx, date)
 
   const now = new Date()
   let created: { id: string }
@@ -91,7 +95,7 @@ export async function postSystemJournal(
     created = await tx.journal.create({
       data: {
         journalNo: await nextJournalNo(tx),
-        date: input.date,
+        date,
         periodId: period.id,
         type: "SYSTEM",
         status: "POSTED",

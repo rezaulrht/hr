@@ -11,7 +11,7 @@
  */
 
 import prisma from "../../config/prisma"
-import type { Journal, JournalStatus, Prisma } from "../../generated/prisma/client"
+import type { Journal, JournalStatus, JournalType, Prisma } from "../../generated/prisma/client"
 import { Prisma as P } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
@@ -51,6 +51,27 @@ export function toLineData(lines: JournalLineInput[]) {
   }))
 }
 
+/**
+ * The lines as the audit trail stores them.
+ *
+ * A line count is not a record of an edit. The rigor model for this module is
+ * that a draft stays editable and *every version is kept* — which means the
+ * figures, not their cardinality. Changing 70,500 to 7,050 leaves the count at
+ * two, and an audit row reading `lineCount: 2 → 2` records nothing at all.
+ *
+ * Amounts as strings, because Decimal does not survive JSON as a number.
+ */
+function auditLines(
+  lines: Array<{ accountId: string; debit: P.Decimal; credit: P.Decimal; narration?: string | null }>
+) {
+  return lines.map((l) => ({
+    accountId: l.accountId,
+    debit: l.debit.toFixed(2),
+    credit: l.credit.toFixed(2),
+    ...(l.narration ? { narration: l.narration } : {}),
+  }))
+}
+
 /** Invariant 6, in one place. */
 export function assertEditable(journal: { status: JournalStatus; journalNo: string }): void {
   if (journal.status === "POSTED") {
@@ -62,6 +83,43 @@ export function assertEditable(journal: { status: JournalStatus; journalNo: stri
   if (journal.status === "REVERSED") {
     throw new AppError(409, `${journal.journalNo} has been reversed and cannot be changed`)
   }
+}
+
+/**
+ * The second half of Invariant 6, and the one the status check alone misses.
+ *
+ * A REVERSAL and a CLOSING journal are *derived*: the first is the exact
+ * inverse of the journal it reverses, the second the exact contra of the
+ * year's profit and loss. Both are generated, and both sit in DRAFT for a
+ * while before anyone approves them — which `assertEditable` happily permits,
+ * because DRAFT is editable for a manual entry.
+ *
+ * It must not be for these two. The original is already flagged REVERSED the
+ * moment the reversal is drafted, so retyping the reversal's lines leaves it
+ * reversed by something that no longer reverses it; and retyping the closing
+ * entry closes the year to a Retained Earnings figure nobody can derive from
+ * the ledger. Neither is recoverable once posted.
+ *
+ * Narration and reference stay editable — those are prose, and a reversal's
+ * reason genuinely may need rewording.
+ */
+export function assertGeneratedFiguresUnchanged(
+  journal: { type: JournalType; journalNo: string; date: Date },
+  input: UpdateJournalInput
+): void {
+  if (journal.type !== "REVERSAL" && journal.type !== "CLOSING") return
+
+  // A no-op payload passes: the editor sends every field on every save, and
+  // refusing an unchanged date would make "Save" fail for no reason.
+  const retyped = input.lines !== undefined
+  const redated = input.date !== undefined && input.date.getTime() !== journal.date.getTime()
+  if (!retyped && !redated) return
+
+  const what = journal.type === "REVERSAL" ? "a reversal" : "a year-end closing entry"
+  throw new AppError(
+    409,
+    `${journal.journalNo} is ${what}. Its lines and its date are derived from the ledger, not typed. Delete it and generate it again if it is wrong.`
+  )
 }
 
 const journalInclude = {
@@ -225,6 +283,7 @@ export async function updateJournal(
     const existing = await tx.journal.findUnique({ where: { id }, include: { lines: true } })
     if (!existing) throw new AppError(404, "Journal not found")
     assertEditable(existing)
+    assertGeneratedFiguresUnchanged(existing, input)
 
     let periodId = existing.periodId
     if (input.date && input.date.getTime() !== existing.date.getTime()) {
@@ -263,13 +322,13 @@ export async function updateJournal(
         date: existing.date.toISOString(),
         narration: existing.narration,
         reference: existing.reference,
-        lineCount: existing.lines.length,
+        lines: auditLines(existing.lines),
       },
       after: {
         date: updated.date.toISOString(),
         narration: updated.narration,
         reference: updated.reference,
-        lineCount: lineData?.length ?? existing.lines.length,
+        lines: auditLines(lineData ?? existing.lines),
       },
     })
 
@@ -292,9 +351,24 @@ export function deleteJournal(id: string, actor: AccessTokenPayload): Promise<vo
     // Otherwise the original sits REVERSED with nothing reversing it, and
     // the @unique on reversesId means it can never be reversed again.
     if (existing.type === "REVERSAL" && existing.reversesId) {
-      await tx.journal.update({
+      const original = await tx.journal.update({
         where: { id: existing.reversesId },
         data: { status: "POSTED" },
+        select: { id: true, journalNo: true },
+      })
+
+      // Audited against the *original*, not only against the reversal being
+      // deleted. A posted journal silently changing status is the one thing
+      // this module promises cannot happen; the row that explains it has to
+      // hang off the journal it happened to.
+      await writeAudit(tx, {
+        entity: "JOURNAL",
+        entityId: original.id,
+        action: "UPDATE",
+        changedBy: actor.sub,
+        before: { status: "REVERSED", reversedBy: existing.journalNo },
+        after: { status: "POSTED", reversedBy: null },
+        note: `${existing.journalNo} was deleted before it was approved, so ${original.journalNo} stands as posted and can be reversed again`,
       })
     }
 

@@ -75,13 +75,16 @@ describe("uploadJournalAttachment", () => {
 })
 
 describe("deleteJournalAttachment", () => {
+  const attachmentOn = (status: string) => ({
+    id: "att-1",
+    journalId: "j-1",
+    publicId: "journals/j-1/abc",
+    fileName: "rent-receipt.pdf",
+    journal: { journalNo: "BS-JV-00042", status },
+  })
+
   it("destroys the blob before opening the transaction", async () => {
-    ;(prisma.journalAttachment.findUnique as any).mockResolvedValue({
-      id: "att-1",
-      journalId: "j-1",
-      publicId: "journals/j-1/abc",
-      fileName: "rent-receipt.pdf",
-    })
+    ;(prisma.journalAttachment.findUnique as any).mockResolvedValue(attachmentOn("DRAFT"))
 
     await deleteJournalAttachment("att-1", finance)
 
@@ -93,5 +96,29 @@ describe("deleteJournalAttachment", () => {
     ;(prisma.journalAttachment.findUnique as any).mockResolvedValue(null)
 
     await expect(deleteJournalAttachment("ghost", finance)).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it("409s on a posted journal — evidence may be added to it but not taken away", async () => {
+    ;(prisma.journalAttachment.findUnique as any).mockResolvedValue(attachmentOn("POSTED"))
+
+    await expect(deleteJournalAttachment("att-1", finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("BS-JV-00042"),
+    })
+  })
+
+  it("409s on a reversed journal too", async () => {
+    ;(prisma.journalAttachment.findUnique as any).mockResolvedValue(attachmentOn("REVERSED"))
+
+    await expect(deleteJournalAttachment("att-1", finance)).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it("refuses before destroyAsset, so a rejected delete leaves the file intact", async () => {
+    ;(prisma.journalAttachment.findUnique as any).mockResolvedValue(attachmentOn("POSTED"))
+
+    await expect(deleteJournalAttachment("att-1", finance)).rejects.toThrow()
+
+    expect(destroyAsset).not.toHaveBeenCalled()
+    expect(tx.journalAttachment.delete).not.toHaveBeenCalled()
   })
 })

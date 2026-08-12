@@ -160,6 +160,102 @@ describe("updateAccount", () => {
       statusCode: 404,
     })
   })
+
+  /**
+   * The chart as a lookup, so the cycle walk can climb it. `grp-a` is a root
+   * and `grp-b` sits under it — the ordinary shape before anyone breaks it.
+   */
+  const chart = (overrides: Record<string, string | null> = {}) => {
+    const parents: Record<string, string | null> = { "grp-a": null, "grp-b": "grp-a", ...overrides }
+    tx.account.findUnique.mockImplementation(async ({ where }: any) => ({
+      id: where.id,
+      code: where.id === "grp-a" ? "1000" : "1100",
+      name: where.id,
+      type: "ASSET",
+      isGroup: true,
+      cashKind: "NONE",
+      isActive: true,
+      description: null,
+      parentId: parents[where.id] ?? null,
+    }))
+  }
+
+  it("400s on re-parenting an account under its own child", async () => {
+    chart()
+    // grp-b is already under grp-a. Putting grp-a under grp-b closes the loop,
+    // and both would drop out of the tree with no error anywhere.
+    await expect(updateAccount("grp-a", { parentId: "grp-b" }, finance)).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("its own branch"),
+    })
+
+    expect(tx.account.update).not.toHaveBeenCalled()
+  })
+
+  it("400s on re-parenting under a deeper descendant, not just a direct child", async () => {
+    chart({ "grp-c": "grp-b" })
+
+    await expect(updateAccount("grp-a", { parentId: "grp-c" }, finance)).rejects.toMatchObject({
+      statusCode: 400,
+    })
+  })
+
+  it("allows a re-parent that stays out of its own branch", async () => {
+    chart({ "leaf-1": null })
+    tx.account.update.mockResolvedValue({ id: "leaf-1", parentId: "grp-b" })
+
+    await expect(updateAccount("leaf-1", { parentId: "grp-b" }, finance)).resolves.toBeDefined()
+  })
+
+  it("terminates on a chart that already contains a cycle rather than looping forever", async () => {
+    // grp-a under grp-b and grp-b under grp-a: the damage a pre-fix database
+    // may already carry. The walk must refuse, not spin.
+    chart({ "grp-a": "grp-b", "leaf-1": null })
+
+    await expect(updateAccount("leaf-1", { parentId: "grp-b" }, finance)).rejects.toMatchObject({
+      statusCode: 400,
+    })
+  })
+
+  it("converts a leaf to a group when nothing has been posted to it", async () => {
+    tx.account.findUnique.mockResolvedValue({
+      id: "acc-1", code: "5200", name: "Admin", type: "EXPENSE",
+      parentId: null, isGroup: false, cashKind: "NONE", isActive: true, description: null,
+    })
+    tx.account.update.mockResolvedValue({ id: "acc-1", isGroup: true })
+
+    await updateAccount("acc-1", { isGroup: true }, finance)
+
+    expect(tx.account.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isGroup: true }) })
+    )
+  })
+
+  it("409s converting a leaf with posted lines to a group — nothing may be posted to a group", async () => {
+    tx.account.findUnique.mockResolvedValue({
+      id: "acc-1", code: "5201", name: "Salary", type: "EXPENSE",
+      parentId: null, isGroup: false, cashKind: "NONE", isActive: true, description: null,
+    })
+    tx.journalLine.count.mockResolvedValue(7)
+
+    await expect(updateAccount("acc-1", { isGroup: true }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("7 journal line"),
+    })
+  })
+
+  it("409s converting a group that still has accounts under it", async () => {
+    tx.account.findUnique.mockResolvedValue({
+      id: "grp-1", code: "5200", name: "Admin", type: "EXPENSE",
+      parentId: null, isGroup: true, cashKind: "NONE", isActive: true, description: null,
+    })
+    tx.account.count.mockResolvedValue(3)
+
+    await expect(updateAccount("grp-1", { isGroup: false }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("Move them first"),
+    })
+  })
 })
 
 describe("deleteAccount", () => {

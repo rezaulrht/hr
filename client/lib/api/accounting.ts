@@ -77,6 +77,22 @@ export function createFinancialYear(accessToken: string, startDate: string): Pro
   })
 }
 
+/**
+ * The name is free text; `startDate` only moves while the year holds no
+ * journals, since changing it rebuilds all twelve periods.
+ */
+export function updateFinancialYear(
+  accessToken: string,
+  id: string,
+  input: { name?: string; startDate?: string }
+): Promise<FinancialYear> {
+  return apiFetch<FinancialYear>(`/api/accounting/financial-years/${id}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
 export function deleteFinancialYear(accessToken: string, id: string): Promise<void> {
   return apiFetch<void>(`/api/accounting/financial-years/${id}`, { method: "DELETE", accessToken })
 }

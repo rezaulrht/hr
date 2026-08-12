@@ -92,6 +92,7 @@ function JournalForm({
 
   const problem = useMemo(() => validationMessage(lines), [lines])
   const balance = useMemo(() => computeBalance(lines), [lines])
+  const isDraft = !journal || journal.status === "DRAFT"
 
   const save = useMutation({
     mutationFn: async (): Promise<Journal> => {
@@ -157,22 +158,38 @@ function JournalForm({
         </div>
 
         <div className="flex items-center gap-2">
-          {journal?.status === "DRAFT" && (
+          {isDraft && (
             <Button variant="ghost" onClick={() => discard.mutate()} disabled={discard.isPending}>
               <RiDeleteBinLine className="size-4" /> Discard
             </Button>
           )}
           <Button variant="outline" onClick={() => save.mutate()} disabled={save.isPending}>
-            {save.isPending ? "Saving…" : "Save draft"}
+            {save.isPending ? "Saving…" : isDraft ? "Save draft" : "Save changes"}
           </Button>
-          <Button
-            onClick={() => submit.mutate()}
-            disabled={Boolean(problem) || submit.isPending || !narration.trim()}
-          >
-            {submit.isPending ? "Submitting…" : "Submit for approval"}
-          </Button>
+          {/*
+            Only a draft can be submitted. An already-pending journal stays
+            editable — that is the design, a Finance Officer may correct it
+            before it is approved — but submitting it again is a state the
+            server refuses, so the button is absent rather than offered and
+            then rejected.
+          */}
+          {isDraft && (
+            <Button
+              onClick={() => submit.mutate()}
+              disabled={Boolean(problem) || submit.isPending || !narration.trim()}
+            >
+              {submit.isPending ? "Submitting…" : "Submit for approval"}
+            </Button>
+          )}
         </div>
       </div>
+
+      {journal?.status === "PENDING_APPROVAL" && (
+        <p className="rounded-lg border bg-muted/40 p-3 text-sm">
+          Awaiting approval. Edits you save here are recorded and go to the approver as they
+          stand.
+        </p>
+      )}
 
       {journal?.rejectionNote && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
@@ -268,7 +285,16 @@ export function JournalEditorPage({ journalId }: { journalId?: string }) {
   // A posted journal is a different kind of object from a draft, and it
   // renders as one — a read-only document with a Reverse action, not a form
   // with greyed-out inputs.
-  if (data && data.status !== "DRAFT" && data.status !== "PENDING_APPROVAL") {
+  const isSettled = data !== null && data.status !== "DRAFT" && data.status !== "PENDING_APPROVAL"
+
+  // A reversal and a year-end entry are generated, not typed: their lines are
+  // the exact inverse of another journal and the exact contra of a year's
+  // profit and loss. The server refuses to retype either, so they render as
+  // documents even while they are still drafts — a form whose fields cannot
+  // be saved is worse than no form.
+  const isGenerated = data !== null && (data.type === "REVERSAL" || data.type === "CLOSING")
+
+  if (data && (isSettled || isGenerated)) {
     return <JournalDocument journal={data} />
   }
 

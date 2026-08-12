@@ -28,6 +28,124 @@ import { assertBalanced } from "./accounting.utils"
 
 const ZERO = new P.Decimal(0)
 
+interface ClosingLine {
+  accountId: string
+  debit: P.Decimal
+  credit: P.Decimal
+  sortOrder: number
+}
+
+/**
+ * The closing entry, derived from the ledger. Used twice: once to draft it,
+ * and once at approval to prove it is still the right answer.
+ *
+ * Both callers must compute it identically or the second is worthless, which
+ * is why this is one function rather than two similar blocks.
+ */
+async function computeClosingLines(
+  tx: Prisma.TransactionClient,
+  year: { id: string; name: string; startDate: Date; endDate: Date },
+  retainedEarningsId: string
+): Promise<ClosingLine[]> {
+  const pnlAccounts = await tx.account.findMany({
+    where: { type: { in: ["INCOME", "EXPENSE"] }, isGroup: false },
+    select: { id: true },
+  })
+
+  const sums = await tx.journalLine.groupBy({
+    by: ["accountId"],
+    where: {
+      accountId: { in: pnlAccounts.map((a) => a.id) },
+      journal: {
+        // Decision 16: REVERSED counts. A reversed entry and its reversal
+        // both belong in the year being closed.
+        status: { in: ["POSTED", "REVERSED"] },
+        // The closing entry itself must never be part of the movement it is
+        // closing. At draft time there is none, so this changes nothing; at
+        // approval time the entry has *already* flipped to POSTED, and
+        // without this the recomputation would see its own contra and
+        // conclude that every account nets to zero. Slice 2's profit-and-loss
+        // aggregations exclude CLOSING for the same reason.
+        type: { not: "CLOSING" },
+        date: { gte: year.startDate, lte: year.endDate },
+      },
+    },
+    _sum: { debit: true, credit: true },
+  })
+
+  // Zero each account by posting the opposite of its net movement. Done
+  // generically rather than per type, so a contra account — an income line
+  // sitting in debit after refunds — zeroes correctly too.
+  const lines: ClosingLine[] = []
+  let netDebit = ZERO
+  let netCredit = ZERO
+
+  // Sorted so the two computations produce the same order from the same
+  // ledger; groupBy makes no ordering promise of its own.
+  for (const row of [...sums].sort((a, b) => a.accountId.localeCompare(b.accountId))) {
+    const debit = row._sum.debit ?? ZERO
+    const credit = row._sum.credit ?? ZERO
+    const net = debit.minus(credit)
+    if (net.isZero()) continue
+
+    if (net.greaterThan(0)) {
+      // Debit balance (an expense): credit it away.
+      lines.push({ accountId: row.accountId, debit: ZERO, credit: net, sortOrder: lines.length })
+      netCredit = netCredit.plus(net)
+    } else {
+      // Credit balance (revenue): debit it away.
+      const amount = net.abs()
+      lines.push({ accountId: row.accountId, debit: amount, credit: ZERO, sortOrder: lines.length })
+      netDebit = netDebit.plus(amount)
+    }
+  }
+
+  if (lines.length === 0) {
+    throw new AppError(400, `${year.name} has no income or expense movement to close`)
+  }
+
+  // Retained Earnings takes the balancing figure: credited on a profit,
+  // debited on a loss.
+  const balancing = netCredit.minus(netDebit)
+  lines.push({
+    accountId: retainedEarningsId,
+    debit: balancing.greaterThan(0) ? balancing : ZERO,
+    credit: balancing.greaterThan(0) ? ZERO : balancing.abs(),
+    sortOrder: lines.length,
+  })
+
+  assertBalanced(lines)
+  return lines
+}
+
+/**
+ * Same accounts, same amounts — order and sortOrder ignored, since neither
+ * changes what the entry does to the ledger.
+ */
+export function closingLinesMatch(
+  expected: Array<{ accountId: string; debit: P.Decimal; credit: P.Decimal }>,
+  actual: Array<{ accountId: string; debit: P.Decimal; credit: P.Decimal }>
+): boolean {
+  if (expected.length !== actual.length) return false
+
+  const actualByAccount = new Map(actual.map((l) => [l.accountId, l]))
+  return expected.every((e) => {
+    const a = actualByAccount.get(e.accountId)
+    return a !== undefined && a.debit.equals(e.debit) && a.credit.equals(e.credit)
+  })
+}
+
+async function requireRetainedEarnings(tx: Prisma.TransactionClient): Promise<{ id: string }> {
+  const retained = await tx.account.findFirst({ where: { systemRole: "RETAINED_EARNINGS" } })
+  if (!retained) {
+    throw new AppError(
+      400,
+      "No account carries the RETAINED_EARNINGS role. Set it on the Retained Earnings account first."
+    )
+  }
+  return retained
+}
+
 export function draftYearEndJournal(
   financialYearId: string,
   actor: AccessTokenPayload
@@ -74,75 +192,8 @@ export function draftYearEndJournal(
       )
     }
 
-    const retained = await tx.account.findFirst({ where: { systemRole: "RETAINED_EARNINGS" } })
-    if (!retained) {
-      throw new AppError(
-        400,
-        "No account carries the RETAINED_EARNINGS role. Set it on the Retained Earnings account first."
-      )
-    }
-
-    // Every income and expense account's movement within this year.
-    const pnlAccounts = await tx.account.findMany({
-      where: { type: { in: ["INCOME", "EXPENSE"] }, isGroup: false },
-      select: { id: true, code: true, name: true, type: true },
-    })
-    const pnlIds = pnlAccounts.map((a) => a.id)
-
-    const sums = await tx.journalLine.groupBy({
-      by: ["accountId"],
-      where: {
-        accountId: { in: pnlIds },
-        // Decision 16: REVERSED counts. A reversed entry and its reversal
-        // both belong in the year being closed.
-        journal: {
-          status: { in: ["POSTED", "REVERSED"] },
-          date: { gte: year.startDate, lte: year.endDate },
-        },
-      },
-      _sum: { debit: true, credit: true },
-    })
-
-    // Zero each account by posting the opposite of its net movement. Done
-    // generically rather than per type, so a contra account — an income line
-    // sitting in debit after refunds — zeroes correctly too.
-    const lines: Array<{ accountId: string; debit: P.Decimal; credit: P.Decimal; sortOrder: number }> = []
-    let netDebit = ZERO
-    let netCredit = ZERO
-
-    for (const row of sums) {
-      const debit = row._sum.debit ?? ZERO
-      const credit = row._sum.credit ?? ZERO
-      const net = debit.minus(credit)
-      if (net.isZero()) continue
-
-      if (net.greaterThan(0)) {
-        // Debit balance (an expense): credit it away.
-        lines.push({ accountId: row.accountId, debit: ZERO, credit: net, sortOrder: lines.length })
-        netCredit = netCredit.plus(net)
-      } else {
-        // Credit balance (revenue): debit it away.
-        const amount = net.abs()
-        lines.push({ accountId: row.accountId, debit: amount, credit: ZERO, sortOrder: lines.length })
-        netDebit = netDebit.plus(amount)
-      }
-    }
-
-    if (lines.length === 0) {
-      throw new AppError(400, `${year.name} has no income or expense movement to close`)
-    }
-
-    // Retained Earnings takes the balancing figure: credited on a profit,
-    // debited on a loss.
-    const balancing = netCredit.minus(netDebit)
-    lines.push({
-      accountId: retained.id,
-      debit: balancing.greaterThan(0) ? balancing : ZERO,
-      credit: balancing.greaterThan(0) ? ZERO : balancing.abs(),
-      sortOrder: lines.length,
-    })
-
-    assertBalanced(lines)
+    const retained = await requireRetainedEarnings(tx)
+    const lines = await computeClosingLines(tx, year, retained.id)
 
     const created = await tx.journal.create({
       data: {
@@ -183,10 +234,23 @@ export function draftYearEndJournal(
  * ordinary journal it does nothing; for a CLOSING journal it locks all
  * twelve periods and closes the year, so approval and the lock are one
  * atomic act rather than two things a crash could separate.
+ *
+ * Both checks below exist because of the gap between drafting the closing
+ * entry and approving it. Year-end requires the final month to stay OPEN so
+ * the entry can post into it like any other — which is precisely the window
+ * in which more entries can be posted. Anything that lands in it after the
+ * draft was computed leaves the profit-and-loss accounts non-zero and
+ * Retained Earnings short by the difference. The balance sheet would still
+ * balance, because the residual sits in the derived profit line and the two
+ * errors offset; the Statement of Changes in Equity would quietly stop tying
+ * to it. And the year would be locked, permanently, with no correction path.
+ *
+ * Everything here throws inside the approval transaction, so a stale entry
+ * simply fails to post and the year stays open.
  */
 export async function lockYearAfterClosing(
   tx: Prisma.TransactionClient,
-  journal: { id: string; type: string; periodId: string },
+  journal: { id: string; journalNo: string; type: string; periodId: string },
   actor: AccessTokenPayload
 ): Promise<void> {
   if (journal.type !== "CLOSING") return
@@ -194,19 +258,59 @@ export async function lockYearAfterClosing(
   const period = await tx.accountingPeriod.findUnique({ where: { id: journal.periodId } })
   if (!period) throw new AppError(400, "Period not found")
 
+  const year = await tx.financialYear.findUnique({ where: { id: period.financialYearId } })
+  if (!year) throw new AppError(400, "Financial year not found")
+
+  // Nothing may be left in flight. `closePeriod` refuses to close a month
+  // holding unposted work, but the final month never goes through it — it
+  // goes straight from OPEN to LOCKED here — so this is the only place that
+  // rule can be applied to it. A draft stranded in a locked month can never
+  // be posted, and was never in the figure being closed either.
+  const inFlight = await tx.journal.findMany({
+    where: {
+      period: { financialYearId: year.id },
+      status: { in: ["DRAFT", "PENDING_APPROVAL"] },
+      id: { not: journal.id },
+    },
+    select: { journalNo: true },
+    orderBy: { journalNo: "asc" },
+  })
+  if (inFlight.length > 0) {
+    throw new AppError(
+      409,
+      `${year.name} still has unposted journals: ${inFlight.map((j) => j.journalNo).join(", ")}. Post or delete them before approving ${journal.journalNo}, because locking the year strands them.`
+    )
+  }
+
+  // And the entry must still be the right answer. Recomputed from the ledger
+  // as it stands now, not trusted from when it was drafted.
+  const retained = await requireRetainedEarnings(tx)
+  const expected = await computeClosingLines(tx, year, retained.id)
+  const actual = await tx.journalLine.findMany({
+    where: { journalId: journal.id },
+    select: { accountId: true, debit: true, credit: true },
+  })
+
+  if (!closingLinesMatch(expected, actual)) {
+    throw new AppError(
+      409,
+      `${journal.journalNo} was drafted before the last entries of ${year.name} were posted and no longer closes the year. Delete it and run year-end again.`
+    )
+  }
+
   await tx.accountingPeriod.updateMany({
-    where: { financialYearId: period.financialYearId },
+    where: { financialYearId: year.id },
     data: { status: "LOCKED" },
   })
 
   await tx.financialYear.update({
-    where: { id: period.financialYearId },
+    where: { id: year.id },
     data: { status: "CLOSED", closedBy: actor.sub, closedAt: new Date() },
   })
 
   await writeAudit(tx, {
     entity: "FINANCIAL_YEAR",
-    entityId: period.financialYearId,
+    entityId: year.id,
     action: "LOCK",
     changedBy: actor.sub,
     after: { status: "CLOSED" },

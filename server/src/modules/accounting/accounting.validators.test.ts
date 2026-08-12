@@ -169,3 +169,31 @@ describe("ledgerQuerySchema", () => {
     ).toThrow()
   })
 })
+
+describe("date coercion", () => {
+  it("truncates a timestamp to its UTC day", () => {
+    const parsed = createJournalSchema.parse({
+      date: "2026-07-31T10:34:56.789Z",
+      narration: "Office rent",
+      lines: [
+        { accountId: "11111111-1111-4111-8111-111111111111", debit: "100.00" },
+        { accountId: "22222222-2222-4222-8222-222222222222", credit: "100.00" },
+      ],
+    })
+
+    // Untruncated, this date is past the July period's endDate of 31 July at
+    // midnight and resolves to no period at all.
+    expect(parsed.date.toISOString()).toBe("2026-07-31T00:00:00.000Z")
+  })
+
+  it("truncates on the ledger range too, so from and to stay date-only", () => {
+    const parsed = ledgerQuerySchema.parse({
+      accountId: "11111111-1111-4111-8111-111111111111",
+      from: "2026-07-01T06:00:00.000Z",
+      to: "2026-07-31T23:59:59.999Z",
+    })
+
+    expect(parsed.from.toISOString()).toBe("2026-07-01T00:00:00.000Z")
+    expect(parsed.to.toISOString()).toBe("2026-07-31T00:00:00.000Z")
+  })
+})
