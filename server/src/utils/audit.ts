@@ -35,6 +35,12 @@ export type AuditEntity =
   | "COST"
   | "COST_COMMITMENT"
   | "COST_CATEGORY"
+  // Accounting. The ledger's own change log; the journal lifecycle is the
+  // main consumer, since a DRAFT edit must be recoverable after the fact.
+  | "JOURNAL"
+  | "ACCOUNT"
+  | "FINANCIAL_YEAR"
+  | "ACCOUNTING_PERIOD"
   // Reference data. Editable from the Settings screens rather than the seed,
   // so a rename or a delete needs the same trail as a payroll change.
   | "DEPARTMENT"
@@ -61,6 +67,11 @@ export type AuditAction =
   | "FULFIL"
   | "IMPORT"
   | "CANCEL"
+  | "POST"
+  | "REVERSE"
+  | "CLOSE"
+  | "REOPEN"
+  | "LOCK"
 
 export interface AuditEntry {
   entity: AuditEntity

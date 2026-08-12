@@ -130,6 +130,8 @@ model Employee {
 
   assetAssignments AssetAssignment[]
   assetRequests    AssetRequest[]
+
+  journalLines JournalLine[]
 }
 
 enum ExitReason {
@@ -163,6 +165,8 @@ model Department {
   employees     Employee[]
   announcements Announcement[]
   assets        Asset[]
+
+  journalLines JournalLine[]
 }
 
 enum DocumentType {
@@ -1230,4 +1234,271 @@ model CostAttachment {
   uploadedAt DateTime @default(now())
 
   @@index([costId, uploadedAt])
+}
+
+// ── ACCOUNTING ────────────────────────────────
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+// What makes an account appear in the Cash Book or the Bank Book. Both are
+// the General Ledger filtered to these, not separate stores.
+enum AccountCashKind {
+  NONE
+  CASH
+  BANK
+}
+
+model Account {
+  id String @id @default(uuid())
+  // Four digits. The first digit is fixed by `type`: 1 ASSET, 2 LIABILITY,
+  // 3 EQUITY, 4 INCOME, 5 EXPENSE — validated on write. This is why the
+  // trial balance sorts into statement order on `code` alone, and why an
+  // expense account can never be coded 1300.
+  code String      @unique
+  name String
+  type AccountType
+
+  parentId String?
+  parent   Account?  @relation("AccountTree", fields: [parentId], references: [id])
+  children Account[] @relation("AccountTree")
+
+  // A group header. A journal line pointing at a group is rejected.
+  //
+  // Stored, not derived from "has children": a leaf with no children yet is
+  // not the same thing as a header, and if it were derived, adding the first
+  // child to a leaf would silently invalidate every line already posted to it.
+  isGroup Boolean @default(false)
+
+  cashKind AccountCashKind @default(NONE)
+
+  // Retired, not deleted, once it carries a line.
+  isActive Boolean @default(true)
+
+  // Set only on the accounts the engine and the statements must find by role
+  // rather than by code, so a renumbered chart breaks nothing. Twelve of the
+  // thirteen are level-2 *groups*: they carry the statement structure and the
+  // leaves under them carry none of it.
+  //
+  //   NON_CURRENT_ASSETS · CURRENT_ASSETS · CURRENT_LIABILITIES
+  //   NON_CURRENT_LIABILITIES · PPE_COST · PPE_ACCUM_DEP
+  //   REVENUE · OTHER_INCOME · COST_OF_SALES · ADMIN_SELLING
+  //   FINANCIAL_EXPENSE · TAX_EXPENSE
+  //   RETAINED_EARNINGS (the one leaf with a role)
+  //
+  // The equity section needs no role: `type: EQUITY` already identifies it.
+  systemRole String? @unique
+
+  description String?
+
+  lines     JournalLine[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([type, code])
+  @@index([parentId])
+}
+
+model FinancialYear {
+  id        String              @id @default(uuid())
+  name      String              @unique // "FY 2026-27"
+  startDate DateTime            // 1 Jul, UTC midnight
+  endDate   DateTime            // 30 Jun
+  status    FinancialYearStatus @default(OPEN)
+
+  periods AccountingPeriod[]
+
+  closedBy  String?
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([startDate])
+}
+
+enum FinancialYearStatus {
+  OPEN
+  CLOSED // year-end journal posted; every period LOCKED
+}
+
+model AccountingPeriod {
+  id              String        @id @default(uuid())
+  financialYearId String
+  financialYear   FinancialYear @relation(fields: [financialYearId], references: [id], onDelete: Cascade)
+
+  // Calendar month and year, so FY 2026-27 spans 7/2026 … 6/2027. Not an
+  // ordinal 1-12 within the year: every consumer has a real date and would
+  // have to convert.
+  month     Int
+  year      Int
+  startDate DateTime
+  endDate   DateTime
+
+  status PeriodStatus @default(OPEN)
+
+  closedBy   String?
+  closedAt   DateTime?
+  reopenedBy String?
+  reopenedAt DateTime?
+  // Required on reopen. An unexplained reopen of a closed month is the first
+  // thing an auditor asks about.
+  reopenReason String?
+
+  journals Journal[]
+
+  @@unique([year, month])
+  @@index([financialYearId])
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED // Super Admin may reopen, with a reason, audited
+  LOCKED // permanent, set by year-end
+}
+
+model Journal {
+  id String @id @default(uuid())
+  // "BS-JV-00123", issued from IdCounter with key "JV" — the same mechanism
+  // that issues employee codes and asset tags.
+  journalNo String @unique
+
+  // The transaction date. It alone decides which period the journal falls
+  // into, and it is the date every ledger, book and statement reports
+  // against. There is deliberately no second "posting date" field: that
+  // value is `postedAt`, a timestamp recording when a human approved it,
+  // not an accounting date.
+  date     DateTime
+  periodId String
+  period   AccountingPeriod @relation(fields: [periodId], references: [id])
+
+  type   JournalType   @default(MANUAL)
+  status JournalStatus @default(DRAFT)
+
+  // Required. "Salary accrual for July 2026." A journal nobody can read is a
+  // journal nobody can audit.
+  narration String
+  // Cheque number, bank reference, invoice number. Free text, optional.
+  reference String?
+
+  // ── the seam every future module posts through ──
+  sourceModule String? // "PAYROLL" | "EXPENSE" | "COST" | "SETTLEMENT" | …
+  sourceRefId  String? // the PayrollRun id, the ExpenseClaim id, …
+  // Which event on that record. One payroll run legitimately produces two
+  // journals — the accrual and the payment — and this is what keeps them
+  // distinct while each stays individually idempotent.
+  sourceEvent String?
+
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  submittedBy   String?
+  submittedAt   DateTime?
+  approvedBy    String?
+  approvedAt    DateTime?
+  postedAt      DateTime?
+  // Set on a rejection back to DRAFT; required there, matching PayrollRun.
+  rejectionNote String?
+
+  // Reversal pairing, navigable both ways. @unique enforces that a journal
+  // is reversed at most once.
+  reversesId     String?  @unique
+  reverses       Journal? @relation("Reversal", fields: [reversesId], references: [id])
+  reversedBy     Journal? @relation("Reversal")
+  reversalReason String?
+
+  lines       JournalLine[]
+  attachments JournalAttachment[]
+
+  // The idempotency guard, and the reason the payroll seam needs no new
+  // schema in slice 3. Postgres permits unlimited all-null rows under a
+  // unique constraint, so manual journals (all three null) are
+  // unconstrained while a payroll run physically cannot accrue twice. The
+  // same trick OperatingCost already uses for
+  // [commitmentId, periodYear, periodMonth].
+  @@unique([sourceModule, sourceRefId, sourceEvent])
+  @@index([date])
+  @@index([status])
+  @@index([periodId])
+  @@index([type])
+}
+
+enum JournalType {
+  OPENING  // the one opening-balance journal per financial year
+  MANUAL   // typed by a human
+  SYSTEM   // generated by another module — slice 3 onward
+  REVERSAL
+  CLOSING  // year-end: P&L accounts → Retained Earnings
+}
+
+// REJECTED is deliberately absent. A rejection returns the journal to DRAFT
+// with a rejectionNote, exactly as PayrollRun does.
+enum JournalStatus {
+  DRAFT
+  PENDING_APPROVAL
+  POSTED
+  REVERSED
+}
+
+model JournalLine {
+  id        String  @id @default(uuid())
+  journalId String
+  journal   Journal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  // Exactly one is non-zero. Two columns rather than one signed amount
+  // because that is how a ledger is read and printed, and because it turns
+  // the balance rule into a single SUM(debit) = SUM(credit) aggregate rather
+  // than a sign-dependent one. Always BDT.
+  debit  Decimal @default(0) @db.Decimal(14, 2)
+  credit Decimal @default(0) @db.Decimal(14, 2)
+
+  // Per-line note, distinct from the journal's narration.
+  narration String?
+
+  // ── analytical dimensions, both optional ──
+  // Two nullable FKs to masters that already exist. Together they give a
+  // ledger filtered by department and the Employee Ledger, with no new
+  // master data. Branch, cost centre and project are deliberately absent.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  employeeId   String?
+  employee     Employee?   @relation(fields: [employeeId], references: [id])
+
+  // ── provenance of a converted figure, memo only ──
+  // Null when the transaction was already BDT. Nothing computes from these;
+  // they exist so a ledger line reading 61,25,000 can answer "why?" with
+  // "USD 50,000 at 122.50".
+  sourceCurrency Currency?
+  sourceAmount   Decimal?  @db.Decimal(14, 2)
+  fxRateToBdt    Decimal?  @db.Decimal(18, 6)
+
+  sortOrder Int @default(0)
+
+  @@index([accountId])
+  @@index([journalId])
+  @@index([employeeId])
+  @@index([departmentId])
+}
+
+model JournalAttachment {
+  id        String  @id @default(uuid())
+  journalId String
+  journal   Journal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  // Cloudinary asset ID, not a URL — delivery URLs are signed per request
+  // and expire. Same as Document, AssetAttachment and CostAttachment.
+  publicId   String   @unique
+  fileName   String
+  bytes      Int
+  format     String
+  uploadedBy String?
+  uploadedAt DateTime @default(now())
+
+  @@index([journalId, uploadedAt])
 }
