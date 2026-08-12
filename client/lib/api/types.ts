@@ -1267,3 +1267,217 @@ export interface CreateLeaveTypeInput {
 
 /** `code` is immutable, and `statutory` is never settable through the API. */
 export type UpdateLeaveTypeInput = Partial<Omit<CreateLeaveTypeInput, "code">>
+
+// ── ACCOUNTING ──────────────────────────────────────────────────────
+// Hand-mirrored from server/src/modules/accounting/accounting.types.ts and
+// the Prisma models. No shared package, deliberately — keep these in step
+// by hand when the server changes.
+
+export type AccountType = "ASSET" | "LIABILITY" | "EQUITY" | "INCOME" | "EXPENSE"
+export type AccountCashKind = "NONE" | "CASH" | "BANK"
+export type JournalStatus = "DRAFT" | "PENDING_APPROVAL" | "POSTED" | "REVERSED"
+export type JournalType = "OPENING" | "MANUAL" | "SYSTEM" | "REVERSAL" | "CLOSING"
+export type PeriodStatus = "OPEN" | "CLOSED" | "LOCKED"
+export type FinancialYearStatus = "OPEN" | "CLOSED"
+
+export interface Account {
+  id: string
+  code: string
+  name: string
+  type: AccountType
+  parentId: string | null
+  isGroup: boolean
+  cashKind: AccountCashKind
+  isActive: boolean
+  systemRole: string | null
+  description: string | null
+}
+
+export interface AccountNode extends Omit<Account, "parentId"> {
+  children: AccountNode[]
+}
+
+export interface CreateAccountInput {
+  code: string
+  name: string
+  type: AccountType
+  parentId?: string
+  isGroup?: boolean
+  cashKind?: AccountCashKind
+  description?: string
+}
+
+export interface UpdateAccountInput {
+  name?: string
+  parentId?: string | null
+  cashKind?: AccountCashKind
+  isActive?: boolean
+  description?: string | null
+}
+
+export interface AccountingPeriod {
+  id: string
+  financialYearId: string
+  year: number
+  month: number
+  startDate: string
+  endDate: string
+  status: PeriodStatus
+  closedBy: string | null
+  closedAt: string | null
+  reopenedBy: string | null
+  reopenedAt: string | null
+  reopenReason: string | null
+}
+
+export interface FinancialYear {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  status: FinancialYearStatus
+  closedBy: string | null
+  closedAt: string | null
+  periods: AccountingPeriod[]
+}
+
+export interface JournalLine {
+  id: string
+  accountId: string
+  account: { id: string; code: string; name: string; type: AccountType }
+  debit: string
+  credit: string
+  narration: string | null
+  departmentId: string | null
+  employeeId: string | null
+  sourceCurrency: Currency | null
+  sourceAmount: string | null
+  fxRateToBdt: string | null
+  sortOrder: number
+}
+
+export interface JournalAttachment {
+  id: string
+  fileName: string
+  bytes: number
+  format: string
+  uploadedAt: string
+}
+
+export interface Journal {
+  id: string
+  journalNo: string
+  date: string
+  periodId: string
+  period: { id: string; year: number; month: number; status: PeriodStatus }
+  type: JournalType
+  status: JournalStatus
+  narration: string
+  reference: string | null
+  sourceModule: string | null
+  sourceRefId: string | null
+  sourceEvent: string | null
+  createdBy: string
+  createdAt: string
+  submittedBy: string | null
+  submittedAt: string | null
+  approvedBy: string | null
+  approvedAt: string | null
+  postedAt: string | null
+  rejectionNote: string | null
+  reversesId: string | null
+  reversalReason: string | null
+  lines: JournalLine[]
+  attachments: JournalAttachment[]
+}
+
+/** What the editor sends. Amounts are decimal strings; omit the unused side. */
+export interface JournalLineInput {
+  accountId: string
+  debit?: string
+  credit?: string
+  narration?: string | null
+  departmentId?: string | null
+  employeeId?: string | null
+}
+
+export interface CreateJournalInput {
+  date: string
+  type?: "MANUAL" | "OPENING"
+  narration: string
+  reference?: string | null
+  lines: JournalLineInput[]
+}
+
+export type UpdateJournalInput = Partial<Omit<CreateJournalInput, "type">>
+
+export interface JournalQuery {
+  from?: string
+  to?: string
+  accountId?: string
+  status?: JournalStatus
+  type?: JournalType
+  sourceModule?: string
+  departmentId?: string
+  employeeId?: string
+  q?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface JournalPage {
+  rows: Journal[]
+  total: number
+}
+
+export interface LedgerRow {
+  journalId: string
+  journalNo: string
+  date: string
+  narration: string
+  lineNarration: string | null
+  reference: string | null
+  sourceModule: string | null
+  debit: string
+  credit: string
+  runningBalance: string
+}
+
+export interface LedgerResult {
+  account: { id: string; code: string; name: string; type: AccountType }
+  from: string
+  to: string
+  openingBalance: string
+  rows: LedgerRow[]
+  totalDebit: string
+  totalCredit: string
+  closingBalance: string
+}
+
+export interface TrialBalanceRow {
+  accountId: string
+  code: string
+  name: string
+  type: AccountType
+  openingDebit: string
+  openingCredit: string
+  periodDebit: string
+  periodCredit: string
+  closingDebit: string
+  closingCredit: string
+}
+
+export interface TrialBalanceResult {
+  from: string
+  to: string
+  rows: TrialBalanceRow[]
+  totals: {
+    openingDebit: string
+    openingCredit: string
+    periodDebit: string
+    periodCredit: string
+    closingDebit: string
+    closingCredit: string
+  }
+  isBalanced: boolean
+}
