@@ -7,6 +7,7 @@ import morgan from "morgan"
 import { parseOrigins } from "./config/cors"
 import { env } from "./config/env"
 import { errorHandler } from "./middleware/errorHandler"
+import accountingRoutes from "./modules/accounting/accounting.routes"
 import announcementRoutes from "./modules/announcement/announcement.routes"
 import assetRoutes from "./modules/asset/asset.routes"
 import attendanceRoutes from "./modules/attendance/attendance.routes"
@@ -51,6 +52,7 @@ app.use("/api/settlements", settlementRoutes)
 app.use("/api/announcements", announcementRoutes)
 app.use("/api/assets", assetRoutes)
 app.use("/api/costs", costRoutes)
+app.use("/api/accounting", accountingRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/dashboard", dashboardRoutes)
 
