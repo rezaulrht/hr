@@ -17,6 +17,7 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import { nextJournalNo } from "./accounting.journal.service"
 import { earliestOpenPeriodFrom, monthLabel } from "./accounting.period.service"
 import { assertBalanced, invertLines } from "./accounting.utils"
+import { lockYearAfterClosing } from "./accounting.yearend"
 import type { ReverseJournalInput, RejectJournalInput } from "./accounting.validators"
 
 const journalInclude = {
@@ -96,6 +97,11 @@ export async function postApprovedJournal(
     changedBy: actor.sub,
     after: { postedAt: now.toISOString(), journalNo: journal.journalNo },
   })
+
+  // A CLOSING journal locks its year in the same transaction that posts it.
+  // Two separate steps would leave a window where the year is closed on
+  // paper and still accepting entries.
+  await lockYearAfterClosing(tx, posted, actor)
 
   return posted
 }

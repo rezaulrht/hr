@@ -4,7 +4,8 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     journal: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     journalLine: { createMany: vi.fn() },
-    accountingPeriod: { findUnique: vi.fn(), findFirst: vi.fn() },
+    accountingPeriod: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+    financialYear: { update: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
   }
@@ -121,6 +122,25 @@ describe("approveJournal", () => {
     const actions = tx.auditLog.create.mock.calls.map((c: any) => c[0].data.action)
     expect(actions).toContain("APPROVE")
     expect(actions).toContain("POST")
+  })
+
+  it("locks the financial year when the posted journal is a CLOSING one", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...pending, type: "CLOSING" })
+    tx.journal.update.mockResolvedValue({ ...pending, type: "CLOSING", status: "POSTED", periodId: "p-1" })
+    tx.accountingPeriod.findUnique.mockResolvedValue({
+      id: "p-1",
+      year: 2026,
+      month: 6,
+      status: "OPEN",
+      financialYearId: "fy-1",
+    })
+
+    await approveJournal("j-1", admin)
+
+    expect(tx.accountingPeriod.updateMany).toHaveBeenCalledWith({
+      where: { financialYearId: "fy-1" },
+      data: { status: "LOCKED" },
+    })
   })
 })
 
