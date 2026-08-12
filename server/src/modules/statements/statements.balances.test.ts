@@ -14,6 +14,7 @@ import {
   assertChartCoversLedger,
   assertLedgerBalanced,
   balancesFor,
+  isVisible,
   loadChart,
   sumLeaves,
 } from "./statements.balances"
@@ -257,5 +258,26 @@ describe("assertChartCoversLedger", () => {
 
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1300/)
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1399/)
+  })
+})
+
+describe("isVisible", () => {
+  const active = { id: "x", isActive: true } as never
+  const retired = { id: "x", isActive: false } as never
+
+  it("shows an active account even at nil in both periods", () => {
+    expect(isVisible(active, D(0), D(0))).toBe(true)
+  })
+
+  it("hides a deactivated account with nothing in either period", () => {
+    expect(isVisible(retired, D(0), D(0))).toBe(false)
+  })
+
+  it("shows a deactivated account that still carries a current balance", () => {
+    expect(isVisible(retired, D("100.00"), D(0))).toBe(true)
+  })
+
+  it("shows a deactivated account that carried a comparative balance", () => {
+    expect(isVisible(retired, D(0), D("100.00"))).toBe(true)
   })
 })

@@ -231,3 +231,22 @@ export function assertChartCoversLedger(chart: ChartIndex, balances: BalanceMap)
     { accountIds: orphans.map((a) => a.id), codes: orphans.map((a) => a.code) }
   )
 }
+
+/**
+ * Spec Decision 9. An active account appears even at nil, because a stable
+ * row structure is the entire point of a comparative column — the filed
+ * statements show Inventories and Revenue as dashes in both years for
+ * exactly that reason.
+ *
+ * A deactivated account disappears, unless it still carries a balance in
+ * either period, in which case hiding it would break the totals. Pruning a
+ * statement is then just deactivating what you do not use, which Finance can
+ * do from the chart of accounts without anybody writing code.
+ */
+export function isVisible(
+  account: Pick<Account, "isActive">,
+  current: Prisma.Decimal,
+  comparative: Prisma.Decimal
+): boolean {
+  return account.isActive || !current.isZero() || !comparative.isZero()
+}
