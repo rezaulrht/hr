@@ -22,6 +22,7 @@ export const navGroups: NavGroup[] = [
     label: "Accounting",
     items: [
       { label: "Journals", href: "/finance/accounting/journals", icon: "RiFileList3Line" },
+      { label: "Financial statements", href: "/finance/accounting/statements", icon: "RiFileChartLine" },
       { label: "Chart of accounts", href: "/finance/accounting/accounts", icon: "RiNodeTree" },
       { label: "General ledger", href: "/finance/accounting/ledger", icon: "RiBookOpenLine" },
       { label: "Cash book", href: "/finance/accounting/cash-book", icon: "RiCashLine" },
