@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 
 import {
@@ -46,13 +47,17 @@ const COPY: Record<Mode, { title: string; description: string; empty: string }> 
   },
 }
 
-export function LedgerPage({ mode }: { mode: Mode }) {
+function LedgerPageInner({ mode }: { mode: Mode }) {
   const { accessToken } = useSession()
   const initial = currentMonthRange()
+  const searchParams = useSearchParams()
 
-  const [accountId, setAccountId] = useState<string | null>(null)
-  const [from, setFrom] = useState(initial.from)
-  const [to, setTo] = useState(initial.to)
+  // Lazy initialisers, not an effect: reading them once at mount means
+  // arriving from the trial balance does not fight with a subsequent change
+  // to the filters.
+  const [accountId, setAccountId] = useState<string | null>(() => searchParams.get("accountId"))
+  const [from, setFrom] = useState(() => searchParams.get("from") ?? initial.from)
+  const [to, setTo] = useState(() => searchParams.get("to") ?? initial.to)
 
   // The general ledger offers every postable account; the books offer only
   // the ones tagged CASH or BANK, because the server refuses the rest.
@@ -210,5 +215,15 @@ export function LedgerPage({ mode }: { mode: Mode }) {
         </div>
       )}
     </div>
+  )
+}
+
+export function LedgerPage({ mode }: { mode: Mode }) {
+  // useSearchParams forces client rendering up to the nearest Suspense
+  // boundary, so the whole page sits behind one.
+  return (
+    <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+      <LedgerPageInner mode={mode} />
+    </Suspense>
   )
 }
