@@ -92,6 +92,8 @@ export const documentUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUM
 export const assetUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
 // A receipt is the same size class too — no third limit constant.
 export const costUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
+// A journal attachment is the same size class too — no third limit constant.
+export const journalUpload = withErrorTranslation(build(DOCUMENT_LIMITS), DOCUMENT_LIMITS)
 // Both import consumers (asset register, operating costs) share this one.
 // They were previously wired to assetUpload/costUpload, which are document
 // filters, so every .xlsx 400ed at the fileFilter.

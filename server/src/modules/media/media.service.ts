@@ -32,6 +32,11 @@ export function costPublicId(costId: string): string {
   return `${costFolderPrefix(costId)}${randomUUID()}`
 }
 
+/** Random, because two receipts for the same journal are two files. */
+export function journalPublicId(journalId: string): string {
+  return `journals/${journalId}/${randomUUID()}`
+}
+
 /**
  * Condition photos are stored under the **asset's** folder, not the
  * assignment's: an assignment is a moment and an asset is the thing, so
