@@ -307,6 +307,17 @@ describe("deleteJournal", () => {
 
     await expect(deleteJournal("j-1", finance)).rejects.toMatchObject({ statusCode: 409 })
   })
+
+  it("returns the original to POSTED when its reversal draft is deleted", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...draft, type: "REVERSAL", reversesId: "j-orig" })
+
+    await deleteJournal("j-1", finance)
+
+    expect(tx.journal.update).toHaveBeenCalledWith({
+      where: { id: "j-orig" },
+      data: { status: "POSTED" },
+    })
+  })
 })
 
 describe("submitJournal", () => {
