@@ -12,7 +12,7 @@ import { RiLockLine, RiMailLine } from "@remixicon/react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
-import { AUTH_INPUT, AUTH_INPUT_WITH_ICON, AuthError, AuthField, AuthSubmit } from "./auth-form-ui"
+import { AUTH_INPUT, AUTH_INPUT_WITH_ICON, AuthError, AuthField, AuthSubmit } from "../auth-form-ui"
 
 export function AdminLoginForm() {
   const router = useRouter()
@@ -69,7 +69,7 @@ export function AdminLoginForm() {
 
       {error ? <AuthError>{error}</AuthError> : null}
 
-      <AuthSubmit submitting={submitting} label="Sign in" />
+      <AuthSubmit submitting={submitting} label="Sign in" pendingLabel="Signing in…" />
 
       <p className="text-center text-[11.5px] leading-[1.6] text-[#5F6B7C]">
         Administrator accounts sign in with a work email. Staff use their employee ID on the other

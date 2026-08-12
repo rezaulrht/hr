@@ -7,16 +7,11 @@ import { commitAssetImport, previewAssetImport } from "@/lib/api/assets"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { AssetImportCommitResult, AssetImportIssue, AssetImportPreview } from "@/lib/api/types"
+import { DataTable } from "@/components/dashboard/data-table"
+import type { TableCell } from "@/components/dashboard/types"
+import { ImportPreviewEmpty, issuesCell, previewRowNumbers } from "@/components/import/import-preview"
 import { Button } from "@/components/ui/button"
 import { DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
 /** `parseSheet` (server/src/utils/import/import.parse.ts) reads only these
  *  two — a third format is a second parser to keep consistent with it. */
@@ -47,61 +42,46 @@ function issuesForRow(rowNumber: number, issues: AssetImportIssue[]): AssetImpor
   return issues.filter((issue) => issue.rowNumber === rowNumber)
 }
 
+const PREVIEW_HEADERS = ["Row", "Tag", "Name", "Serial", "Custody", "Issues"]
+const PREVIEW_COLS = "0.4fr 0.9fr 1.4fr 1fr 0.9fr 1.6fr"
+
 /**
  * Every parsed row, its issues inline. Reused verbatim for a commit-time 400:
  * the server re-validates at commit and can find something the preview did
  * not (another admin's import landing in between), and `error.details.issues`
  * slots into the same `issues` prop rather than a bare string.
+ *
+ * On `DataTable` rather than the raw `ui/table` it was hand-rolled on, for the
+ * same reason the cost wizard moved: six columns of import errors in a
+ * sideways scroll is unusable on a phone, and the errors are the point of the
+ * screen.
  */
 function PreviewTable({ rows, issues }: { rows: ImportRow[]; issues: AssetImportIssue[] }) {
-  const rowNumbers = Array.from(
-    new Set<number>([...rows.map((r) => r.rowNumber), ...issues.map((i) => i.rowNumber)])
-  ).sort((a, b) => a - b)
+  const rowNumbers = previewRowNumbers(rows, issues)
+
+  if (rowNumbers.length === 0) return <ImportPreviewEmpty noun="assets" />
+
+  const tableRows: TableCell[][] = rowNumbers.map((rowNumber) => {
+    const row = rows.find((r) => r.rowNumber === rowNumber)
+    return [
+      { text: String(rowNumber), weight: 600 },
+      { text: row?.assetTag ?? "" },
+      { text: row?.name ?? "" },
+      { text: row?.serialNumber ?? "" },
+      // Was "Yes"/"No" under an "Assigned" header, which said nothing about
+      // what the Yes would do. A handover is the consequence people need
+      // warned about, and a row that failed to parse gets neither answer.
+      row
+        ? row.assignedToEmployeeId
+          ? { tag: "Hands over", tone: "yellow" as const }
+          : { text: "Stock" }
+        : {},
+      issuesCell(issuesForRow(rowNumber, issues)),
+    ]
+  })
 
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Row</TableHead>
-            <TableHead>Tag</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Serial</TableHead>
-            <TableHead>Assigned</TableHead>
-            <TableHead>Issues</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rowNumbers.map((rowNumber) => {
-            const row = rows.find((r) => r.rowNumber === rowNumber)
-            const rowIssues = issuesForRow(rowNumber, issues)
-            return (
-              <TableRow key={rowNumber}>
-                <TableCell className="font-medium">{rowNumber}</TableCell>
-                <TableCell>{row?.assetTag ?? ""}</TableCell>
-                <TableCell>{row?.name ?? ""}</TableCell>
-                <TableCell>{row?.serialNumber ?? ""}</TableCell>
-                <TableCell>{row?.assignedToEmployeeId ? "Yes" : "No"}</TableCell>
-                <TableCell>
-                  {rowIssues.length === 0 ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : (
-                    <ul className="space-y-0.5">
-                      {rowIssues.map((issue, i) => (
-                        <li key={i} className="text-xs font-semibold text-destructive">
-                          {issue.column ? `${issue.column}: ` : ""}
-                          {issue.message}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <DataTable title="" action="" cols={PREVIEW_COLS} headers={PREVIEW_HEADERS} rows={tableRows} />
   )
 }
 

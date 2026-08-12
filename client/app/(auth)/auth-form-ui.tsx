@@ -8,12 +8,11 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
 /**
- * The sign-in form's furniture, shared by the staff and administrator tabs.
+ * The furniture every signed-out form is built from.
  *
- * The two forms differ only in which credential they take, so anything that
- * lives in both belongs here. Previously they carried duplicate copies of the
- * same long className, which had already drifted: only one of them offered any
- * guidance under the button.
+ * It started as the sign-in form's, shared by the staff and administrator
+ * tabs, which differ only in which credential they take. Password reset added
+ * two more forms with the same anatomy, so it moved up out of `login/`.
  */
 
 /**
@@ -85,11 +84,68 @@ export function AuthError({ children }: { children: ReactNode }) {
   )
 }
 
+/** Every inline link on a signed-out screen, so they cannot drift apart. */
+export const AUTH_LINK =
+  "font-bold text-[#17191C] underline underline-offset-2 hover:text-[#0E1012]"
+
+/**
+ * The panel a form is replaced by once it has done its job.
+ *
+ * The icon is the same near-black as everything else rather than a success
+ * green. Green would be a second accent on a screen that has exactly one, and
+ * neither of the two things this reports is unambiguously good news: "a link
+ * may be on its way" is a maybe, and "your password is set" comes with every
+ * session being ended.
+ *
+ * `icon` is an element, not a component, unlike `AuthField` above. This module
+ * is `"use client"`, and the reset page renders this one from a server
+ * component when the link arrives with no token — a component is a function,
+ * which cannot cross that boundary, while an element serialises. `tsc` and
+ * eslint are both happy either way; the page 500s at request time.
+ */
+export function AuthNotice({
+  icon,
+  title,
+  children,
+}: {
+  icon: ReactNode
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-[#DDE3EA] bg-white px-5 py-4.5">
+      <div className="flex items-center gap-2.5">
+        <span aria-hidden className="shrink-0 text-[#17191C] [&>svg]:size-4.5">
+          {icon}
+        </span>
+        <h2 className="text-[14px] font-bold text-[#17191C]">{title}</h2>
+      </div>
+      <div className="mt-2.5 grid gap-2.5 text-[12.5px] leading-relaxed text-[#5F6B7C]">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The spinner is the one piece of motion on this screen, and it earns its
- * place: sign-in is a network round trip with no other sign that it started.
+ * place: every one of these forms is a network round trip with no other sign
+ * that it started.
+ *
+ * `pendingLabel` is required rather than defaulting to "Signing in…", which is
+ * what it said while it lived under `login/`. Sending a reset link is not
+ * signing in, and a default that is right for one caller and a lie for the
+ * other three is worse than making each say what it is doing.
  */
-export function AuthSubmit({ submitting, label }: { submitting: boolean; label: string }) {
+export function AuthSubmit({
+  submitting,
+  label,
+  pendingLabel,
+}: {
+  submitting: boolean
+  label: string
+  pendingLabel: string
+}) {
   return (
     <Button
       type="submit"
@@ -102,7 +158,7 @@ export function AuthSubmit({ submitting, label }: { submitting: boolean; label: 
       {submitting ? (
         <>
           <RiLoader4Line className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-          Signing in…
+          {pendingLabel}
         </>
       ) : (
         label
