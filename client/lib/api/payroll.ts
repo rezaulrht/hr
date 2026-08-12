@@ -10,7 +10,6 @@ import type {
   PayrollAdjustment,
   PayrollRun,
   Payslip,
-  PreflightReport,
   SalaryStructure,
   SalaryStructureInput,
 } from "./types"
@@ -97,9 +96,9 @@ export function getPayrollRun(accessToken: string, id: string): Promise<PayrollR
   return apiFetch<PayrollRun>(`/api/payroll/runs/${id}`, { accessToken })
 }
 
-export function getPreflight(accessToken: string, id: string): Promise<PreflightReport> {
-  return apiFetch<PreflightReport>(`/api/payroll/runs/${id}/preflight`, { accessToken })
-}
+// No `getPreflight`. `GET /runs/:id/preflight` exists, but `PayrollRun`
+// already carries `preflight`, which is what `PreflightPanel` renders, so a
+// second fetch for the same data had no caller and never will.
 
 export function createPayrollRun(
   accessToken: string,

@@ -5,10 +5,6 @@ export function listSettlements(accessToken: string): Promise<Settlement[]> {
   return apiFetch<Settlement[]>("/api/settlements", { accessToken })
 }
 
-export function getSettlement(accessToken: string, employeeId: string): Promise<Settlement> {
-  return apiFetch<Settlement>(`/api/settlements/${employeeId}`, { accessToken })
-}
-
 export function calculateSettlement(accessToken: string, employeeId: string): Promise<Settlement> {
   return apiFetch<Settlement>(`/api/settlements/${employeeId}/calculate`, {
     method: "POST",

@@ -89,22 +89,14 @@ export function getApprovals(
   return apiFetch<ApprovalItem[]>(`/api/attendance/approvals?${params}`, { accessToken })
 }
 
-export function approveAttendance(accessToken: string, id: string, note?: string) {
-  return apiFetch<{ id: string; approval: string }>(`/api/attendance/${id}/approve`, {
-    method: "PATCH",
-    accessToken,
-    body: JSON.stringify({ note }),
-  })
-}
-
-export function rejectAttendance(accessToken: string, id: string, note: string) {
-  return apiFetch<{ id: string; approval: string }>(`/api/attendance/${id}/reject`, {
-    method: "PATCH",
-    accessToken,
-    body: JSON.stringify({ note }),
-  })
-}
-
+/**
+ * Deciding one record at a time is `bulkDecideAttendance` with one id.
+ *
+ * The single-record wrappers over `PATCH /:id/approve` and `PATCH /:id/reject`
+ * were never called: the approvals queue has always used the bulk route, which
+ * enforces the same rule (`bulkDecisionSchema` refines a reason as required on
+ * REJECT, exactly as `rejectSchema` does). The server routes remain.
+ */
 export function bulkDecideAttendance(
   accessToken: string,
   ids: string[],

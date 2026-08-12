@@ -27,10 +27,6 @@ export function listExpenseClaims(
   return apiFetch<ExpenseClaim[]>(`/api/expenses${qs ? `?${qs}` : ""}`, { accessToken })
 }
 
-export function getExpenseClaim(accessToken: string, id: string): Promise<ExpenseClaim> {
-  return apiFetch<ExpenseClaim>(`/api/expenses/${id}`, { accessToken })
-}
-
 export function approveExpenseClaim(
   accessToken: string,
   id: string,

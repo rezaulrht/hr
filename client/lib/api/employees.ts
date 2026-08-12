@@ -111,10 +111,6 @@ export function createStaffAccount(
   })
 }
 
-export function listDocuments(accessToken: string, employeeId: string): Promise<DocumentItem[]> {
-  return apiFetch<DocumentItem[]>(`/api/employees/${employeeId}/documents`, { accessToken })
-}
-
 /**
  * Posts the file to our own API, which forwards it to the file store. The
  * client never talks to Cloudinary and never learns the cloud name.

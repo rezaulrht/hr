@@ -13,10 +13,6 @@ export function listAnnouncements(
   return apiFetch<AnnouncementItem[]>(`/api/announcements${qs}`, { accessToken })
 }
 
-export function getAnnouncement(accessToken: string, id: string): Promise<AnnouncementItem> {
-  return apiFetch<AnnouncementItem>(`/api/announcements/${id}`, { accessToken })
-}
-
 export function createAnnouncement(
   accessToken: string,
   input: CreateAnnouncementInput
