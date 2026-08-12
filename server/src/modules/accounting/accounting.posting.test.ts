@@ -1,0 +1,194 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+import { Prisma } from "../../generated/prisma/client"
+import { postSystemJournal } from "./accounting.posting"
+import { utcDate } from "./accounting.utils"
+
+/**
+ * No prisma singleton mock here: postSystemJournal takes a `tx` and never
+ * opens its own transaction. That is the property under test — a caller's
+ * payroll run and its journal must commit or roll back together.
+ */
+function makeTx(overrides: Record<string, unknown> = {}) {
+  return {
+    account: {
+      findMany: vi.fn(async () => [
+        { id: "acc-sal", code: "5201", name: "Salary and Allowances", isGroup: false, isActive: true },
+        { id: "acc-pay", code: "2132", name: "Salary Payable", isGroup: false, isActive: true },
+      ]),
+    },
+    accountingPeriod: {
+      findFirst: vi.fn(async () => ({ id: "p-1", year: 2026, month: 7, status: "OPEN" })),
+    },
+    journal: {
+      create: vi.fn(async () => ({ id: "j-1", journalNo: "BS-JV-00042" })),
+      findFirst: vi.fn(async () => null),
+      findUnique: vi.fn(async () => ({ id: "j-1", journalNo: "BS-JV-00042", status: "POSTED" })),
+    },
+    idCounter: { upsert: vi.fn(async () => ({ id: "JV", value: 42 })) },
+    auditLog: { create: vi.fn(async () => ({})) },
+    ...overrides,
+  } as never
+}
+
+const input = {
+  date: utcDate(2026, 7, 31),
+  narration: "Salary accrual for July 2026",
+  source: { module: "PAYROLL", refId: "run-2026-07", event: "SALARY_ACCRUAL" },
+  lines: [
+    { accountCode: "5201", debit: "500000.00" },
+    { accountCode: "2132", credit: "500000.00" },
+  ],
+  createdBy: "system",
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe("postSystemJournal", () => {
+  it("posts directly as POSTED, bypassing the approval queue", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    expect((tx as any).journal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "POSTED", type: "SYSTEM" }),
+      })
+    )
+  })
+
+  it("stamps the source triple that makes it idempotent", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    expect((tx as any).journal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceModule: "PAYROLL",
+          sourceRefId: "run-2026-07",
+          sourceEvent: "SALARY_ACCRUAL",
+        }),
+      })
+    )
+  })
+
+  it("resolves accounts by code, so a caller never holds an Account uuid", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    expect((tx as any).account.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { code: { in: ["5201", "2132"] } } })
+    )
+    const lines = (tx as any).journal.create.mock.calls[0][0].data.lines.createMany.data
+    expect(lines.map((l: any) => l.accountId)).toEqual(["acc-sal", "acc-pay"])
+  })
+
+  it("returns the existing journal instead of throwing when the same event is posted twice", async () => {
+    const tx = makeTx({
+      journal: {
+        create: vi.fn(async () => {
+          throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "7.0.0",
+          })
+        }),
+        findFirst: vi.fn(async () => ({ id: "j-existing", journalNo: "BS-JV-00007", status: "POSTED" })),
+        findUnique: vi.fn(async () => ({ id: "j-existing", journalNo: "BS-JV-00007", status: "POSTED" })),
+      },
+    })
+
+    const result = await postSystemJournal(tx, input)
+
+    expect(result.journalNo).toBe("BS-JV-00007")
+  })
+
+  it("400s when a referenced account code does not exist, naming the code", async () => {
+    const tx = makeTx({ account: { findMany: vi.fn(async () => []) } })
+
+    await expect(postSystemJournal(tx, input)).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("5201"),
+    })
+  })
+
+  it("400s when a referenced account is a group", async () => {
+    const tx = makeTx({
+      account: {
+        findMany: vi.fn(async () => [
+          { id: "acc-sal", code: "5201", name: "Admin", isGroup: true, isActive: true },
+          { id: "acc-pay", code: "2132", name: "Salary Payable", isGroup: false, isActive: true },
+        ]),
+      },
+    })
+
+    await expect(postSystemJournal(tx, input)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("400s an unbalanced generated entry — a machine gets no exemption", async () => {
+    const tx = makeTx()
+
+    await expect(
+      postSystemJournal(tx, {
+        ...input,
+        lines: [
+          { accountCode: "5201", debit: "500000.00" },
+          { accountCode: "2132", credit: "490000.00" },
+        ],
+      })
+    ).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("400s when the target period is closed", async () => {
+    const tx = makeTx({
+      accountingPeriod: {
+        findFirst: vi.fn(async () => ({ id: "p-1", year: 2026, month: 7, status: "CLOSED" })),
+      },
+    })
+
+    await expect(postSystemJournal(tx, input)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("carries the department and employee dimensions through to the lines", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, {
+      ...input,
+      lines: [
+        { accountCode: "5201", debit: "500000.00", departmentId: "dept-1", employeeId: "emp-1" },
+        { accountCode: "2132", credit: "500000.00" },
+      ],
+    })
+
+    const lines = (tx as any).journal.create.mock.calls[0][0].data.lines.createMany.data
+    expect(lines[0]).toMatchObject({ departmentId: "dept-1", employeeId: "emp-1" })
+    expect(lines[1]).toMatchObject({ departmentId: null, employeeId: null })
+  })
+
+  it("writes a POST audit row naming the source", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    expect((tx as any).auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entity: "JOURNAL",
+          action: "POST",
+          after: expect.objectContaining({ sourceModule: "PAYROLL" }),
+        }),
+      })
+    )
+  })
+
+  it("never opens a transaction of its own", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    expect((tx as any).$transaction).toBeUndefined()
+  })
+})
