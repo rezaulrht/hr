@@ -19,6 +19,20 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Accounting",
+    items: [
+      { label: "Journals", href: "/finance/accounting/journals", icon: "RiFileList3Line" },
+      { label: "Chart of accounts", href: "/finance/accounting/accounts", icon: "RiNodeTree" },
+      { label: "General ledger", href: "/finance/accounting/ledger", icon: "RiBookOpenLine" },
+      { label: "Cash book", href: "/finance/accounting/cash-book", icon: "RiCashLine" },
+      { label: "Bank book", href: "/finance/accounting/bank-book", icon: "RiBankLine" },
+      { label: "Trial balance", href: "/finance/accounting/trial-balance", icon: "RiScales3Line" },
+      // Setup, and used rarely — last, below the things used daily.
+      { label: "Years & periods", href: "/finance/accounting/periods", icon: "RiCalendarCheckLine" },
+      { label: "Opening balances", href: "/finance/accounting/opening-balances", icon: "RiPlayCircleLine" },
+    ],
+  },
+  {
     label: "Reference (read)",
     items: [
       { label: "Employees", href: "/finance/employees", icon: "RiTeamLine" },

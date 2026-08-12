@@ -4,14 +4,22 @@
 // boundary, but this lookup (used only inside the client Sidebar) can.
 
 import {
+  RiBankLine,
   RiBarChartLine,
   RiBillLine,
+  RiBookOpenLine,
+  RiCalendarCheckLine,
   RiCalendarEventLine,
+  RiCashLine,
   RiComputerLine,
   RiContactsBook2Line,
   RiDashboardLine,
+  RiFileList3Line,
   RiMegaphoneLine,
+  RiNodeTree,
+  RiPlayCircleLine,
   RiReceiptLine,
+  RiScales3Line,
   RiSettingsLine,
   RiTeamLine,
   RiTimeLine,
@@ -34,6 +42,14 @@ export const icons = {
   RiContactsBook2Line,
   RiComputerLine,
   RiBillLine,
+  RiFileList3Line,
+  RiNodeTree,
+  RiBookOpenLine,
+  RiCashLine,
+  RiBankLine,
+  RiScales3Line,
+  RiCalendarCheckLine,
+  RiPlayCircleLine,
 } satisfies Record<string, RemixiconComponentType>
 
 export type IconName = keyof typeof icons
