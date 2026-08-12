@@ -1,35 +1,107 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { useQueryClient } from "@tanstack/react-query"
+import Link from "next/link"
+import { useQuery } from "@tanstack/react-query"
 import { RiNotification3Line } from "@remixicon/react"
 
+import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useSession } from "@/lib/auth/session-context"
-import type { LeaveRequestItem } from "@/lib/api/types"
-import { formatRange, STATUS_LABEL } from "@/components/leave/leave-shared"
+import { listEvents } from "@/lib/api/events"
+import { ROLE_ROUTES } from "@/lib/auth/role-routes"
+import type { EventItem, EventSeverity } from "@/lib/api/types"
 
-const DECIDER_ROLES = ["HR_ADMIN", "SUPER_ADMIN"]
+/** Enough to be worth opening, few enough that the panel does not scroll far. */
+const FEED_LIMIT = 8
 
 /**
- * A preview of what leave notifications would say, derived entirely from leave
- * data already in the React Query cache. Nothing is fetched, stored, or sent.
+ * Only the two severities that ask something of the reader are marked.
  *
- * Deliberately has no unread badge: a count implies something was delivered,
- * and HR must never believe an employee was told when no email left the system.
+ * Giving all four a coloured dot makes the colour meaningless, since every row
+ * carries one. INFO and SUCCESS are the record of something that already went
+ * fine and need no flag.
+ */
+const SEVERITY_DOT: Partial<Record<EventSeverity, string>> = {
+  WARNING: "bg-[#C98A15]",
+  ERROR: "bg-[#B03A3A]",
+}
+
+/**
+ * "just now", "12m", "3h", "5d" — the feed is read at a glance, and an
+ * absolute timestamp on every row is more text than the row itself.
+ */
+function timeAgo(iso: string): string {
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return "just now"
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d`
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+function FeedRow({ event, home }: { event: EventItem; home: string }) {
+  const dot = SEVERITY_DOT[event.severity]
+  const body = (
+    <>
+      <div className="flex items-start gap-2">
+        {dot ? <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${dot}`} aria-hidden /> : null}
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-[#1C2733]">{event.title}</div>
+          {event.meta ? <div className="text-[11.5px] text-[#5F6B7C]">{event.meta}</div> : null}
+        </div>
+        <span className="shrink-0 text-[11px] whitespace-nowrap text-[#8792A3]">
+          {timeAgo(event.createdAt)}
+        </span>
+      </div>
+    </>
+  )
+
+  // `href` is stored role-agnostic ("/leave"), so the reader's own route group
+  // is prefixed here. An event with no href is a statement of fact with
+  // nowhere to go, and must not become a dead link.
+  return event.href ? (
+    <li className="border-b border-[#EEF1F5] last:border-b-0">
+      <Link href={`${home}${event.href}`} className="block px-3.5 py-2.5 transition-colors hover:bg-[#F4F6F9]">
+        {body}
+      </Link>
+    </li>
+  ) : (
+    <li className="border-b border-[#EEF1F5] px-3.5 py-2.5 last:border-b-0">{body}</li>
+  )
+}
+
+/**
+ * Recent activity the signed-in user is entitled to see.
+ *
+ * This used to read whatever leave requests happened to be sitting in the
+ * React Query cache, which meant it was empty until you visited the leave
+ * page, covered leave and nothing else, and said so in its own footer.
+ * `/api/events` is the real feed: scoped server-side by four audience rules,
+ * covering every module that emits, and it had no caller anywhere.
+ *
+ * Still no unread badge. The events are real, but nothing is delivered
+ * anywhere — no SMTP is configured — and a count on a bell is read as "you
+ * have been told", which for HR is the difference between an employee who
+ * knows and one who does not.
  */
 export function NotificationBell() {
-  const { user } = useSession()
-  const queryClient = useQueryClient()
+  const { accessToken, user, status } = useSession()
+  const isAuthed = status === "authenticated" && !!accessToken
 
-  const requests = queryClient.getQueryData<LeaveRequestItem[]>(["leave-requests"]) ?? []
-  const isDecider = !!user && DECIDER_ROLES.includes(user.role)
+  const feed = useQuery({
+    queryKey: ["events", FEED_LIMIT],
+    queryFn: () => listEvents(accessToken!, { limit: FEED_LIMIT }),
+    enabled: isAuthed,
+    // The feed is a convenience, not a live console. Refetching on focus
+    // keeps it current without polling every open tab.
+    refetchOnWindowFocus: true,
+  })
 
-  const items = (
-    isDecider
-      ? requests.filter((r) => r.status === "PENDING")
-      : requests.filter((r) => r.status === "APPROVED" || r.status === "REJECTED")
-  ).slice(0, 5)
+  const home = user ? ROLE_ROUTES[user.role] : ""
+  const items = feed.data?.items ?? []
 
   return (
     <DropdownMenu>
@@ -39,7 +111,7 @@ export function NotificationBell() {
             type="button"
             variant="outline"
             size="icon"
-            aria-label="Notification preview"
+            aria-label="Recent activity"
             className="relative size-8.5 rounded border-[#E4E9EF] text-[#55657A] hover:bg-[#F4F6F9]"
           />
         }
@@ -48,27 +120,43 @@ export function NotificationBell() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 min-w-80 p-0">
         <div className="border-b border-[#EEF1F5] px-3.5 py-2.5 text-[13px] font-bold">
-          {isDecider ? "Awaiting your decision" : "Your leave updates"}
+          Recent activity
         </div>
-        {items.length === 0 ? (
-          <div className="px-3.5 py-4 text-[12.5px] text-[#5F6B7C]">Nothing to show yet.</div>
-        ) : (
+
+        {feed.isPending ? (
           <ul>
-            {items.map((r) => (
-              <li key={r.id} className="border-b border-[#EEF1F5] px-3.5 py-2.5 last:border-b-0">
-                <div className="text-[13px] font-semibold">
-                  {isDecider ? r.employee.fullName : r.leaveType.name}
-                </div>
-                <div className="text-[11.5px] text-[#5F6B7C]">
-                  {isDecider ? r.leaveType.name : STATUS_LABEL[r.status]} ·{" "}
-                  {formatRange(r.startDate, r.endDate)}
-                </div>
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="border-b border-[#EEF1F5] px-3.5 py-2.5 last:border-b-0">
+                <div className="h-3 w-40 animate-pulse rounded bg-[#EEF1F5]" />
+                <div className="mt-1.5 h-2.5 w-24 animate-pulse rounded bg-[#F4F6F9]" />
               </li>
             ))}
           </ul>
+        ) : feed.isError ? (
+          <div className="px-3.5 py-4 text-[12.5px] text-[#5F6B7C]">
+            Activity could not be loaded.{" "}
+            <Button
+              variant="link"
+              onClick={() => feed.refetch()}
+              className="h-auto p-0 text-[12.5px] font-bold text-[#1C2733] underline"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="px-3.5 py-4 text-[12.5px] text-[#5F6B7C]">
+            Nothing has happened yet that concerns you.
+          </div>
+        ) : (
+          <ul>
+            {items.map((event) => (
+              <FeedRow key={event.id} event={event} home={home} />
+            ))}
+          </ul>
         )}
+
         <div className="border-t border-[#EEF1F5] bg-[#F4F6F9] px-3.5 py-2.5 text-[11.5px] text-[#5F6B7C]">
-          Delivery isn&apos;t enabled yet — this list is a preview.
+          A record of what happened here. Nothing on this list was emailed.
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
