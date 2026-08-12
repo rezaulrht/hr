@@ -28,6 +28,7 @@ import prisma from "../../config/prisma"
 import { Prisma } from "../../generated/prisma/client"
 import { utcDate } from "./accounting.utils"
 import {
+  assertGeneratedFiguresUnchanged,
   createJournal,
   deleteJournal,
   nextJournalNo,
@@ -269,6 +270,50 @@ describe("updateJournal", () => {
     )
   })
 
+  it("records the figures themselves, not just how many lines there were", async () => {
+    tx.journal.findUnique.mockResolvedValue({
+      ...draft,
+      lines: [
+        { accountId: "acc-exp", debit: new Prisma.Decimal("70500.00"), credit: new Prisma.Decimal(0), narration: null },
+        { accountId: "acc-bank", debit: new Prisma.Decimal(0), credit: new Prisma.Decimal("70500.00"), narration: null },
+      ],
+    })
+    tx.journal.update.mockResolvedValue(draft)
+
+    // A typo corrected on a draft: 70,500 becomes 7,050. The line count does
+    // not move, so an audit trail keyed on it records nothing at all — and
+    // "the edited version is also recorded" is the whole rigor model here.
+    await updateJournal(
+      "j-1",
+      {
+        lines: [
+          { accountId: "acc-exp", debit: "7050.00", credit: "0" },
+          { accountId: "acc-bank", debit: "0", credit: "7050.00" },
+        ],
+      },
+      finance
+    )
+
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          before: expect.objectContaining({
+            lines: [
+              { accountId: "acc-exp", debit: "70500.00", credit: "0.00" },
+              { accountId: "acc-bank", debit: "0.00", credit: "70500.00" },
+            ],
+          }),
+          after: expect.objectContaining({
+            lines: [
+              { accountId: "acc-exp", debit: "7050.00", credit: "0.00" },
+              { accountId: "acc-bank", debit: "0.00", credit: "7050.00" },
+            ],
+          }),
+        }),
+      })
+    )
+  })
+
   it("re-resolves the period when the date moves", async () => {
     tx.journal.findUnique.mockResolvedValue({ ...draft, lines: [] })
     tx.accountingPeriod.findFirst.mockResolvedValue({ id: "p-2", year: 2026, month: 8, status: "OPEN" })
@@ -279,6 +324,74 @@ describe("updateJournal", () => {
     expect(tx.journal.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ periodId: "p-2" }) })
     )
+  })
+
+  it("409s on retyping a reversal draft, which would leave the original reversed by nothing", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...draft, type: "REVERSAL", lines: [] })
+
+    await expect(updateJournal("j-1", { lines: balancedLines }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/derived/i),
+    })
+    expect(tx.journalLine.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("409s on retyping the year-end closing entry", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...draft, type: "CLOSING", lines: [] })
+
+    await expect(updateJournal("j-1", { lines: balancedLines }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+    })
+  })
+
+  it("still lets a reversal's narration be reworded", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...draft, type: "REVERSAL", lines: [] })
+    tx.journal.update.mockResolvedValue({ ...draft, narration: "Reversal — wrong account" })
+
+    await expect(
+      updateJournal("j-1", { narration: "Reversal — wrong account" }, finance)
+    ).resolves.toBeDefined()
+  })
+})
+
+describe("assertGeneratedFiguresUnchanged", () => {
+  const reversal = { type: "REVERSAL" as const, journalNo: "BS-JV-00042", date: utcDate(2026, 7, 31) }
+  const manual = { ...reversal, type: "MANUAL" as const }
+
+  it("lets a manual journal be retyped freely — that is the whole point of a draft", () => {
+    expect(() =>
+      assertGeneratedFiguresUnchanged(manual, { lines: balancedLines, date: utcDate(2026, 8, 1) })
+    ).not.toThrow()
+  })
+
+  it("refuses new lines on a reversal", () => {
+    expect(() => assertGeneratedFiguresUnchanged(reversal, { lines: balancedLines })).toThrow(
+      /derived/i
+    )
+  })
+
+  it("refuses new lines on the year-end closing entry", () => {
+    expect(() =>
+      assertGeneratedFiguresUnchanged({ ...reversal, type: "CLOSING" }, { lines: balancedLines })
+    ).toThrow(/derived/i)
+  })
+
+  it("refuses a moved date, which would move the correction into another period", () => {
+    expect(() =>
+      assertGeneratedFiguresUnchanged(reversal, { date: utcDate(2026, 8, 31) })
+    ).toThrow(/derived/i)
+  })
+
+  it("allows the same date back — the editor sends every field on every save", () => {
+    expect(() =>
+      assertGeneratedFiguresUnchanged(reversal, { date: utcDate(2026, 7, 31) })
+    ).not.toThrow()
+  })
+
+  it("allows a narration-only edit, since a reason may genuinely need rewording", () => {
+    expect(() =>
+      assertGeneratedFiguresUnchanged(reversal, { narration: "Reversal — wrong account" })
+    ).not.toThrow()
   })
 })
 
@@ -310,13 +423,37 @@ describe("deleteJournal", () => {
 
   it("returns the original to POSTED when its reversal draft is deleted", async () => {
     tx.journal.findUnique.mockResolvedValue({ ...draft, type: "REVERSAL", reversesId: "j-orig" })
+    tx.journal.update.mockResolvedValue({ id: "j-orig", journalNo: "BS-JV-00042" })
 
     await deleteJournal("j-1", finance)
 
-    expect(tx.journal.update).toHaveBeenCalledWith({
-      where: { id: "j-orig" },
-      data: { status: "POSTED" },
-    })
+    expect(tx.journal.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "j-orig" },
+        data: { status: "POSTED" },
+      })
+    )
+  })
+
+  it("audits that release against the original, not only against the deleted reversal", async () => {
+    tx.journal.findUnique.mockResolvedValue({ ...draft, type: "REVERSAL", reversesId: "j-orig" })
+    tx.journal.update.mockResolvedValue({ id: "j-orig", journalNo: "BS-JV-00042" })
+
+    await deleteJournal("j-1", finance)
+
+    // A posted journal quietly changing status is the one thing this module
+    // promises cannot happen; the row explaining it hangs off the original.
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entity: "JOURNAL",
+          entityId: "j-orig",
+          action: "UPDATE",
+          before: expect.objectContaining({ status: "REVERSED" }),
+          after: expect.objectContaining({ status: "POSTED" }),
+        }),
+      })
+    )
   })
 })
 

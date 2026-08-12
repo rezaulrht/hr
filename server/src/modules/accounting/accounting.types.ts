@@ -4,7 +4,7 @@
  * computed row, not a table row.
  */
 
-import type { AccountCashKind, AccountType, JournalType } from "../../generated/prisma/client"
+import type { AccountCashKind, AccountType } from "../../generated/prisma/client"
 
 /** A node in the chart-of-accounts tree, as the COA endpoint returns it. */
 export interface AccountNode {
@@ -81,6 +81,7 @@ export interface TrialBalanceResult {
  * and cache.
  */
 export interface SystemJournalInput {
+  /** Truncated to its UTC day by `postSystemJournal`; pass a timestamp freely. */
   date: Date
   narration: string
   reference?: string
@@ -94,5 +95,4 @@ export interface SystemJournalInput {
     narration?: string
   }>
   createdBy: string
-  type?: Extract<JournalType, "SYSTEM">
 }

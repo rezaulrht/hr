@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../config/prisma", () => {
   const tx = {
-    journal: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    journalLine: { createMany: vi.fn() },
+    journal: {
+      create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(),
+    },
+    journalLine: { createMany: vi.fn(), findMany: vi.fn(), groupBy: vi.fn() },
     accountingPeriod: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
-    financialYear: { update: vi.fn() },
+    financialYear: { findUnique: vi.fn(), update: vi.fn() },
+    account: { findFirst: vi.fn(), findMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
   }
@@ -48,6 +51,17 @@ const pending = {
   lines,
 }
 
+/**
+ * A coherent year-end: one expense account carrying 70,500 of movement, and a
+ * closing entry that credits it away and debits Retained Earnings. The lock
+ * path re-derives this from the ledger and refuses if it disagrees, so the
+ * mocks below have to agree with each other rather than merely exist.
+ */
+const closingLines = [
+  { accountId: "acc-exp", debit: D(0), credit: D("70500.00") },
+  { accountId: "acc-re", debit: D("70500.00"), credit: D(0) },
+]
+
 beforeEach(() => {
   vi.clearAllMocks()
   tx.auditLog.create.mockResolvedValue({})
@@ -57,7 +71,29 @@ beforeEach(() => {
   tx.journal.findUnique.mockResolvedValue(pending)
   tx.journal.update.mockResolvedValue({ ...pending, status: "POSTED" })
   tx.journal.create.mockResolvedValue({ id: "j-2", journalNo: "BS-JV-00002" })
+
+  tx.financialYear.findUnique.mockResolvedValue({
+    id: "fy-1", name: "FY 2026-27", startDate: utcDate(2026, 7, 1), endDate: utcDate(2027, 6, 30),
+  })
+  tx.journal.findMany.mockResolvedValue([])
+  tx.account.findFirst.mockResolvedValue({ id: "acc-re", code: "3300", name: "Retained Earnings" })
+  tx.account.findMany.mockResolvedValue([{ id: "acc-exp" }])
+  tx.journalLine.groupBy.mockResolvedValue([
+    { accountId: "acc-exp", _sum: { debit: D("70500.00"), credit: D(0) } },
+  ])
+  tx.journalLine.findMany.mockResolvedValue(closingLines)
 })
+
+/** Puts a CLOSING journal in front of `approveJournal`, ready to post. */
+function pendingClosing() {
+  tx.journal.findUnique.mockResolvedValue({ ...pending, type: "CLOSING", lines: closingLines })
+  tx.journal.update.mockResolvedValue({
+    ...pending, type: "CLOSING", status: "POSTED", periodId: "p-1",
+  })
+  tx.accountingPeriod.findUnique.mockResolvedValue({
+    id: "p-1", year: 2027, month: 6, status: "OPEN", financialYearId: "fy-1",
+  })
+}
 
 describe("approveJournal", () => {
   it("posts in the same transaction, stamping approvedBy and postedAt together", async () => {
@@ -125,15 +161,7 @@ describe("approveJournal", () => {
   })
 
   it("locks the financial year when the posted journal is a CLOSING one", async () => {
-    tx.journal.findUnique.mockResolvedValue({ ...pending, type: "CLOSING" })
-    tx.journal.update.mockResolvedValue({ ...pending, type: "CLOSING", status: "POSTED", periodId: "p-1" })
-    tx.accountingPeriod.findUnique.mockResolvedValue({
-      id: "p-1",
-      year: 2026,
-      month: 6,
-      status: "OPEN",
-      financialYearId: "fy-1",
-    })
+    pendingClosing()
 
     await approveJournal("j-1", admin)
 
@@ -141,6 +169,36 @@ describe("approveJournal", () => {
       where: { financialYearId: "fy-1" },
       data: { status: "LOCKED" },
     })
+  })
+
+  it("rolls the whole approval back when the closing entry has gone stale", async () => {
+    pendingClosing()
+    // 12,000 more expense was posted into June after the entry was drafted.
+    // Locking now would understate Retained Earnings by exactly that, and the
+    // year would be closed permanently with no correction path.
+    tx.journalLine.groupBy.mockResolvedValue([
+      { accountId: "acc-exp", _sum: { debit: D("82500.00"), credit: D(0) } },
+    ])
+
+    await expect(approveJournal("j-1", admin)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("no longer closes the year"),
+    })
+
+    expect(tx.accountingPeriod.updateMany).not.toHaveBeenCalled()
+    expect(tx.financialYear.update).not.toHaveBeenCalled()
+  })
+
+  it("refuses to lock a year that still holds someone's unposted draft", async () => {
+    pendingClosing()
+    tx.journal.findMany.mockResolvedValue([{ journalNo: "BS-JV-00120" }])
+
+    await expect(approveJournal("j-1", admin)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("BS-JV-00120"),
+    })
+
+    expect(tx.accountingPeriod.updateMany).not.toHaveBeenCalled()
   })
 })
 

@@ -5,8 +5,8 @@ vi.mock("../../config/prisma", () => {
     financialYear: { findUnique: vi.fn(), update: vi.fn() },
     accountingPeriod: { findMany: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
     account: { findFirst: vi.fn(), findMany: vi.fn() },
-    journal: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
-    journalLine: { groupBy: vi.fn() },
+    journal: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
+    journalLine: { groupBy: vi.fn(), findMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
   }
@@ -20,7 +20,7 @@ vi.mock("../../config/prisma", () => {
 
 import prisma from "../../config/prisma"
 import { Prisma } from "../../generated/prisma/client"
-import { draftYearEndJournal, lockYearAfterClosing } from "./accounting.yearend"
+import { closingLinesMatch, draftYearEndJournal, lockYearAfterClosing } from "./accounting.yearend"
 import { utcDate } from "./accounting.utils"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
@@ -67,7 +67,26 @@ beforeEach(() => {
     { accountId: "acc-admin", _sum: { debit: D("254530.00"), credit: D(0) } },
     { accountId: "acc-fin", _sum: { debit: D("2405.00"), credit: D(0) } },
   ])
+
+  // The lock path re-derives the entry and compares. These two make the
+  // recomputation agree with what was drafted; a test that wants a stale
+  // entry overrides journalLine.findMany.
+  tx.accountingPeriod.findUnique.mockResolvedValue({ id: "p-jun", financialYearId: "fy-1" })
+  tx.journal.findMany.mockResolvedValue([])
+  tx.journalLine.findMany.mockResolvedValue([
+    { accountId: "acc-admin", debit: D(0), credit: D("254530.00") },
+    { accountId: "acc-fin", debit: D(0), credit: D("2405.00") },
+    { accountId: "acc-re", debit: D("256935.00"), credit: D(0) },
+  ])
 })
+
+/** What `postApprovedJournal` hands the locker, once the entry is POSTED. */
+const closingJournal = {
+  id: "j-close",
+  journalNo: "BS-JV-00099",
+  type: "CLOSING",
+  periodId: "p-jun",
+}
 
 describe("draftYearEndJournal", () => {
   it("drafts a CLOSING journal dated the last day of the financial year", async () => {
@@ -194,11 +213,53 @@ describe("draftYearEndJournal", () => {
   })
 })
 
+describe("closingLinesMatch", () => {
+  const expected = [
+    { accountId: "a", debit: D(0), credit: D("100.00") },
+    { accountId: "b", debit: D("100.00"), credit: D(0) },
+  ]
+
+  it("ignores order — a groupBy makes no ordering promise", () => {
+    expect(closingLinesMatch(expected, [expected[1], expected[0]])).toBe(true)
+  })
+
+  it("treats 100 and 100.00 as the same amount, since both are Decimals", () => {
+    expect(
+      closingLinesMatch(expected, [
+        { accountId: "a", debit: D(0), credit: D(100) },
+        { accountId: "b", debit: D(100), credit: D(0) },
+      ])
+    ).toBe(true)
+  })
+
+  it("rejects a changed amount", () => {
+    expect(
+      closingLinesMatch(expected, [
+        { accountId: "a", debit: D(0), credit: D("100.01") },
+        { accountId: "b", debit: D("100.00"), credit: D(0) },
+      ])
+    ).toBe(false)
+  })
+
+  it("rejects a line for an account that is no longer in the figure", () => {
+    expect(
+      closingLinesMatch(expected, [
+        { accountId: "a", debit: D(0), credit: D("100.00") },
+        { accountId: "c", debit: D("100.00"), credit: D(0) },
+      ])
+    ).toBe(false)
+  })
+
+  it("rejects an extra account that has since moved", () => {
+    expect(
+      closingLinesMatch(expected, [...expected, { accountId: "c", debit: D(1), credit: D(0) }])
+    ).toBe(false)
+  })
+})
+
 describe("lockYearAfterClosing", () => {
   it("locks every period and closes the year", async () => {
-    tx.accountingPeriod.findUnique.mockResolvedValue({ id: "p-jun", financialYearId: "fy-1" })
-
-    await lockYearAfterClosing(tx as never, { id: "j-close", type: "CLOSING", periodId: "p-jun" }, admin)
+    await lockYearAfterClosing(tx as never, closingJournal, admin)
 
     expect(tx.accountingPeriod.updateMany).toHaveBeenCalledWith({
       where: { financialYearId: "fy-1" },
@@ -213,9 +274,65 @@ describe("lockYearAfterClosing", () => {
   })
 
   it("does nothing for an ordinary journal", async () => {
-    await lockYearAfterClosing(tx as never, { id: "j-1", type: "MANUAL", periodId: "p-1" }, admin)
+    await lockYearAfterClosing(
+      tx as never,
+      { id: "j-1", journalNo: "BS-JV-00001", type: "MANUAL", periodId: "p-1" },
+      admin
+    )
 
     expect(tx.accountingPeriod.updateMany).not.toHaveBeenCalled()
     expect(tx.financialYear.update).not.toHaveBeenCalled()
+  })
+
+  it("409s rather than locking a draft away — closePeriod never sees the final month", async () => {
+    tx.journal.findMany.mockResolvedValue([{ journalNo: "BS-JV-00120" }])
+
+    await expect(lockYearAfterClosing(tx as never, closingJournal, admin)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("BS-JV-00120"),
+    })
+    expect(tx.accountingPeriod.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("ignores the closing journal itself when it looks for unposted work", async () => {
+    await lockYearAfterClosing(tx as never, closingJournal, admin)
+
+    expect(tx.journal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: "j-close" } }),
+      })
+    )
+  })
+
+  it("409s when an entry posted after the draft left the closing figure stale", async () => {
+    // The ledger now says 300,000 of admin expense; the drafted entry still
+    // closes 254,530. Locking here would understate Retained Earnings by
+    // 45,470 and lock the year with no way to correct it.
+    tx.journalLine.groupBy.mockResolvedValue([
+      { accountId: "acc-admin", _sum: { debit: D("300000.00"), credit: D(0) } },
+      { accountId: "acc-fin", _sum: { debit: D("2405.00"), credit: D(0) } },
+    ])
+
+    await expect(lockYearAfterClosing(tx as never, closingJournal, admin)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("no longer closes the year"),
+    })
+    expect(tx.accountingPeriod.updateMany).not.toHaveBeenCalled()
+    expect(tx.financialYear.update).not.toHaveBeenCalled()
+  })
+
+  it("excludes CLOSING journals when it recomputes, or approving would cancel itself out", async () => {
+    // By the time this runs the entry is already POSTED. Counting its own
+    // contra would net every account to zero, the recomputation would find
+    // nothing to close, and every year-end would fail.
+    await lockYearAfterClosing(tx as never, closingJournal, admin)
+
+    expect(tx.journalLine.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          journal: expect.objectContaining({ type: { not: "CLOSING" } }),
+        }),
+      })
+    )
   })
 })

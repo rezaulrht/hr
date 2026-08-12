@@ -191,4 +191,38 @@ describe("postSystemJournal", () => {
 
     expect((tx as any).$transaction).toBeUndefined()
   })
+
+  /**
+   * Callers hold real timestamps, not date-only values: a payroll run's
+   * `createdAt`, a disbursement's `new Date()`. Untruncated, a 31 July
+   * timestamp is past the July period's endDate of 31 July at midnight, so
+   * every month-end posting would fail with "no financial year covers
+   * 2026-07-31". Truncating here rather than in each caller is what makes the
+   * seam safe to call with whatever date the calling module happens to have.
+   */
+  describe("date truncation", () => {
+    const stamped = { ...input, date: new Date("2026-07-31T14:22:07.412Z") }
+
+    it("resolves the period from the truncated date", async () => {
+      const tx = makeTx()
+
+      await postSystemJournal(tx, stamped)
+
+      expect((tx as any).accountingPeriod.findFirst).toHaveBeenCalledWith({
+        where: {
+          startDate: { lte: utcDate(2026, 7, 31) },
+          endDate: { gte: utcDate(2026, 7, 31) },
+        },
+      })
+    })
+
+    it("stores the truncated date on the journal", async () => {
+      const tx = makeTx()
+
+      await postSystemJournal(tx, stamped)
+
+      const created = (tx as any).journal.create.mock.calls[0][0].data
+      expect(created.date.toISOString()).toBe("2026-07-31T00:00:00.000Z")
+    })
+  })
 })

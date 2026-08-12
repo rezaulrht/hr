@@ -4,10 +4,22 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { RiArrowGoBackLine, RiArrowLeftLine, RiCheckLine, RiCloseLine } from "@remixicon/react"
+import {
+  RiArrowGoBackLine,
+  RiArrowLeftLine,
+  RiCheckLine,
+  RiCloseLine,
+  RiDeleteBinLine,
+} from "@remixicon/react"
 import { toast } from "sonner"
 
-import { approveJournal, rejectJournal, reverseJournal } from "@/lib/api/accounting"
+import {
+  approveJournal,
+  deleteJournal,
+  rejectJournal,
+  reverseJournal,
+  submitJournal,
+} from "@/lib/api/accounting"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { Journal } from "@/lib/api/types"
@@ -36,11 +48,14 @@ import {
 } from "@/components/accounting/accounting-shared"
 
 /**
- * A posted journal, rendered as a document rather than as a locked form.
+ * A journal rendered as a document rather than as a form.
  *
- * The distinction is the point: an entry that can never be edited again
- * should not look like an entry you might edit. The only actions here are
- * approve/reject (while awaiting approval) and reverse (once posted).
+ * The distinction is the point: an entry you cannot retype should not look
+ * like an entry you might. That covers two cases — a journal that has already
+ * posted, and a *generated* draft, meaning a reversal or a year-end closing
+ * entry, whose lines are derived from the ledger and which the server refuses
+ * to accept edits to. A generated draft still needs to be sent for approval
+ * or thrown away, so those two actions live here as well.
  */
 export function JournalDocument({ journal }: { journal: Journal }) {
   const { accessToken, user } = useSession()
@@ -84,6 +99,25 @@ export function JournalDocument({ journal }: { journal: Journal }) {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not reverse it"),
   })
 
+  const submit = useMutation({
+    mutationFn: () => submitJournal(accessToken!, journal.id),
+    onSuccess: () => {
+      refresh()
+      toast.success(`${journal.journalNo} sent for approval`)
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not submit it"),
+  })
+
+  const discard = useMutation({
+    mutationFn: () => deleteJournal(accessToken!, journal.id),
+    onSuccess: () => {
+      refresh()
+      toast.success(`${journal.journalNo} deleted`)
+      router.push("../journals")
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not delete it"),
+  })
+
   const debit = fromPaisa(sumPaisa(journal.lines.map((l) => l.debit)))
   const credit = fromPaisa(sumPaisa(journal.lines.map((l) => l.credit)))
 
@@ -91,6 +125,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
   // that will 403, and the server enforces this regardless.
   const showApproval = journal.status === "PENDING_APPROVAL" && canApprove(user?.role)
   const isOwnJournal = journal.createdBy === user?.id
+  const isGeneratedDraft = journal.status === "DRAFT"
 
   return (
     <div className="space-y-6">
@@ -114,6 +149,16 @@ export function JournalDocument({ journal }: { journal: Journal }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {isGeneratedDraft && (
+            <>
+              <Button variant="ghost" onClick={() => discard.mutate()} disabled={discard.isPending}>
+                <RiDeleteBinLine className="size-4" /> Discard
+              </Button>
+              <Button onClick={() => submit.mutate()} disabled={submit.isPending}>
+                {submit.isPending ? "Submitting…" : "Submit for approval"}
+              </Button>
+            </>
+          )}
           {showApproval && (
             <>
               <Button variant="outline" onClick={() => setRejectOpen(true)}>
@@ -136,6 +181,14 @@ export function JournalDocument({ journal }: { journal: Journal }) {
       {showApproval && isOwnJournal && (
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
           You created this journal, so someone else must approve it.
+        </p>
+      )}
+
+      {isGeneratedDraft && (
+        <p className="rounded-lg border bg-muted/40 p-3 text-sm">
+          {journal.type === "CLOSING"
+            ? "This closing entry was derived from the year's profit and loss. It is not editable — if it is wrong, discard it and run year-end again."
+            : "This reversal was derived from the journal it reverses. It is not editable — if it is wrong, discard it and the original returns to posted."}
         </p>
       )}
 

@@ -57,19 +57,25 @@ export function computeBalance(lines: DraftLine[]): BalanceState {
  * explanation is the single most common way a form wastes someone's time.
  */
 export function validationMessage(lines: DraftLine[]): string | null {
-  const filled = lines.filter((l) => l.accountId || l.debit || l.credit)
-  if (filled.length < 2) return "A journal needs at least two lines"
-  if (filled.some((l) => !l.accountId)) return "Every line needs an account"
+  // Carrying `row` through the filter, because the row number in the message
+  // has to be the one on screen. Numbering the filtered subset instead points
+  // "Line 1" at the second row whenever the first is still blank.
+  const filled = lines
+    .map((line, index) => ({ line, row: index + 1 }))
+    .filter(({ line }) => line.accountId || line.debit || line.credit)
 
-  for (const [i, line] of filled.entries()) {
+  if (filled.length < 2) return "A journal needs at least two lines"
+  if (filled.some(({ line }) => !line.accountId)) return "Every line needs an account"
+
+  for (const { line, row } of filled) {
     const d = toPaisa(line.debit)
     const c = toPaisa(line.credit)
-    if (Number.isNaN(d) || Number.isNaN(c)) return `Line ${i + 1}: that is not an amount`
-    if (d > 0 && c > 0) return `Line ${i + 1}: enter a debit or a credit, not both`
-    if (d === 0 && c === 0) return `Line ${i + 1}: enter an amount`
+    if (Number.isNaN(d) || Number.isNaN(c)) return `Line ${row}: that is not an amount`
+    if (d > 0 && c > 0) return `Line ${row}: enter a debit or a credit, not both`
+    if (d === 0 && c === 0) return `Line ${row}: enter an amount`
   }
 
-  const balance = computeBalance(filled)
+  const balance = computeBalance(filled.map(({ line }) => line))
   if (balance.debitPaisa === 0) return "A journal total must be greater than zero"
   if (!balance.isBalanced) {
     return `Out by ${fromPaisa(Math.abs(balance.differencePaisa))}`

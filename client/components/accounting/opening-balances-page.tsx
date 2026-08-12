@@ -36,9 +36,9 @@ import { cn } from "@/lib/utils"
 /** Per-account entry, keyed by account id. */
 type Amounts = Record<string, { debit: string; credit: string }>
 
-function toAmounts(postable: Account[], journal: Journal | null): Amounts {
+function toAmounts(rows: Account[], journal: Journal | null): Amounts {
   const next: Amounts = {}
-  for (const account of postable) next[account.id] = { debit: "", credit: "" }
+  for (const account of rows) next[account.id] = { debit: "", credit: "" }
   if (journal) {
     for (const line of journal.lines) {
       next[line.accountId] = {
@@ -48,6 +48,26 @@ function toAmounts(postable: Account[], journal: Journal | null): Amounts {
     }
   }
   return next
+}
+
+/**
+ * Every postable account, plus any account the existing journal already uses.
+ *
+ * The second half matters: an account deactivated *after* the opening journal
+ * was written drops out of `postable`, so its row would not render and the
+ * next save would silently drop its figure — turning a balanced entry into an
+ * unbalanced one for a reason nothing on screen explains. It is shown, and
+ * kept, so the person can deal with it deliberately.
+ */
+function rowsFor(postable: Account[], journal: Journal | null): Account[] {
+  if (!journal) return postable
+
+  const known = new Set(postable.map((a) => a.id))
+  const extras = journal.lines
+    .filter((l) => !known.has(l.accountId))
+    .map((l) => ({ ...l.account, isGroup: false, isActive: false }) as Account)
+
+  return [...postable, ...extras].sort((a, b) => a.code.localeCompare(b.code))
 }
 
 /**
@@ -70,7 +90,8 @@ function AmountGrid({
   const { accessToken } = useSession()
   const queryClient = useQueryClient()
 
-  const [amounts, setAmounts] = useState<Amounts>(() => toAmounts(postable, journal))
+  const rows = useMemo(() => rowsFor(postable, journal), [postable, journal])
+  const [amounts, setAmounts] = useState<Amounts>(() => toAmounts(rows, journal))
 
   const debitPaisa = sumPaisa(Object.values(amounts).map((a) => a.debit))
   const creditPaisa = sumPaisa(Object.values(amounts).map((a) => a.credit))
@@ -78,7 +99,7 @@ function AmountGrid({
   const isBalanced = difference === 0 && debitPaisa > 0
 
   const lines = () =>
-    postable
+    rows
       .filter((a) => {
         const v = amounts[a.id]
         return v && (toPaisa(v.debit) > 0 || toPaisa(v.credit) > 0)
@@ -171,10 +192,17 @@ function AmountGrid({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {postable.map((a) => (
+            {rows.map((a) => (
               <TableRow key={a.id}>
                 <TableCell className="text-muted-foreground tabular-nums">{a.code}</TableCell>
-                <TableCell>{a.name}</TableCell>
+                <TableCell>
+                  {a.name}
+                  {!a.isActive && (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      retired — carried here because this journal already uses it
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   <Input
                     value={amounts[a.id]?.debit ?? ""}

@@ -131,6 +131,21 @@ export function utcDate(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day))
 }
 
+/**
+ * Truncate an instant to the UTC day it falls in.
+ *
+ * Every accounting date is a date, not a moment. Periods run from UTC midnight
+ * to UTC midnight, so an instant carrying a time of day sits *past* the end of
+ * the last day of its own month: 31 July at 10:00 is greater than the July
+ * period's endDate of 31 July at 00:00, and `resolveOpenPeriod` answers "no
+ * financial year covers 2026-07-31" for a perfectly valid date. Callers that
+ * hold a real timestamp — a payroll run's, a disbursement's — pass it through
+ * here rather than each remembering to zero the clock.
+ */
+export function toLedgerDate(value: Date): Date {
+  return utcDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate())
+}
+
 export function monthWindow(year: number, month: number): { startDate: Date; endDate: Date } {
   // Day 0 of the following month is the last day of this one, which handles
   // 28/29/30/31 without a lookup table.

@@ -11,6 +11,7 @@ import {
   normalSide,
   signedBalance,
   sumSides,
+  toLedgerDate,
   utcDate,
   validateAccountCode,
 } from "./accounting.utils"
@@ -233,6 +234,36 @@ describe("financialYearPeriods", () => {
 
     expect(periods[0]).toMatchObject({ year: 2026, month: 1 })
     expect(periods[11]).toMatchObject({ year: 2026, month: 12 })
+  })
+})
+
+describe("toLedgerDate", () => {
+  it("drops the time of day", () => {
+    expect(toLedgerDate(new Date("2026-07-31T10:34:56.789Z")).toISOString()).toBe(
+      "2026-07-31T00:00:00.000Z"
+    )
+  })
+
+  it("leaves a date that is already UTC midnight alone", () => {
+    expect(toLedgerDate(utcDate(2026, 7, 31)).toISOString()).toBe("2026-07-31T00:00:00.000Z")
+  })
+
+  it("keeps the last day of a month inside its own period", () => {
+    // The bug this exists for: 31 July at 10:00 is *greater* than the July
+    // period's endDate of 31 July at 00:00, so resolveOpenPeriod would answer
+    // "no financial year covers 2026-07-31" for a perfectly valid date.
+    const july = monthWindow(2026, 7)
+    const stamped = new Date("2026-07-31T10:00:00.000Z")
+
+    expect(stamped > july.endDate).toBe(true)
+    expect(toLedgerDate(stamped) <= july.endDate).toBe(true)
+  })
+
+  it("truncates in UTC, the convention every other date in this module uses", () => {
+    // 23:30 UTC on 30 June is still 30 June here, whatever the local clock says.
+    expect(toLedgerDate(new Date("2026-06-30T23:30:00.000Z")).toISOString()).toBe(
+      "2026-06-30T00:00:00.000Z"
+    )
   })
 })
 

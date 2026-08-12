@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { toLedgerDate } from "./accounting.utils"
+
 /**
  * Amounts arrive as strings and stay strings until the service converts them
  * to `Prisma.Decimal`. A JSON number would already have lost precision by
@@ -9,7 +11,13 @@ const decimalString = z
   .string()
   .regex(/^\d{1,12}(\.\d{1,2})?$/, "Enter an amount with up to two decimal places")
 
-const dateOnly = z.coerce.date()
+/**
+ * Coerced *and truncated*. A date input sends "2026-07-31" and coercion alone
+ * gives UTC midnight, so this is invisible from the UI — but the API accepts
+ * any parseable value, and one carrying a time of day would fall outside its
+ * own period. See `toLedgerDate`.
+ */
+const dateOnly = z.coerce.date().transform(toLedgerDate)
 
 const trimmed = (min: number, message: string) =>
   z.string().transform((s) => s.trim()).pipe(z.string().min(min, message))
@@ -34,6 +42,7 @@ export type CreateAccountInput = z.infer<typeof createAccountSchema>
 export const updateAccountSchema = z.object({
   name: trimmed(1, "Enter an account name").optional(),
   parentId: z.string().uuid().nullable().optional(),
+  isGroup: z.boolean().optional(),
   cashKind: cashKindSchema.optional(),
   isActive: z.boolean().optional(),
   description: z.string().nullable().optional(),
