@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RiHistoryLine, RiPencilLine } from "@remixicon/react"
+import { RiAddLine, RiHistoryLine, RiPencilLine } from "@remixicon/react"
 
 import {
   correctAttendance,
   createHoliday,
+  createManualAttendance,
   deleteHoliday,
   updateHoliday,
   getAuditTrail,
@@ -437,6 +438,7 @@ function EmployeeDaysDialog({
   onChanged: () => void
 }) {
   const [correcting, setCorrecting] = useState<string | null>(null)
+  const [adding, setAdding] = useState<string | null>(null)
   const [auditFor, setAuditFor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -459,6 +461,32 @@ function EmployeeDaysDialog({
     },
     onError: (err) => setError(toMessage(err)),
   })
+
+  /**
+   * A day with no stored record at all.
+   *
+   * `correctAttendance` amends an existing row, so it cannot reach a day that
+   * was never punched: the device was down, someone was in the field, the
+   * record was simply never created. Those days derive as ABSENT and feed
+   * payroll that way, and the only route to fixing one was to have the
+   * employee raise a regularisation. `createManualAttendance` is the HR side
+   * of that, and it had no caller.
+   */
+  const manualMutation = useMutation({
+    mutationFn: (body: { checkIn?: string; checkOut?: string; note: string }) =>
+      createManualAttendance(accessToken, { employeeId: employee.id, date: adding!, ...body }),
+    onSuccess: () => {
+      setAdding(null)
+      setError(null)
+      daysQuery.refetch()
+      onChanged()
+    },
+    onError: (err) => setError(toMessage(err)),
+  })
+
+  // A day that has not happened cannot have been worked. The server has its
+  // own view on this; the point here is not to offer the action at all.
+  const todayIso = new Date().toLocaleDateString("en-CA")
 
   const rows: TableCell[][] = (daysQuery.data ?? [])
     .filter((day) => day.status !== "NOT_TRACKED")
@@ -498,7 +526,25 @@ function EmployeeDaysDialog({
               />
             ),
           }
-        : { text: "" },
+        : day.date <= todayIso
+          ? {
+              node: (
+                <RowActions
+                  actions={[
+                    {
+                      kind: "custom",
+                      label: "Add a record",
+                      icon: <RiAddLine className="size-3.5" aria-hidden />,
+                      onClick: () => {
+                        setError(null)
+                        setAdding(day.date)
+                      },
+                    },
+                  ]}
+                />
+              ),
+            }
+          : { text: "" },
     ])
 
   return (
@@ -543,6 +589,20 @@ function EmployeeDaysDialog({
           pending={correctMutation.isPending}
           error={error}
           onConfirm={(body) => correctMutation.mutate(body)}
+        />
+      ) : null}
+
+      {adding ? (
+        <TimeAmendmentDialog
+          key={adding}
+          open
+          onOpenChange={(next) => !next && setAdding(null)}
+          title={`Add a record for ${formatDayLabel(adding)}`}
+          description="There is no record for this day, so it currently derives as absent. Creating one settles it as approved and is written to its history with your name against it."
+          confirmLabel="Create record"
+          pending={manualMutation.isPending}
+          error={error}
+          onConfirm={(body) => manualMutation.mutate(body)}
         />
       ) : null}
 
