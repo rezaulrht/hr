@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -52,6 +53,17 @@ export default function LoginPage() {
         </TabsContent>
       </Tabs>
 
+      {/*
+        Outside the tabs on purpose. Both credentials reset through the same
+        route, since the reset link is sent to the email on the account either
+        way, and a link that moved when you switched tabs would suggest there
+        were two different resets.
+      */}
+      <p className="mt-5 text-center text-[12px] text-[#5F6B7C]">
+        <Link href="/forgot-password" className={AUTH_LINK}>
+          Forgot your password?
+        </Link>
+      </p>
     </AuthShell>
   )
 }
