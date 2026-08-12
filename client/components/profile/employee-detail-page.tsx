@@ -16,6 +16,7 @@ import { ExitDetailsDialog } from "@/components/profile/exit-details-dialog"
 import { DocumentsCard } from "@/components/profile/documents-card"
 import { LeaveBalanceCard } from "@/components/profile/leave-balance-card"
 import { HoldingsCard } from "@/components/asset/holdings-card"
+import { PayslipsCard } from "@/components/payroll/payslips-card"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
 import { ProfileInsights } from "@/components/profile/profile-insights"
@@ -132,6 +133,14 @@ export function EmployeeDetailPage({
   // control can never 403 when pressed.
   const canToggleAccount = user?.role === "SUPER_ADMIN" && !!employee.employment
   const accountActive = employee.employment?.accountActive ?? true
+  // Mirrors PAYROLL_ADMIN_ROLES in payroll.service, the same way
+  // canToggleAccount mirrors requireRole on PATCH /:id/account. Everyone else
+  // reaching this page is a Reporting Manager looking at a report, and the
+  // service 403s them by design: a line manager has no payroll access, which
+  // is a policy choice rather than an oversight. Rendering the card anyway
+  // would turn that into an error message on a page that is otherwise fine.
+  const canSeePayslips =
+    user?.role === "HR_ADMIN" || user?.role === "FINANCE_OFFICER" || user?.role === "SUPER_ADMIN"
 
   // A card shows an Edit control if and only if it contains at least one
   // field this caller may write. No role check — editableFields comes from
@@ -301,6 +310,12 @@ export function EmployeeDetailPage({
             never hidden behind a permission check — an empty state saying so
             is exactly what the exit conversation needs to see. */}
         <HoldingsCard employeeId={employeeId} />
+
+        {/* Fetched from the payroll module for the same reason, and gated on
+            role rather than on a group key: payslips are not part of the
+            employee payload, so there is no absent key to read the answer
+            from the way every card above does. */}
+        {canSeePayslips ? <PayslipsCard employeeId={employeeId} /> : null}
 
         {employee.documents ? (
           <DocumentsCard
