@@ -124,7 +124,7 @@ export function PeriodsPage() {
         onCta={() => setNewYearOpen(true)}
       />
 
-      {years.isLoading ? (
+      {years.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : years.isError ? (
         <div className="rounded-lg border p-10 text-center text-sm">

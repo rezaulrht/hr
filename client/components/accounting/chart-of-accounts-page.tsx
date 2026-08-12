@@ -211,7 +211,7 @@ export function ChartOfAccountsPage() {
       </div>
 
       <div className="rounded-lg border">
-        {tree.isLoading ? (
+        {tree.isPending ? (
           <div className="space-y-2 p-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-6 w-full" />

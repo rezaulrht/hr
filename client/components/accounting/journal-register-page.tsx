@@ -171,7 +171,7 @@ export function JournalRegisterPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {journals.isLoading ? (
+            {journals.isPending ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
                   <TableCell colSpan={7}><Skeleton className="h-5 w-full" /></TableCell>

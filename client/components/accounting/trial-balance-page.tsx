@@ -52,7 +52,7 @@ export function TrialBalancePage() {
         </div>
       </div>
 
-      {tb.isLoading ? (
+      {tb.isPending ? (
         <div className="space-y-2 rounded-lg border p-4">
           {Array.from({ length: 10 }).map((_, i) => (
             <Skeleton key={i} className="h-6 w-full" />
