@@ -2,22 +2,16 @@
 
 import { useState } from "react"
 import { useMutation } from "@tanstack/react-query"
-import { RiCheckLine } from "@remixicon/react"
 
 import { commitCostImport, previewCostImport } from "@/lib/api/costs"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { CostCategory, CostImportCommitResult, CostImportIssue, CostImportPreview } from "@/lib/api/types"
+import { DataTable } from "@/components/dashboard/data-table"
+import type { TableCell } from "@/components/dashboard/types"
+import { ImportPreviewEmpty, issuesCell, previewRowNumbers } from "@/components/import/import-preview"
 import { Button } from "@/components/ui/button"
 import { DOCUMENT_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
 /** `parseSheet` (server/src/utils/import/import.parse.ts) reads only these
  *  two — a third format is a second parser to keep consistent with it. */
@@ -49,12 +43,22 @@ function issuesForRow(rowNumber: number, issues: CostImportIssue[]): CostImportI
   return issues.filter((issue) => issue.rowNumber === rowNumber)
 }
 
+const PREVIEW_HEADERS = ["Row", "Category", "Label", "Payee", "Period", "Amount", "Status", "Issues"]
+const PREVIEW_COLS = "0.4fr 0.9fr 1.3fr 1fr 0.7fr 0.8fr 0.7fr 1.6fr"
+
 /**
  * Every parsed row, its issues inline. Reused verbatim for a commit-time 400:
  * the server re-validates at commit and can find something the preview did
  * not (another user's import landing in between, a category deleted in the
  * meantime), and `error.details.issues` slots into the same `issues` prop
  * rather than a bare string.
+ *
+ * On `DataTable` rather than the raw `ui/table` it was hand-rolled on. This is
+ * a validation report and not a record list, which is why it stayed behind
+ * when the register moved, but the argument does not survive a phone: a raw
+ * table put eight columns of import errors into a sideways scroll, and the
+ * errors are the whole point of the screen. `DataTable` turns each row into a
+ * card below md.
  */
 function PreviewTable({
   rows,
@@ -65,68 +69,32 @@ function PreviewTable({
   issues: CostImportIssue[]
   categories: CostCategory[]
 }) {
-  const rowNumbers = Array.from(
-    new Set<number>([...rows.map((r) => r.rowNumber), ...issues.map((i) => i.rowNumber)])
-  ).sort((a, b) => a - b)
+  const rowNumbers = previewRowNumbers(rows, issues)
+
+  if (rowNumbers.length === 0) return <ImportPreviewEmpty noun="bills" />
+
+  const tableRows: TableCell[][] = rowNumbers.map((rowNumber) => {
+    const row = rows.find((r) => r.rowNumber === rowNumber)
+    const category = categories.find((c) => c.id === row?.categoryId)
+    return [
+      { text: String(rowNumber), weight: 600 },
+      { text: category?.name ?? "" },
+      { text: row?.label ?? "" },
+      { text: row?.payee ?? "" },
+      {
+        text:
+          row?.periodMonth && row?.periodYear ? `${row.periodMonth}/${row.periodYear}` : "",
+      },
+      { text: row?.amount === undefined ? "" : String(row.amount) },
+      // A row that failed before parsing has no status to report, and
+      // guessing one would be inventing data about a row we could not read.
+      row ? { tag: row.paidAt ? "Paid" : "Pending", tone: row.paidAt ? "green" : "neutral" } : {},
+      issuesCell(issuesForRow(rowNumber, issues)),
+    ]
+  })
 
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Row</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Label</TableHead>
-            <TableHead>Payee</TableHead>
-            <TableHead>Period</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Issues</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rowNumbers.map((rowNumber) => {
-            const row = rows.find((r) => r.rowNumber === rowNumber)
-            const rowIssues = issuesForRow(rowNumber, issues)
-            const category = categories.find((c) => c.id === row?.categoryId)
-            return (
-              <TableRow key={rowNumber}>
-                <TableCell className="font-medium">{rowNumber}</TableCell>
-                <TableCell>{category?.name ?? ""}</TableCell>
-                <TableCell>{row?.label ?? ""}</TableCell>
-                <TableCell>{row?.payee ?? ""}</TableCell>
-                <TableCell>
-                  {row?.periodMonth && row?.periodYear ? `${row.periodMonth}/${row.periodYear}` : ""}
-                </TableCell>
-                <TableCell>{row?.amount ?? ""}</TableCell>
-                <TableCell>{row?.paidAt ? "Paid" : row ? "Pending" : ""}</TableCell>
-                <TableCell>
-                  {rowIssues.length === 0 ? (
-                    // A glyph rather than a dash or a blank. Most rows pass, so
-                    // repeating "No issues" down the column is noise, but an
-                    // empty cell beside red ones reads as "not checked".
-                    <RiCheckLine
-                      className="size-4 text-[#1E7A55]"
-                      aria-label="No issues"
-                      role="img"
-                    />
-                  ) : (
-                    <ul className="space-y-0.5">
-                      {rowIssues.map((issue, i) => (
-                        <li key={i} className="text-xs font-semibold text-destructive">
-                          {issue.column ? `${issue.column}: ` : ""}
-                          {issue.message}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <DataTable title="" action="" cols={PREVIEW_COLS} headers={PREVIEW_HEADERS} rows={tableRows} />
   )
 }
 
