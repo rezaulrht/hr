@@ -19,3 +19,10 @@ export const rangeQuerySchema = z.object({
 })
 
 export type RangeQuery = z.infer<typeof rangeQuerySchema>
+
+const noteRef = z.string().regex(/^\d{1,2}(\.\d{1,2}){1,2}$/, 'A note number looks like "2.08" or "2.11.3"')
+const trimmed = (min: number, message: string) => z.string().transform((s) => s.trim()).pipe(z.string().min(min, message))
+export const createPolicyNoteSchema = z.object({ ref: noteRef, title: trimmed(1, "Give the note a title"), body: z.string(), sortOrder: z.coerce.number().int().min(0).optional() })
+export type CreatePolicyNoteInput = z.infer<typeof createPolicyNoteSchema>
+export const updatePolicyNoteSchema = z.object({ ref: noteRef.optional(), title: trimmed(1, "Give the note a title").optional(), body: z.string().optional(), sortOrder: z.coerce.number().int().min(0).optional() })
+export type UpdatePolicyNoteInput = z.infer<typeof updatePolicyNoteSchema>

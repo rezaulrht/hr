@@ -1,9 +1,14 @@
 import type { NextFunction, Request, Response } from "express"
+import { Prisma } from "../../generated/prisma/client"
 
 import { buildEquity } from "./statements.equity"
 import { buildPnl } from "./statements.pnl"
 import { buildPosition } from "./statements.position"
-import { rangeQuerySchema } from "./statements.validators"
+import { cashFlowStatement } from "./statements.cashflow"
+import { statementNotes } from "./statements.notes"
+import { annexureA, assertAnnexureTiesToPosition } from "./statements.annexure"
+import { listPolicyNotes, createPolicyNote, updatePolicyNote, deletePolicyNote } from "./statements.policy.service"
+import { rangeQuerySchema, createPolicyNoteSchema, updatePolicyNoteSchema } from "./statements.validators"
 
 /**
  * Express 5 still does not forward a rejected promise to the error
@@ -11,9 +16,11 @@ import { rangeQuerySchema } from "./statements.validators"
  * hangs the request instead of reaching the client.
  */
 const wrap =
-  (fn: (req: Request, res: Response) => Promise<unknown>) =>
-  (req: Request, res: Response, next: NextFunction) =>
+  <R extends Request>(fn: (req: R, res: Response) => Promise<unknown>) =>
+  (req: R, res: Response, next: NextFunction) =>
     fn(req, res).catch(next)
+
+type RequestWithId = Request<{ id: string }>
 
 export const profitOrLossHandler = wrap(async (req, res) => {
   res.json(await buildPnl(rangeQuerySchema.parse(req.query)))
@@ -26,3 +33,17 @@ export const financialPositionHandler = wrap(async (req, res) => {
 export const changesInEquityHandler = wrap(async (req, res) => {
   res.json(await buildEquity(rangeQuerySchema.parse(req.query)))
 })
+
+export const cashFlowHandler = wrap(async (req, res) => res.json(await cashFlowStatement(rangeQuerySchema.parse(req.query))))
+export const notesHandler = wrap(async (req, res) => res.json(await statementNotes(rangeQuerySchema.parse(req.query))))
+export const annexureHandler = wrap(async (req, res) => {
+  const range = rangeQuerySchema.parse(req.query)
+  const [annexure, position] = await Promise.all([annexureA(range), buildPosition(range)])
+  const ppe = position.assets.flatMap((s) => s.lines).find((line) => line.code === "1110")
+  assertAnnexureTiesToPosition(annexure, new Prisma.Decimal(ppe?.current ?? "0"))
+  res.json(annexure)
+})
+export const listPolicyNotesHandler = wrap(async (_req, res) => res.json(await listPolicyNotes()))
+export const createPolicyNoteHandler = wrap(async (req, res) => res.status(201).json(await createPolicyNote(createPolicyNoteSchema.parse(req.body), req.user!)))
+export const updatePolicyNoteHandler = wrap(async (req: RequestWithId, res) => res.json(await updatePolicyNote(req.params.id, updatePolicyNoteSchema.parse(req.body), req.user!)))
+export const deletePolicyNoteHandler = wrap(async (req: RequestWithId, res) => { await deletePolicyNote(req.params.id, req.user!); res.status(204).send() })
