@@ -14,6 +14,7 @@ import {
   createPolicyNoteHandler,
   updatePolicyNoteHandler,
   deletePolicyNoteHandler,
+  pdfHandler,
 } from "./statements.controller"
 
 const router = Router()
@@ -30,6 +31,7 @@ router.get("/changes-in-equity", requireAuth, requireRole(...ACCESS), changesInE
 router.get("/cash-flow", requireAuth, requireRole(...ACCESS), cashFlowHandler)
 router.get("/notes", requireAuth, requireRole(...ACCESS), notesHandler)
 router.get("/annexure-a", requireAuth, requireRole(...ACCESS), annexureHandler)
+router.get("/pdf", requireAuth, requireRole(...ACCESS), pdfHandler)
 router.get("/policy-notes", requireAuth, requireRole(...ACCESS), listPolicyNotesHandler)
 router.post("/policy-notes", requireAuth, requireRole(...ACCESS), createPolicyNoteHandler)
 router.patch("/policy-notes/:id", requireAuth, requireRole(...ACCESS), updatePolicyNoteHandler)

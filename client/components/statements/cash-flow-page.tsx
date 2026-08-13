@@ -1,0 +1,10 @@
+"use client"
+import { useQuery } from "@tanstack/react-query"
+import { useState } from "react"
+import { getCashFlow } from "@/lib/api/statements"
+import { useSession } from "@/lib/auth/session-context"
+import { currentMonthRange, formatSigned } from "@/components/accounting/accounting-shared"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
+export function CashFlowPage() { const { accessToken } = useSession(); const initial = currentMonthRange(); const [range, setRange] = useState(initial); const q = useQuery({ queryKey: ["statements","cash-flow",range], queryFn: () => getCashFlow(accessToken!, range), enabled: Boolean(accessToken) }); return <div className="space-y-6"><PageHeader kicker="Statements" title="Statement of Cash Flows" sub="Indirect method reconciliation of operating, investing and financing movements." /><div className="flex gap-3 rounded-lg border p-3"><Input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /><Input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></div>{q.isPending ? <Skeleton className="h-96 w-full" /> : <div className="rounded-lg border p-4">{[...q.data!.operating, ...q.data!.investing, ...q.data!.financing, ...q.data!.summary].map((r) => <div key={r.key} className={`grid grid-cols-[1fr_140px_140px] gap-4 border-b px-2 py-2 text-sm ${r.isSubtotal ? "font-semibold" : ""}`}><span>{r.label}</span><span className="text-right tabular-nums">{formatSigned(r.current)}</span><span className="text-right tabular-nums text-muted-foreground">{formatSigned(r.comparative)}</span></div>)}</div>}</div> }

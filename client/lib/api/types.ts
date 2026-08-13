@@ -1484,12 +1484,12 @@ export interface TrialBalanceResult {
 
 // -- FINANCIAL STATEMENTS --------------------------------------------
 // Hand-mirrored from server/src/modules/statements/statements.types.ts.
-// No shared package, deliberately — keep these in step by hand.
+// No shared package, deliberately ï¿½ keep these in step by hand.
 
 export interface StatementPeriod {
   from: string
   to: string
-  /** "July 2026" — the server labels it so the client need not re-derive it. */
+  /** "July 2026" ï¿½ the server labels it so the client need not re-derive it. */
   label: string
 }
 
@@ -1548,7 +1548,7 @@ export interface EquityRow {
   kind: "OPENING" | "MOVEMENT" | "PROFIT" | "CLOSING"
 }
 
-/** No comparative — the statement carries its own opening and closing. */
+/** No comparative ï¿½ the statement carries its own opening and closing. */
 export interface EquityResult {
   period: StatementPeriod
   columns: EquityColumn[]
@@ -1562,3 +1562,12 @@ export interface UnbalancedDetails {
   difference: string
   to: string
 }
+
+export interface CashFlowRow { key: string; label: string; current: string; comparative: string; isSubtotal?: boolean }
+export interface CashFlowResult { period: StatementPeriod; comparativePeriod: StatementPeriod; operating: CashFlowRow[]; investing: CashFlowRow[]; financing: CashFlowRow[]; summary: CashFlowRow[] }
+export interface NoteRow { accountId: string; code: string; name: string; current: string; comparative: string }
+export interface StatementNoteView { ref: string; title: string; body: string | null; rows: NoteRow[]; total: string | null; totalComparative: string | null }
+export interface NotesResult { period: StatementPeriod; comparativePeriod: StatementPeriod; notes: StatementNoteView[] }
+export interface AnnexureRow { accountId: string; particulars: string; rate: string | null; costOpening: string; costAddition: string; costClosing: string; depOpening: string; depCharged: string; depClosing: string; writtenDownValue: string }
+export interface AnnexureResult { period: StatementPeriod; rows: AnnexureRow[]; total: Omit<AnnexureRow, "accountId" | "particulars" | "rate"> }
+export interface PolicyNote { id: string; ref: string; title: string; body: string; sortOrder: number; updatedBy: string | null; updatedAt: string; createdAt: string }

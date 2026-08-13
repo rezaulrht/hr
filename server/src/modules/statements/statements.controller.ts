@@ -8,6 +8,7 @@ import { cashFlowStatement } from "./statements.cashflow"
 import { statementNotes } from "./statements.notes"
 import { annexureA, assertAnnexureTiesToPosition } from "./statements.annexure"
 import { listPolicyNotes, createPolicyNote, updatePolicyNote, deletePolicyNote } from "./statements.policy.service"
+import { renderStatementsPdf } from "./statements.pdf"
 import { rangeQuerySchema, createPolicyNoteSchema, updatePolicyNoteSchema } from "./statements.validators"
 
 /**
@@ -47,3 +48,7 @@ export const listPolicyNotesHandler = wrap(async (_req, res) => res.json(await l
 export const createPolicyNoteHandler = wrap(async (req, res) => res.status(201).json(await createPolicyNote(createPolicyNoteSchema.parse(req.body), req.user!)))
 export const updatePolicyNoteHandler = wrap(async (req: RequestWithId, res) => res.json(await updatePolicyNote(req.params.id, updatePolicyNoteSchema.parse(req.body), req.user!)))
 export const deletePolicyNoteHandler = wrap(async (req: RequestWithId, res) => { await deletePolicyNote(req.params.id, req.user!); res.status(204).send() })
+export const pdfHandler = wrap(async (req, res) => {
+  const pdf = await renderStatementsPdf(rangeQuerySchema.parse(req.query))
+  res.type("application/pdf").send(pdf)
+})
