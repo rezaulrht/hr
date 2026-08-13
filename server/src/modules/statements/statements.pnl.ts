@@ -11,7 +11,6 @@
  * the year, so an unfiltered sum over that year nets each account to zero.
  */
 
-import type { Account } from "../../generated/prisma/client"
 import { Prisma } from "../../generated/prisma/client"
 import {
   assertLedgerBalanced,
@@ -22,6 +21,7 @@ import {
   ZERO,
   type BalanceMap,
   type ChartIndex,
+  type ChartAccount,
 } from "./statements.balances"
 import {
   assertValidRange,
@@ -66,7 +66,7 @@ const ROWS: RowSpec[] = [
 
 function breakdownFor(
   chart: ChartIndex,
-  group: Account,
+  group: ChartAccount,
   current: BalanceMap,
   comparative: BalanceMap
 ): BreakdownRow[] {

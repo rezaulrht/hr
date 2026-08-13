@@ -11,7 +11,7 @@
  */
 
 import prisma from "../../config/prisma"
-import type { Account, JournalStatus } from "../../generated/prisma/client"
+import type { AccountType, CashFlowKind, JournalStatus } from "../../generated/prisma/client"
 import { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { formatBdt, signedBalance } from "../accounting/accounting.utils"
@@ -34,24 +34,57 @@ export interface AccountBalance {
 
 export type BalanceMap = Map<string, AccountBalance>
 
+export interface ChartAccount {
+  id: string
+  code: string
+  name: string
+  type: AccountType
+  parentId: string | null
+  isGroup: boolean
+  isActive: boolean
+  systemRole: string | null
+  noteRef: string | null
+  cashFlowKind: CashFlowKind
+  depreciationRate: Prisma.Decimal | null
+  contraAccountId: string | null
+}
+
 export interface ChartIndex {
-  all: Account[]
-  byId: Map<string, Account>
-  byRole: Map<string, Account>
-  childrenOf(accountId: string): Account[]
-  leavesUnder(accountId: string): Account[]
-  equityRoot: Account | null
+  all: ChartAccount[]
+  byId: Map<string, ChartAccount>
+  byRole: Map<string, ChartAccount>
+  byNoteRef: Map<string, ChartAccount>
+  childrenOf(accountId: string): ChartAccount[]
+  leavesUnder(accountId: string): ChartAccount[]
+  equityRoot: ChartAccount | null
 }
 
 export async function loadChart(): Promise<ChartIndex> {
   // One code-ordered query. Because the rows arrive sorted, every children
   // array comes out sorted with no second sort anywhere downstream.
-  const all = await prisma.account.findMany({ orderBy: { code: "asc" } })
+  const all = await prisma.account.findMany({
+    orderBy: { code: "asc" },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      type: true,
+      parentId: true,
+      isGroup: true,
+      isActive: true,
+      systemRole: true,
+      noteRef: true,
+      cashFlowKind: true,
+      depreciationRate: true,
+      contraAccountId: true,
+    },
+  })
 
   const byId = new Map(all.map((a) => [a.id, a]))
   const byRole = new Map(all.filter((a) => a.systemRole).map((a) => [a.systemRole!, a]))
+  const byNoteRef = new Map(all.filter((a) => a.noteRef).map((a) => [a.noteRef!, a]))
 
-  const children = new Map<string, Account[]>()
+  const children = new Map<string, ChartAccount[]>()
   for (const account of all) {
     if (!account.parentId) continue
     const list = children.get(account.parentId) ?? []
@@ -61,7 +94,7 @@ export async function loadChart(): Promise<ChartIndex> {
 
   const childrenOf = (accountId: string) => children.get(accountId) ?? []
 
-  const leavesUnder = (accountId: string): Account[] => {
+  const leavesUnder = (accountId: string): ChartAccount[] => {
     const root = byId.get(accountId)
     if (!root) return []
     if (!root.isGroup) return [root]
@@ -70,7 +103,7 @@ export async function loadChart(): Promise<ChartIndex> {
 
   const equityRoot = all.find((a) => a.type === "EQUITY" && a.parentId === null) ?? null
 
-  return { all, byId, byRole, childrenOf, leavesUnder, equityRoot }
+  return { all, byId, byRole, byNoteRef, childrenOf, leavesUnder, equityRoot }
 }
 
 /**
@@ -244,9 +277,35 @@ export function assertChartCoversLedger(chart: ChartIndex, balances: BalanceMap)
  * do from the chart of accounts without anybody writing code.
  */
 export function isVisible(
-  account: Pick<Account, "isActive">,
+  account: Pick<ChartAccount, "isActive">,
   current: Prisma.Decimal,
   comparative: Prisma.Decimal
 ): boolean {
   return account.isActive || !current.isZero() || !comparative.isZero()
+}
+
+export function assertEveryAccountClassified(chart: ChartIndex, balances: BalanceMap): void {
+  const accumDep = chart.byRole.get("PPE_ACCUM_DEP")
+  const excluded = new Set<string>(accumDep ? chart.leavesUnder(accumDep.id).map((a) => a.id) : [])
+  const retained = chart.byRole.get("RETAINED_EARNINGS")
+  if (retained) excluded.add(retained.id)
+
+  const orphans = [...balances.entries()]
+    .filter(([id, balance]) => {
+      if (balance.signed.isZero() || excluded.has(id)) return false
+      const account = chart.byId.get(id)
+      if (!account) return false
+      if (account.type === "INCOME" || account.type === "EXPENSE") return false
+      return account.cashFlowKind === "NONE"
+    })
+    .map(([id]) => chart.byId.get(id)!)
+    .sort((a, b) => a.code.localeCompare(b.code))
+
+  if (orphans.length === 0) return
+  const named = orphans.map((a) => `${a.code} ${a.name}`).join(", ")
+  throw new AppError(
+    409,
+    `${named} ${orphans.length === 1 ? "carries a balance but has" : "carry balances but have"} no cash-flow classification, so their movements would be missing from the Statement of Cash Flows. Set a cash-flow section on them in the chart of accounts.`,
+    { accountIds: orphans.map((a) => a.id), codes: orphans.map((a) => a.code) }
+  )
 }

@@ -22,7 +22,6 @@
  * precisely the current year's profit to date.
  */
 
-import type { Account } from "../../generated/prisma/client"
 import { Prisma } from "../../generated/prisma/client"
 import {
   assertLedgerBalanced,
@@ -33,6 +32,7 @@ import {
   ZERO,
   type BalanceMap,
   type ChartIndex,
+  type ChartAccount,
 } from "./statements.balances"
 import { pnlNetProfit } from "./statements.pnl"
 import {
@@ -69,7 +69,7 @@ const EQUITY_AND_LIABILITY_SECTIONS: SectionSpec[] = [
 
 function breakdownOf(
   chart: ChartIndex,
-  roots: Account[],
+  roots: ChartAccount[],
   current: BalanceMap,
   comparative: BalanceMap
 ): BreakdownRow[] {
