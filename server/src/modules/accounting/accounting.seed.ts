@@ -27,7 +27,8 @@
  */
 
 import prisma from "../../config/prisma"
-import type { AccountCashKind, AccountType } from "../../generated/prisma/client"
+import { Prisma } from "../../generated/prisma/client"
+import type { AccountCashKind, AccountType, CashFlowKind } from "../../generated/prisma/client"
 
 export interface ChartEntry {
   code: string
@@ -39,6 +40,10 @@ export interface ChartEntry {
   systemRole?: string
   /** The note number in the audited FY 2024-25 statements, where it has one. */
   note?: string
+  noteRef?: string
+  cashFlow?: CashFlowKind
+  rate?: string
+  contra?: string
 }
 
 const g = (
@@ -61,60 +66,60 @@ export const CHART: ChartEntry[] = [
   // ── 1000 ASSETS ──
   g("1000", "Assets", "ASSET"),
   g("1100", "Non-Current Assets", "ASSET", { parent: "1000", systemRole: "NON_CURRENT_ASSETS" }),
-  g("1110", "Property, Plant & Equipment", "ASSET", { parent: "1100", systemRole: "PPE_COST", note: "4.00" }),
-  a("1111", "Furniture & Fixture", "ASSET", "1110"),
-  a("1112", "Office Equipments", "ASSET", "1110"),
-  a("1113", "Software / Domain", "ASSET", "1110"),
-  a("1114", "Computer / Laptop", "ASSET", "1110"),
+  g("1110", "Property, Plant & Equipment", "ASSET", { parent: "1100", systemRole: "PPE_COST", note: "4.00", noteRef: "4.00" }),
+  a("1111", "Furniture & Fixture", "ASSET", "1110", { cashFlow: "INVESTING", rate: "10.00", contra: "1121" }),
+  a("1112", "Office Equipments", "ASSET", "1110", { cashFlow: "INVESTING", rate: "10.00", contra: "1122" }),
+  a("1113", "Software / Domain", "ASSET", "1110", { cashFlow: "INVESTING", rate: "25.00", contra: "1123" }),
+  a("1114", "Computer / Laptop", "ASSET", "1110", { cashFlow: "INVESTING", rate: "20.00", contra: "1124" }),
   g("1120", "Accumulated Depreciation", "ASSET", { parent: "1100", systemRole: "PPE_ACCUM_DEP" }),
   a("1121", "Acc. Dep. — Furniture & Fixture", "ASSET", "1120"),
   a("1122", "Acc. Dep. — Office Equipments", "ASSET", "1120"),
   a("1123", "Acc. Dep. — Software / Domain", "ASSET", "1120"),
   a("1124", "Acc. Dep. — Computer / Laptop", "ASSET", "1120"),
-  g("1130", "Preliminary Expenses", "ASSET", { parent: "1100", note: "5.00" }),
-  a("1131", "Registration Cost", "ASSET", "1130"),
-  a("1132", "Trade Licence", "ASSET", "1130"),
+  g("1130", "Preliminary Expenses", "ASSET", { parent: "1100", note: "5.00", noteRef: "5.00" }),
+  a("1131", "Registration Cost", "ASSET", "1130", { cashFlow: "INVESTING" }),
+  a("1132", "Trade Licence", "ASSET", "1130", { cashFlow: "INVESTING" }),
 
   g("1200", "Current Assets", "ASSET", { parent: "1000", systemRole: "CURRENT_ASSETS" }),
-  g("1210", "Inventories", "ASSET", { parent: "1200", note: "6.00" }),
-  a("1211", "Developed Software (Completed)", "ASSET", "1210"),
-  a("1212", "Raw Materials", "ASSET", "1210"),
-  a("1213", "Software Work in Process", "ASSET", "1210"),
-  a("1220", "Trade and other Receivables", "ASSET", "1200", { note: "7.00" }),
-  g("1230", "Advance, Deposit & Prepayments", "ASSET", { parent: "1200", note: "8.00" }),
-  a("1231", "Advance against Office Rent", "ASSET", "1230"),
-  g("1240", "Cash & Cash Equivalents", "ASSET", { parent: "1200", note: "9.00" }),
-  a("1241", "Cash in Hand", "ASSET", "1240", { cashKind: "CASH" }),
-  a("1242", "City Bank — A/C 1104400708001", "ASSET", "1240", { cashKind: "BANK", note: "9.01" }),
+  g("1210", "Inventories", "ASSET", { parent: "1200", note: "6.00", noteRef: "6.00" }),
+  a("1211", "Developed Software (Completed)", "ASSET", "1210", { cashFlow: "OPERATING_WC" }),
+  a("1212", "Raw Materials", "ASSET", "1210", { cashFlow: "OPERATING_WC" }),
+  a("1213", "Software Work in Process", "ASSET", "1210", { cashFlow: "OPERATING_WC" }),
+  a("1220", "Trade and other Receivables", "ASSET", "1200", { note: "7.00", noteRef: "7.00", cashFlow: "OPERATING_WC" }),
+  g("1230", "Advance, Deposit & Prepayments", "ASSET", { parent: "1200", note: "8.00", noteRef: "8.00" }),
+  a("1231", "Advance against Office Rent", "ASSET", "1230", { cashFlow: "OPERATING_WC" }),
+  g("1240", "Cash & Cash Equivalents", "ASSET", { parent: "1200", note: "9.00", noteRef: "9.00" }),
+  a("1241", "Cash in Hand", "ASSET", "1240", { cashKind: "CASH", cashFlow: "CASH" }),
+  a("1242", "City Bank — A/C 1104400708001", "ASSET", "1240", { cashKind: "BANK", note: "9.01", noteRef: "9.01", cashFlow: "CASH" }),
   // Seeded so the chart is complete; nothing posts to these until slice 4.
-  a("1250", "Employee Advances", "ASSET", "1200"),
-  a("1260", "Employee Loans", "ASSET", "1200"),
+  a("1250", "Employee Advances", "ASSET", "1200", { cashFlow: "OPERATING_WC" }),
+  a("1260", "Employee Loans", "ASSET", "1200", { cashFlow: "OPERATING_WC" }),
 
   // ── 2000 LIABILITIES ──
   g("2000", "Liabilities", "LIABILITY"),
   g("2100", "Current Liabilities", "LIABILITY", { parent: "2000", systemRole: "CURRENT_LIABILITIES" }),
-  a("2110", "Trade and other Payables", "LIABILITY", "2100", { note: "12.00" }),
-  a("2120", "Provision for Income Tax", "LIABILITY", "2100", { note: "13.00" }),
-  g("2130", "Liabilities for Expenses", "LIABILITY", { parent: "2100", note: "14.00" }),
-  a("2131", "Audit Fee Payable", "LIABILITY", "2130"),
-  a("2132", "Salary Payable", "LIABILITY", "2130"),
-  a("2133", "Bonus Payable", "LIABILITY", "2130"),
-  a("2134", "Overtime Payable", "LIABILITY", "2130"),
-  a("2140", "Tax Deducted at Source Payable", "LIABILITY", "2100"),
-  a("2150", "VAT Payable", "LIABILITY", "2100"),
+  a("2110", "Trade and other Payables", "LIABILITY", "2100", { note: "12.00", noteRef: "12.00", cashFlow: "OPERATING_WC" }),
+  a("2120", "Provision for Income Tax", "LIABILITY", "2100", { note: "13.00", noteRef: "13.00", cashFlow: "OPERATING_WC" }),
+  g("2130", "Liabilities for Expenses", "LIABILITY", { parent: "2100", note: "14.00", noteRef: "14.00" }),
+  a("2131", "Audit Fee Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2132", "Salary Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2133", "Bonus Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2134", "Overtime Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2140", "Tax Deducted at Source Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
+  a("2150", "VAT Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
   g("2200", "Non-Current Liabilities", "LIABILITY", { parent: "2000", systemRole: "NON_CURRENT_LIABILITIES" }),
-  a("2210", "Loan Payable", "LIABILITY", "2200"),
+  a("2210", "Loan Payable", "LIABILITY", "2200", { cashFlow: "FINANCING" }),
 
   // ── 3000 EQUITY ──
   // No systemRole on the section: `type: EQUITY` already identifies it.
   g("3000", "Equity", "EQUITY"),
-  a("3100", "Share Capital", "EQUITY", "3000", { note: "10.00" }),
-  a("3200", "Share Money Deposit", "EQUITY", "3000"),
-  a("3300", "Retained Earnings", "EQUITY", "3000", { systemRole: "RETAINED_EARNINGS", note: "11.00" }),
+  a("3100", "Share Capital", "EQUITY", "3000", { note: "10.00", noteRef: "10.00", cashFlow: "FINANCING" }),
+  a("3200", "Share Money Deposit", "EQUITY", "3000", { cashFlow: "FINANCING" }),
+  a("3300", "Retained Earnings", "EQUITY", "3000", { systemRole: "RETAINED_EARNINGS", note: "11.00", noteRef: "11.00" }),
 
   // ── 4000 INCOME ──
   g("4000", "Income", "INCOME"),
-  g("4100", "Revenue", "INCOME", { parent: "4000", systemRole: "REVENUE", note: "15.00" }),
+  g("4100", "Revenue", "INCOME", { parent: "4000", systemRole: "REVENUE", note: "15.00", noteRef: "15.00" }),
   a("4110", "Service Revenue — Export", "INCOME", "4100"),
   a("4120", "Service Revenue — Local", "INCOME", "4100"),
   a("4130", "Product Sales", "INCOME", "4100"),
@@ -124,9 +129,9 @@ export const CHART: ChartEntry[] = [
 
   // ── 5000 EXPENSES ──
   g("5000", "Expenses", "EXPENSE"),
-  g("5100", "Cost of Goods Sold", "EXPENSE", { parent: "5000", systemRole: "COST_OF_SALES", note: "16.00" }),
+  g("5100", "Cost of Goods Sold", "EXPENSE", { parent: "5000", systemRole: "COST_OF_SALES", note: "16.00", noteRef: "16.00" }),
   a("5110", "Materials Consumed", "EXPENSE", "5100"),
-  g("5120", "Direct Expenses", "EXPENSE", { parent: "5100", note: "16.01" }),
+  g("5120", "Direct Expenses", "EXPENSE", { parent: "5100", note: "16.01", noteRef: "16.01" }),
   a("5121", "Hardware Purchase", "EXPENSE", "5120"),
   a("5122", "Salary, Wages & Allowances", "EXPENSE", "5120"),
   a("5123", "Festival Bonus", "EXPENSE", "5120"),
@@ -134,9 +139,9 @@ export const CHART: ChartEntry[] = [
   a("5125", "Customs Duty", "EXPENSE", "5120"),
   a("5126", "C & F Expenses", "EXPENSE", "5120"),
   a("5127", "Suit & Domain Fee", "EXPENSE", "5120"),
-  a("5128", "Depreciation — Direct", "EXPENSE", "5120"),
+  a("5128", "Depreciation — Direct", "EXPENSE", "5120", { cashFlow: "NON_CASH_ADDBACK" }),
 
-  g("5200", "Administrative & Selling Expenses", "EXPENSE", { parent: "5000", systemRole: "ADMIN_SELLING", note: "17.00" }),
+  g("5200", "Administrative & Selling Expenses", "EXPENSE", { parent: "5000", systemRole: "ADMIN_SELLING", note: "17.00", noteRef: "17.00" }),
   a("5201", "Salary and Allowances", "EXPENSE", "5200"),
   a("5202", "Festival Bonus", "EXPENSE", "5200"),
   a("5203", "Stationary", "EXPENSE", "5200"),
@@ -151,14 +156,14 @@ export const CHART: ChartEntry[] = [
   a("5212", "IT Accessories", "EXPENSE", "5200"),
   a("5213", "Repair & Maintenance", "EXPENSE", "5200"),
   a("5214", "Audit Fee", "EXPENSE", "5200"),
-  a("5215", "Depreciation — Admin", "EXPENSE", "5200"),
+  a("5215", "Depreciation — Admin", "EXPENSE", "5200", { cashFlow: "NON_CASH_ADDBACK" }),
   a("5216", "Training Expense", "EXPENSE", "5200"),
   a("5217", "Miscellaneous Expenses", "EXPENSE", "5200"),
 
-  g("5300", "Financial Expenses", "EXPENSE", { parent: "5000", systemRole: "FINANCIAL_EXPENSE", note: "18.00" }),
+  g("5300", "Financial Expenses", "EXPENSE", { parent: "5000", systemRole: "FINANCIAL_EXPENSE", note: "18.00", noteRef: "18.00" }),
   a("5310", "Bank Interest & Charges", "EXPENSE", "5300"),
 
-  g("5400", "Income Tax Expense", "EXPENSE", { parent: "5000", systemRole: "TAX_EXPENSE", note: "19.00" }),
+  g("5400", "Income Tax Expense", "EXPENSE", { parent: "5000", systemRole: "TAX_EXPENSE", note: "19.00", noteRef: "19.00" }),
   a("5410", "Current Tax", "EXPENSE", "5400"),
 ]
 
@@ -177,7 +182,11 @@ export async function seedChartOfAccounts(): Promise<void> {
       // must survive the next seed; only the structural fields are worth
       // repairing, and even those are left alone rather than fighting a
       // deliberate change.
-      update: {},
+      update: {
+        noteRef: entry.noteRef ?? null,
+        cashFlowKind: entry.cashFlow ?? "NONE",
+        depreciationRate: entry.rate ? new Prisma.Decimal(entry.rate) : null,
+      },
       create: {
         code: entry.code,
         name: entry.name,
@@ -186,10 +195,25 @@ export async function seedChartOfAccounts(): Promise<void> {
         isGroup: entry.isGroup ?? false,
         cashKind: entry.cashKind ?? "NONE",
         systemRole: entry.systemRole ?? null,
+        noteRef: entry.noteRef ?? null,
+        cashFlowKind: entry.cashFlow ?? "NONE",
+        depreciationRate: entry.rate ? new Prisma.Decimal(entry.rate) : null,
         description: entry.note ? `Note ${entry.note} in the audited statements` : null,
       },
     })
 
     idByCode.set(entry.code, account.id)
+  }
+
+  for (const entry of CHART) {
+    if (!entry.contra) continue
+    const id = idByCode.get(entry.code)
+    const contraId = idByCode.get(entry.contra)
+    if (!id || !contraId) continue
+
+    await prisma.account.update({
+      where: { id },
+      data: { contraAccountId: contraId },
+    })
   }
 }

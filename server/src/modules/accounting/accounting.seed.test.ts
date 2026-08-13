@@ -107,3 +107,76 @@ describe("CHART", () => {
     expect(salaries.map((s) => s.code)).toContain("5201")
   })
 })
+
+describe("cash flow classification", () => {
+  const leaves = CHART.filter((e) => !e.isGroup)
+  const deliberatelyUnclassified = (code: string, type: string) =>
+    code.startsWith("112") || code === "3300" || type === "INCOME" || type === "EXPENSE"
+
+  it("classifies every balance-bearing leaf that is not a deliberate exclusion", () => {
+    const missed = leaves.filter(
+      (e) => !e.cashFlow && !deliberatelyUnclassified(e.code, e.type)
+    )
+
+    expect(missed.map((e) => `${e.code} ${e.name}`)).toEqual([])
+  })
+
+  it("marks both depreciation accounts as add-backs", () => {
+    expect(leaves.filter((e) => e.cashFlow === "NON_CASH_ADDBACK").map((e) => e.code).sort()).toEqual([
+      "5128",
+      "5215",
+    ])
+  })
+
+  it("leaves accumulated depreciation unclassified", () => {
+    const accumDep = leaves.filter((e) => e.code.startsWith("112"))
+    expect(accumDep.every((e) => !e.cashFlow)).toBe(true)
+    expect(accumDep).toHaveLength(4)
+  })
+
+  it("leaves Retained Earnings unclassified", () => {
+    expect(CHART.find((e) => e.code === "3300")?.cashFlow).toBeUndefined()
+  })
+
+  it("classifies only share capital, share money and loans as financing", () => {
+    expect(leaves.filter((e) => e.cashFlow === "FINANCING").map((e) => e.code).sort()).toEqual([
+      "2210",
+      "3100",
+      "3200",
+    ])
+  })
+
+  it("tags exactly the two cash accounts", () => {
+    const cash = leaves.filter((e) => e.cashFlow === "CASH")
+    expect(cash.map((e) => e.code).sort()).toEqual(["1241", "1242"])
+    expect(cash.every((e) => e.cashKind === "CASH" || e.cashKind === "BANK")).toBe(true)
+  })
+})
+
+describe("note refs", () => {
+  it("anchors the filed statement notes", () => {
+    const refs = CHART.filter((e) => e.noteRef).map((e) => e.noteRef)
+    expect(refs.sort()).toEqual([
+      "10.00", "11.00", "12.00", "13.00", "14.00", "15.00", "16.00", "16.01",
+      "17.00", "18.00", "19.00", "4.00", "5.00", "6.00", "7.00", "8.00",
+      "9.00", "9.01",
+    ].sort())
+  })
+
+  it("gives no two accounts the same note", () => {
+    const refs = CHART.filter((e) => e.noteRef).map((e) => e.noteRef!)
+    expect(new Set(refs).size).toBe(refs.length)
+  })
+})
+
+describe("Annexure-A inputs", () => {
+  it("carries the disclosed rate on each PP&E class", () => {
+    const rates = Object.fromEntries(CHART.filter((e) => e.rate).map((e) => [e.code, e.rate]))
+    expect(rates).toEqual({ "1111": "10.00", "1112": "10.00", "1113": "25.00", "1114": "20.00" })
+  })
+
+  it("pairs every PP&E cost account with its accumulated-depreciation account", () => {
+    const pairs = Object.fromEntries(CHART.filter((e) => e.contra).map((e) => [e.code, e.contra]))
+    expect(pairs).toEqual({ "1111": "1121", "1112": "1122", "1113": "1123", "1114": "1124" })
+  })
+})
