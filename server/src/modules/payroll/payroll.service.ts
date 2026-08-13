@@ -14,6 +14,9 @@ import { writeAudit } from "../../utils/audit"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
+import { postPayrollAccrual, postPayrollPayment } from "./payroll.posting"
+import { periodStatusFor } from "../posting/posting.preflight"
+import { monthWindow, toLedgerDate } from "../accounting/accounting.utils"
 import { payrollRunEvent, payslipPublishedEvent } from "./payroll.events"
 import { computePayslip } from "./payroll.calc"
 import { resolveRateOrThrow } from "./payroll.fx"
@@ -372,7 +375,12 @@ export async function getRun(id: string) {
 export async function getRunPreflight(id: string) {
   const run = await prisma.payrollRun.findUnique({ where: { id }, select: { month: true, year: true } })
   if (!run) throw new AppError(404, "Payroll run not found")
-  return preflight(run.month, run.year)
+  const base = await preflight(run.month, run.year)
+  const [accrual, payment] = await Promise.all([
+    periodStatusFor(prisma, monthWindow(run.year, run.month).endDate),
+    periodStatusFor(prisma, toLedgerDate(new Date())),
+  ])
+  return { ...base, accounting: { accrual, payment } }
 }
 
 export async function createRun(actorUserId: string, body: CreateRunBody) {
@@ -625,7 +633,6 @@ export async function processRun(id: string, actorUserId: string) {
       where: { id },
       data: { fxRateToBdt: usdRate, processedBy: actorUserId, processedAt: new Date() },
     })
-
     await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
@@ -703,6 +710,7 @@ export async function approveRun(id: string, actorUserId: string) {
       where: { id },
       data: { status: "APPROVED", approvedBy: actorUserId, approvedAt: new Date() },
     })
+    await postPayrollAccrual(tx, id, actorUserId)
     await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,
@@ -809,6 +817,7 @@ export async function disburseRun(id: string, actorUserId: string) {
       { payslip: { payrollRunId: id }, status: "APPROVED" },
       actorUserId
     )
+    await postPayrollPayment(tx, id, actorUserId)
     await writeAudit(tx, {
       entity: "PAYROLL_RUN",
       entityId: id,

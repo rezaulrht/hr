@@ -18,6 +18,7 @@ import { sweepClaimsReimbursed } from "../expense/expense.sweep"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "../payroll/payroll.money"
 import { toComponentInputs } from "../payroll/payroll.preflight"
+import { postSettlementAccrual, postSettlementPayment } from "./settlement.posting"
 import {
   completedServiceYears,
   computeGratuity,
@@ -341,6 +342,7 @@ export async function approveSettlement(id: string, actorUserId: string) {
       data: { status: "APPROVED", approvedBy: actorUserId, approvedAt: new Date() },
       include: SETTLEMENT_INCLUDE,
     })
+    await postSettlementAccrual(tx, id, actorUserId)
     await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,
@@ -404,6 +406,7 @@ export async function paySettlement(id: string, actorUserId: string) {
       include: SETTLEMENT_INCLUDE,
     })
     await sweepClaimsReimbursed(tx, { settlementId: id, status: "APPROVED" }, actorUserId)
+    await postSettlementPayment(tx, id, actorUserId, updated.paidAt ?? new Date())
     await writeAudit(tx, {
       entity: "SETTLEMENT",
       entityId: id,

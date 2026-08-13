@@ -14,8 +14,14 @@ import {
   createClaimBody,
   rejectClaimBody,
 } from "./expense.validators"
+import { createExpenseCategory, deleteExpenseCategory, listExpenseCategories, updateExpenseCategory } from "./expense.category.service"
 
 type RequestWithId = Request<{ id: string }>
+
+export async function listExpenseCategoriesHandler(_req: Request, res: Response, next: NextFunction) { try { res.json(await listExpenseCategories()) } catch (err) { next(err) } }
+export async function createExpenseCategoryHandler(req: Request, res: Response, next: NextFunction) { try { res.status(201).json(await createExpenseCategory(req.body, req.user!)) } catch (err) { next(err) } }
+export async function updateExpenseCategoryHandler(req: RequestWithId, res: Response, next: NextFunction) { try { res.json(await updateExpenseCategory(req.params.id, req.body, req.user!)) } catch (err) { next(err) } }
+export async function deleteExpenseCategoryHandler(req: RequestWithId, res: Response, next: NextFunction) { try { await deleteExpenseCategory(req.params.id, req.user!); res.status(204).send() } catch (err) { next(err) } }
 
 export async function createClaimHandler(req: Request, res: Response, next: NextFunction) {
   try {

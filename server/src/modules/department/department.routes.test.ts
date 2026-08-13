@@ -44,7 +44,7 @@ describe("GET /api/departments", () => {
       { id: "d2", name: "Sales" },
     ])
     expect(prisma.department.findMany).toHaveBeenCalledWith({
-      select: { id: true, name: true },
+      select: { id: true, name: true, costNature: true },
       orderBy: { name: "asc" },
     })
   })

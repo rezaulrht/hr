@@ -6,6 +6,8 @@ import type { Currency } from "./payroll-types"
 // types package (client and server are separate projects) — if the
 // server's Role enum changes, update this by hand.
 export type Role = "SUPER_ADMIN" | "HR_ADMIN" | "FINANCE_OFFICER" | "REPORTING_MANAGER" | "EMPLOYEE"
+export interface PostingRule { id: string; event: string; key: string; accountId: string; note: string | null; account: { code: string; name: string } }
+export interface UnresolvedKey { event: string; key: string }
 
 export interface PublicUser {
   id: string
@@ -27,6 +29,7 @@ export type EmploymentStatus = "ACTIVE" | "ON_LEAVE" | "RESIGNED" | "TERMINATED"
 export interface Department {
   id: string
   name: string
+  costNature: "DIRECT" | "ADMINISTRATIVE"
 }
 
 export interface Employee {
@@ -1202,6 +1205,7 @@ export interface CreateUserResult {
 
 export interface DepartmentInput {
   name: string
+  costNature?: "DIRECT" | "ADMINISTRATIVE"
 }
 
 /** The whole `Shift` row. The server returns all of it since Project B. */

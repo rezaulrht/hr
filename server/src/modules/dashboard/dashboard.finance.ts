@@ -176,7 +176,7 @@ async function pendingClaimRows(): Promise<TableCell[][]> {
     select: {
       amount: true,
       currency: true,
-      category: true,
+       category: { select: { name: true } },
       expenseDate: true,
       employee: { select: { fullName: true, employeeCode: true } },
     },
@@ -184,7 +184,7 @@ async function pendingClaimRows(): Promise<TableCell[][]> {
 
   return claims.map((c) => [
     { text: c.employee.fullName, sub: c.employee.employeeCode, weight: 500 },
-    { text: c.category },
+    { text: c.category.name },
     { text: money(c.amount, c.currency), tag: c.currency },
     { text: c.expenseDate.toISOString().slice(0, 10) },
   ])

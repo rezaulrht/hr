@@ -176,7 +176,7 @@ async function queueRows(actor: AccessTokenPayload, teamIds: string[]): Promise<
       where: { status: "PENDING", employeeId: { in: teamIds } },
       orderBy: { createdAt: "asc" },
       take: 5,
-      select: { createdAt: true, category: true, employee: { select: { fullName: true } } },
+      select: { createdAt: true, category: { select: { name: true } }, employee: { select: { fullName: true } } },
     }),
     listApprovals(actor),
   ])
@@ -192,7 +192,7 @@ async function queueRows(actor: AccessTokenPayload, teamIds: string[]): Promise<
       when: c.createdAt,
       name: c.employee.fullName,
       queue: "Expense",
-      detail: c.category,
+       detail: c.category.name,
     })),
     ...attendance.slice(0, 5).map((a) => ({
       when: new Date(`${a.date}T00:00:00.000Z`),

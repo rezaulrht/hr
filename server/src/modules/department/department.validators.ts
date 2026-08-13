@@ -2,6 +2,7 @@ import { z } from "zod"
 
 export const createDepartmentSchema = z.object({
   name: z.string().trim().min(1, "A name is required").max(100),
+  costNature: z.enum(["DIRECT", "ADMINISTRATIVE"]).optional(),
 })
 
 // A department has exactly one editable field, so update takes the same

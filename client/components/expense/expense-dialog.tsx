@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 
-import type { Currency, ExpenseClaimInput } from "@/lib/api/types"
+import type { Currency, ExpenseCategory, ExpenseClaimInput } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -16,8 +16,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-const CATEGORIES = ["Travel", "Accommodation", "Meals", "Equipment", "Training", "Other"]
-
 const today = () => new Date().toISOString().slice(0, 10)
 
 export function ExpenseDialog({
@@ -26,21 +24,23 @@ export function ExpenseDialog({
   pending,
   error,
   onSubmit,
+  categories,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   pending: boolean
   error: string | null
   onSubmit: (input: ExpenseClaimInput) => void
+  categories: ExpenseCategory[]
 }) {
   const [amount, setAmount] = useState("")
   const [currency, setCurrency] = useState<Currency>("BDT")
-  const [category, setCategory] = useState(CATEGORIES[0])
+  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "")
   const [expenseDate, setExpenseDate] = useState(today())
   const [description, setDescription] = useState("")
   const [receiptUrl, setReceiptUrl] = useState("")
 
-  const canSubmit = Number(amount) > 0 && !!expenseDate
+  const canSubmit = Number(amount) > 0 && !!expenseDate && !!categoryId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,14 +87,14 @@ export function ExpenseDialog({
               <Label htmlFor="exp-category" className="mb-1.5 text-xs font-bold">
                 Category
               </Label>
-              <Select value={category} onValueChange={(v) => setCategory(v as string)}>
+               <Select value={categoryId} onValueChange={(value) => value && setCategoryId(value)}>
                 <SelectTrigger id="exp-category" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -154,7 +154,7 @@ export function ExpenseDialog({
               onSubmit({
                 amount: Number(amount),
                 currency,
-                category,
+                 categoryId,
                 expenseDate,
                 description: description.trim() || undefined,
                 receiptUrl: receiptUrl.trim() || undefined,

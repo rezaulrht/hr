@@ -12,6 +12,7 @@ export const navGroups: NavGroup[] = [
       { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine" },
       { label: "Settlements", href: "/finance/settlements", icon: "RiHandCoinLine" },
       { label: "Operating costs", href: "/finance/costs", icon: "RiBillLine" },
+      { label: "Posting rules", href: "/finance/posting-rules", icon: "RiSettingsLine" },
       { label: "Assets", href: "/finance/assets", icon: "RiComputerLine" },
       // Finance is a publisher server-side, so without this entry the
       // permission would exist and be unreachable from the UI.

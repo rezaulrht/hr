@@ -22,7 +22,7 @@ function isUniqueViolation(err: unknown): boolean {
 
 export async function listDepartments() {
   return prisma.department.findMany({
-    select: { id: true, name: true },
+    select: { id: true, name: true, costNature: true },
     orderBy: { name: "asc" },
   })
 }
@@ -30,14 +30,14 @@ export async function listDepartments() {
 export async function createDepartment(input: CreateDepartmentInput, actor: AccessTokenPayload) {
   try {
     return await prisma.$transaction(async (tx) => {
-      const department = await tx.department.create({ data: { name: input.name } })
+      const department = await tx.department.create({ data: { name: input.name, costNature: input.costNature ?? "ADMINISTRATIVE" } })
 
       await writeAudit(tx, {
         entity: "DEPARTMENT",
         entityId: department.id,
         action: "CREATE",
         changedBy: actor.sub,
-        after: { name: department.name },
+        after: { name: department.name, costNature: department.costNature },
       })
 
       return department
@@ -63,7 +63,7 @@ export async function updateDepartment(
 
       const department = await tx.department.update({
         where: { id },
-        data: { name: input.name },
+        data: { name: input.name, ...(input.costNature ? { costNature: input.costNature } : {}) },
       })
 
       await writeAudit(tx, {
@@ -71,8 +71,8 @@ export async function updateDepartment(
         entityId: id,
         action: "UPDATE",
         changedBy: actor.sub,
-        before: { name: existing.name },
-        after: { name: department.name },
+        before: { name: existing.name, costNature: existing.costNature },
+        after: { name: department.name, costNature: department.costNature },
       })
 
       return department

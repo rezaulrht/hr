@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("../accounting/accounting.posting", () => ({ postSystemJournal: vi.fn() }))
+
 vi.mock("../../config/prisma", () => {
   const tx = {
     costCategory: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
@@ -9,6 +11,15 @@ vi.mock("../../config/prisma", () => {
       update: vi.fn(),
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+    },
+    postingRule: {
+      findMany: vi.fn(async ({ where }: any) => [
+        { key: "ELECTRICITY", account: { code: "5209" } },
+        { key: "OTHER", account: { code: "5207" } },
+        { key: "*", account: { code: "5207" } },
+        { key: "PAYABLE", account: { code: "2110" } },
+        ...(where?.event === "COST_PAYMENT" ? [{ key: "BANK", account: { code: "1242" } }] : []),
+      ]),
     },
     auditLog: { create: vi.fn() },
   }
@@ -38,6 +49,10 @@ const finance = {
 beforeEach(() => {
   vi.clearAllMocks()
   tx.auditLog.create.mockResolvedValue({})
+  tx.operatingCost.findUnique.mockResolvedValue({
+    id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
+    amount: 500, category: { code: "OTHER" },
+  })
 })
 
 describe("createCost", () => {
@@ -123,7 +138,10 @@ describe("payCost", () => {
   })
 
   it("stamps paidAt, paidBy and paymentRef on payment", async () => {
-    tx.operatingCost.findUnique.mockResolvedValue({ id: "cost-1", status: "PENDING" })
+    tx.operatingCost.findUnique.mockResolvedValue({
+      id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
+      amount: 500, category: { code: "OTHER" },
+    })
     tx.operatingCost.update.mockResolvedValue({ id: "cost-1", status: "PAID" })
 
     await payCost("cost-1", { paidAt: "2026-08-10", paymentRef: "TXN123" }, finance)
@@ -144,7 +162,10 @@ describe("payCost", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"))
 
-    tx.operatingCost.findUnique.mockResolvedValue({ id: "cost-1", status: "PENDING" })
+    tx.operatingCost.findUnique.mockResolvedValue({
+      id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
+      amount: 500, category: { code: "OTHER" },
+    })
     tx.operatingCost.update.mockResolvedValue({ id: "cost-1", status: "PAID" })
 
     await payCost("cost-1", {}, finance)

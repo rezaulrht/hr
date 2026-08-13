@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../config/prisma", () => {
   const tx = {
     expenseClaim: { create: vi.fn(), update: vi.fn() },
+    expenseCategory: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
     // The event log, written in the same transaction. Distinct from
     // auditLog: one row per user action rather than per record.
@@ -23,6 +24,7 @@ vi.mock("../attendance/attendance.service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../attendance/attendance.service")>()),
   requireEmployeeForUser: vi.fn(),
 }))
+vi.mock("./expense.posting", () => ({ postExpenseAccrual: vi.fn() }))
 
 import prisma from "../../config/prisma"
 import { requireEmployeeForUser } from "../attendance/attendance.service"
@@ -37,7 +39,7 @@ const actor = (role = "EMPLOYEE") =>
 
 const validClaim = {
   amount: 1200,
-  category: "Travel",
+  categoryId: "11111111-1111-1111-1111-111111111111",
   currency: "BDT" as const,
   expenseDate: "2026-08-03",
 }
@@ -70,6 +72,7 @@ beforeEach(() => {
   vi.mocked(requireEmployeeForUser).mockResolvedValue({ id: "emp-1" } as never)
   tx.expenseClaim.create.mockImplementation(async ({ data }: any) => ({ id: "claim-1", ...data }))
   tx.expenseClaim.update.mockImplementation(async ({ data }: any) => ({ id: "claim-1", ...data }))
+  tx.expenseCategory.findUnique.mockResolvedValue({ id: validClaim.categoryId, code: "TRAVEL", name: "Travel" })
 })
 
 afterEach(() => {

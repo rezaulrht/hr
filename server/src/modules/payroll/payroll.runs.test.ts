@@ -31,6 +31,11 @@ vi.mock("../attendance/attendance.summary", () => ({
   getMonthlySummary: vi.fn(),
 }))
 
+vi.mock("./payroll.posting", () => ({
+  postPayrollAccrual: vi.fn(),
+  postPayrollPayment: vi.fn(),
+}))
+
 import prisma from "../../config/prisma"
 import { getMonthlySummary } from "../attendance/attendance.summary"
 import type { MonthlyAttendanceSummary } from "../attendance/attendance.types"

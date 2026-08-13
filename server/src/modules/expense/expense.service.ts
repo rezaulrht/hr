@@ -13,6 +13,7 @@ import { emitEvent } from "../event/event.emit"
 import { expenseEvent } from "./expense.events"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { dec, toMoneyString } from "../payroll/payroll.money"
+import { postExpenseAccrual } from "./expense.posting"
 import type {
   ApproveClaimBody,
   ClaimQuery,
@@ -29,6 +30,7 @@ export const MAX_CLAIM_AGE_DAYS = 90
 
 const CLAIM_INCLUDE = {
   employee: { select: { id: true, fullName: true, employeeCode: true } },
+  category: { select: { id: true, code: true, name: true } },
   payslip: { select: { id: true, payslipNo: true, payrollRunId: true } },
 } as const
 
@@ -51,14 +53,13 @@ export async function createClaim(actor: AccessTokenPayload, body: CreateClaimBo
   }
 
   return prisma.$transaction(async (tx) => {
-    const category = await tx.expenseCategory.findUnique({ where: { code: body.category } })
+    const category = await tx.expenseCategory.findUnique({ where: { id: body.categoryId } })
     if (!category) throw new AppError(400, "Choose a valid expense category")
     const claim = await tx.expenseClaim.create({
       data: {
         employeeId: self.id,
         amount: dec(body.amount),
-        categoryId: category.id,
-        legacyCategoryText: body.category,
+         categoryId: category.id,
         currency: body.currency,
         expenseDate,
         description: body.description,
@@ -141,6 +142,7 @@ export async function approveClaim(id: string, actorUserId: string, body: Approv
         reviewNote: body.note,
       },
     })
+    await postExpenseAccrual(tx, id, actorUserId)
     await writeAudit(tx, {
       entity: "EXPENSE_CLAIM",
       entityId: id,

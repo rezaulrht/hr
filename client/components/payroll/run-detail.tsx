@@ -267,6 +267,14 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
         <PreflightPanel report={run.preflight} />
       ) : null}
 
+      {run.accounting && (!run.accounting.accrual.ok || !run.accounting.payment.ok) ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+          <p className="font-medium">This run cannot be posted to the ledger yet</p>
+          {!run.accounting.accrual.ok ? <p className="mt-1">Approving accrues to <strong>{run.accounting.accrual.label}</strong>, which is {run.accounting.accrual.status === "MISSING" ? "not covered by any financial year" : run.accounting.accrual.status.toLowerCase()}.</p> : null}
+          {!run.accounting.payment.ok ? <p className="mt-1">Disbursing posts to <strong>{run.accounting.payment.label}</strong>, which is {run.accounting.payment.status === "MISSING" ? "not covered by any financial year" : run.accounting.payment.status.toLowerCase()}.</p> : null}
+        </div>
+      ) : null}
+
       {payslips.length > 0 ? (
         <>
           {/* Run totals are BDT only — the one denomination that can be summed

@@ -15,6 +15,7 @@ import { describeUsage } from "../../utils/referenceUsage"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { dec, toMoneyString } from "../payroll/payroll.money"
 import { isOverdue } from "./cost.derive"
+import { postCostAccrual, postCostPayment } from "./cost.posting"
 import type {
   CreateCommitmentInput,
   CreateCostCategoryInput,
@@ -339,6 +340,7 @@ export async function createCost(input: CreateCostInput, actor: AccessTokenPaylo
         createdBy: actor.sub,
       },
     })
+    await postCostAccrual(tx, cost.id, actor.sub)
 
     await writeAudit(tx, {
       entity: "COST",
@@ -457,6 +459,7 @@ export async function payCost(id: string, input: PayCostInput, actor: AccessToke
         paymentRef: input.paymentRef ?? null,
       },
     })
+    await postCostPayment(tx, id, actor.sub, paidAt)
 
     await writeAudit(tx, {
       entity: "COST",
