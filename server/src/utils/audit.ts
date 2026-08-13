@@ -41,6 +41,7 @@ export type AuditEntity =
   | "ACCOUNT"
   | "FINANCIAL_YEAR"
   | "ACCOUNTING_PERIOD"
+  | "STATEMENT_NOTE"
   // Reference data. Editable from the Settings screens rather than the seed,
   // so a rename or a delete needs the same trail as a payroll change.
   | "DEPARTMENT"
