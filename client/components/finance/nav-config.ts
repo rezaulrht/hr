@@ -10,7 +10,7 @@ export const navGroups: NavGroup[] = [
       // Expenses because no run can process until one exists.
       { label: "Salary structures", href: "/finance/salary-structures", icon: "RiSettingsLine" },
       { label: "Expenses", href: "/finance/expenses", icon: "RiReceiptLine" },
-      { label: "Settlements", href: "/finance/settlements", icon: "RiReceiptLine" },
+      { label: "Settlements", href: "/finance/settlements", icon: "RiHandCoinLine" },
       { label: "Operating costs", href: "/finance/costs", icon: "RiBillLine" },
       { label: "Assets", href: "/finance/assets", icon: "RiComputerLine" },
       // Finance is a publisher server-side, so without this entry the
