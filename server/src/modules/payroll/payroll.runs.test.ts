@@ -37,6 +37,8 @@ vi.mock("./payroll.posting", () => ({
 }))
 
 import prisma from "../../config/prisma"
+import { AppError } from "../../middleware/errorHandler"
+import { postPayrollAccrual, postPayrollPayment } from "./payroll.posting"
 import { getMonthlySummary } from "../attendance/attendance.summary"
 import type { MonthlyAttendanceSummary } from "../attendance/attendance.types"
 import {
@@ -658,6 +660,91 @@ describe("disburseRun", () => {
         data: expect.objectContaining({ disbursementFxRateToBdt: expect.anything() }),
       })
     )
+  })
+})
+
+/**
+ * The guarantee the whole seam exists for: a posting shares the caller's
+ * transaction, so accounting can refuse a payday and the business action goes
+ * back with it. There is no window in which a run is disbursed and the ledger
+ * does not know.
+ *
+ * A mocked `$transaction` cannot roll anything back, so these assert the two
+ * things that make the real rollback work — the posting runs inside the same
+ * `tx`, and its failure propagates rather than being swallowed. The end-to-end
+ * proof is the manual smoke test against a real database.
+ */
+describe("the accounting seam", () => {
+  const approved = () =>
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({
+      id: "run-1", status: "APPROVED", fxRateToBdt: null,
+    } as never)
+
+  it("posts the accrual inside the same transaction that approves the run", async () => {
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({
+      id: "run-1", status: "SUBMITTED", submittedBy: "hr-1",
+    } as never)
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "APPROVED" })
+
+    await approveRun("run-1", "admin-1")
+
+    expect(postPayrollAccrual).toHaveBeenCalledWith(tx, "run-1", "admin-1")
+  })
+
+  it("posts the payment inside the same transaction that disburses", async () => {
+    approved()
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "DISBURSED" })
+
+    await disburseRun("run-1", "finance-1")
+
+    expect(postPayrollPayment).toHaveBeenCalledWith(tx, "run-1", "finance-1")
+  })
+
+  it("refuses the disbursement when the accounting period is closed", async () => {
+    approved()
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "DISBURSED" })
+    vi.mocked(postPayrollPayment).mockRejectedValueOnce(
+      new AppError(409, "August 2026 is closed. Reopen it to post into it.")
+    )
+
+    await expect(disburseRun("run-1", "finance-1")).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("closed"),
+    })
+  })
+
+  it("refuses the approval when the run's own month is closed", async () => {
+    vi.mocked(prisma.payrollRun.findUnique).mockResolvedValue({
+      id: "run-1", status: "SUBMITTED", submittedBy: "hr-1",
+    } as never)
+    tx.payrollRun.update.mockResolvedValue({ id: "run-1", status: "APPROVED" })
+    vi.mocked(postPayrollAccrual).mockRejectedValueOnce(
+      new AppError(409, "July 2026 is closed. Reopen it to post into it.")
+    )
+
+    await expect(approveRun("run-1", "admin-1")).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  /**
+   * Decision 13. `postSystemJournal` answers a duplicate with the journal that
+   * already exists, which is only safe because APPROVED is a one-way door:
+   * `processRun` requires DRAFT and `rejectRun` requires SUBMITTED, so the
+   * figures cannot change after the journal posts. Asserted rather than
+   * assumed, because the failure would be silent — a second approval would
+   * return the *first* journal and leave the ledger holding superseded
+   * figures with nothing complaining.
+   */
+  it("cannot re-approve an approved run, which is what makes the idempotency safe", async () => {
+    approved()
+
+    await expect(approveRun("run-1", "admin-1")).rejects.toMatchObject({ statusCode: 409 })
+    expect(postPayrollAccrual).not.toHaveBeenCalled()
+  })
+
+  it("cannot re-process an approved run back into an editable state", async () => {
+    approved()
+
+    await expect(processRun("run-1", "finance-1")).rejects.toMatchObject({ statusCode: 409 })
   })
 })
 

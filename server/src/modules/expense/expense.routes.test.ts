@@ -64,6 +64,13 @@ describe("GET /api/expenses/me", () => {
   })
 })
 
+describe("GET /api/expenses/categories", () => {
+  it("allows staff to load categories for claim submission", async () => {
+    const res = await request(app).get("/api/expenses/categories").set("Authorization", auth("EMPLOYEE"))
+    expect(res.status).not.toBe(403)
+  })
+})
+
 describe("review routes", () => {
   it.each<TestRole>(["EMPLOYEE", "REPORTING_MANAGER", "HR_ADMIN"])(
     "403s %s approving — Finance reviews expenses",

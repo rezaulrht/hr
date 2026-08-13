@@ -3,6 +3,7 @@ import type { CostNature, Currency, Prisma as PrismaNamespace } from "../../gene
 import type { SystemJournalInput } from "../accounting/accounting.types"
 import { postSystemJournal } from "../accounting/accounting.posting"
 import { monthWindow, toLedgerDate } from "../accounting/accounting.utils"
+import { toBdtAllocated } from "../posting/posting.money"
 import { loadRules, resolveAccountCode } from "../posting/posting.rules"
 import type { ResolvedRules } from "../posting/posting.types"
 import { AppError } from "../../middleware/errorHandler"
@@ -30,32 +31,39 @@ export interface PayslipForPosting {
   }
 }
 
-export function toBdtAllocated(lines: Array<{ key: string; amount: Prisma.Decimal }>, rate: Prisma.Decimal, target: Prisma.Decimal) {
-  if (lines.length === 0) return []
-  const converted = lines.map((line) => ({ key: line.key, amount: new Prisma.Decimal(line.amount.times(rate).toFixed(2)) }))
-  const remainder = target.minus(converted.reduce((sum, line) => sum.plus(line.amount), ZERO))
-  if (!remainder.isZero()) {
-    const largest = converted.reduce((index, line, i, all) => line.amount.greaterThan(all[index].amount) ? i : index, 0)
-    converted[largest].amount = converted[largest].amount.plus(remainder)
-  }
-  return converted
-}
-
 const earningsOf = (p: PayslipForPosting) => [...p.breakdown.earnings, ...p.breakdown.adjustments.filter((a) => a.kind !== "DEDUCTION")].map((l) => ({ key: l.code, amount: new Prisma.Decimal(l.amount) }))
 const deductionsOf = (p: PayslipForPosting) => [...p.breakdown.deductions, ...p.breakdown.adjustments.filter((a) => a.kind === "DEDUCTION")].map((l) => ({ key: l.code, amount: new Prisma.Decimal(l.amount) }))
 const fxMemo = (p: PayslipForPosting, sourceAmount: Prisma.Decimal) => p.currency === "BDT" ? {} : { sourceCurrency: p.currency, sourceAmount: two(sourceAmount), fxRateToBdt: p.fxRateToBdt.toFixed(6) }
+
+/**
+ * A signed amount as a journal line.
+ *
+ * A negative earning is a credit and a negative deduction is a debit — the
+ * ledger has no concept of a negative amount, and `assertLineShape` refuses
+ * one outright.
+ *
+ * This is not hypothetical. `computePayslip` appends a **negative**
+ * `LOP_ADJUSTMENT` earnings line whenever somebody lost pay, deliberately, so
+ * the full-month earnings printed on the payslip reconcile to the pro-rated
+ * gross beneath them. Posting that as a debit made every run containing a
+ * single absent employee fail on approval.
+ */
+function sided(amount: Prisma.Decimal, normal: "debit" | "credit"): { debit?: string; credit?: string } {
+  const flipped = normal === "debit" ? "credit" : "debit"
+  return amount.isNegative() ? { [flipped]: two(amount.negated()) } : { [normal]: two(amount) }
+}
 
 export function buildAccrualLines(payslips: PayslipForPosting[], rules: ResolvedRules): Line[] {
   const lines: Line[] = []
   for (const p of payslips) {
     const dimensions = { employeeId: p.employeeId, departmentId: p.departmentId }
     for (const line of toBdtAllocated(earningsOf(p), p.fxRateToBdt, p.grossPayBdt)) {
-      if (!line.amount.isZero()) lines.push({ accountCode: resolveAccountCode(rules, `${p.costNature}:${line.key}`), debit: two(line.amount), narration: line.key, ...dimensions, ...fxMemo(p, line.amount.dividedBy(p.fxRateToBdt)) })
+      if (!line.amount.isZero()) lines.push({ accountCode: resolveAccountCode(rules, `${p.costNature}:${line.key}`), ...sided(line.amount, "debit"), narration: line.key, ...dimensions, ...fxMemo(p, line.amount.dividedBy(p.fxRateToBdt)) })
     }
     for (const line of toBdtAllocated(deductionsOf(p), p.fxRateToBdt, p.totalDeductionsBdt)) {
-      if (!line.amount.isZero()) lines.push({ accountCode: resolveAccountCode(rules, `DEDUCTION:${line.key}`), credit: two(line.amount), narration: line.key, ...dimensions })
+      if (!line.amount.isZero()) lines.push({ accountCode: resolveAccountCode(rules, `DEDUCTION:${line.key}`), ...sided(line.amount, "credit"), narration: line.key, ...dimensions })
     }
-    if (!p.netPayBdt.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "NET_PAY"), credit: two(p.netPayBdt), narration: "Net pay", ...dimensions })
+    if (!p.netPayBdt.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "NET_PAY"), ...sided(p.netPayBdt, "credit"), narration: "Net pay", ...dimensions })
   }
   return lines
 }
@@ -66,11 +74,14 @@ export function buildPaymentLines(payslips: PayslipForPosting[], rules: Resolved
   for (const p of payslips) {
     const dimensions = { employeeId: p.employeeId, departmentId: p.departmentId }
     const reimbursement = p.netPayableBdt.minus(p.netPayBdt)
-    if (!p.netPayBdt.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "NET_PAY"), debit: two(p.netPayBdt), narration: "Net pay", ...dimensions })
-    if (!reimbursement.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "REIMBURSEMENT"), debit: two(reimbursement), narration: "Expense reimbursement", ...dimensions })
+    // `sided` here too. Preflight blocker 5 rejects a run whose net pay went
+    // negative, so this should not arise — but "should not arise" is how the
+    // accrual came to be broken, and the cost of being right anyway is nil.
+    if (!p.netPayBdt.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "NET_PAY"), ...sided(p.netPayBdt, "debit"), narration: "Net pay", ...dimensions })
+    if (!reimbursement.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "REIMBURSEMENT"), ...sided(reimbursement, "debit"), narration: "Expense reimbursement", ...dimensions })
     bankTotal = bankTotal.plus(p.netPayableBdt)
   }
-  if (!bankTotal.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "BANK"), credit: two(bankTotal), narration: "Disbursement" })
+  if (!bankTotal.isZero()) lines.push({ accountCode: resolveAccountCode(rules, "BANK"), ...sided(bankTotal, "credit"), narration: "Disbursement" })
   return lines
 }
 

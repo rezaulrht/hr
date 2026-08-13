@@ -168,6 +168,38 @@ describe("postSystemJournal", () => {
     expect(lines[1]).toMatchObject({ departmentId: null, employeeId: null })
   })
 
+  /**
+   * The three memo columns existed on `JournalLine` from slice 1, with a
+   * comment saying they are there so a line reading 61,25,000 can answer
+   * "why?" with "USD 50,000 at 122.50" — but the seam's input type did not
+   * carry them, so every caller that worked one out had it silently dropped.
+   */
+  it("persists the FX memo a caller supplies", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, {
+      ...input,
+      lines: [
+        { accountCode: "5201", debit: "6125000.00", sourceCurrency: "USD", sourceAmount: "50000.00", fxRateToBdt: "122.500000" },
+        { accountCode: "2132", credit: "6125000.00" },
+      ],
+    })
+
+    const lines = (tx as any).journal.create.mock.calls[0][0].data.lines.createMany.data
+    expect(lines[0].sourceCurrency).toBe("USD")
+    expect(lines[0].sourceAmount.toFixed(2)).toBe("50000.00")
+    expect(lines[0].fxRateToBdt.toFixed(6)).toBe("122.500000")
+  })
+
+  it("leaves the FX memo null on a BDT transaction", async () => {
+    const tx = makeTx()
+
+    await postSystemJournal(tx, input)
+
+    const lines = (tx as any).journal.create.mock.calls[0][0].data.lines.createMany.data
+    expect(lines[0]).toMatchObject({ sourceCurrency: null, sourceAmount: null, fxRateToBdt: null })
+  })
+
   it("writes a POST audit row naming the source", async () => {
     const tx = makeTx()
 

@@ -22,6 +22,9 @@ vi.mock("../../config/prisma", () => {
       ]),
     },
     auditLog: { create: vi.fn() },
+    // `updateCost` asks whether a journal was posted from this bill before it
+    // refuses an edit to the figures it was built from.
+    journal: { findFirst: vi.fn(async () => null) },
   }
   return {
     default: {
@@ -35,7 +38,8 @@ vi.mock("../../config/prisma", () => {
 })
 
 import prisma from "../../config/prisma"
-import { createCost, payCost, updateCommitment } from "./cost.service"
+import { dec } from "../payroll/payroll.money"
+import { createCost, payCost, updateCommitment, updateCost } from "./cost.service"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
 
@@ -51,11 +55,32 @@ beforeEach(() => {
   tx.auditLog.create.mockResolvedValue({})
   tx.operatingCost.findUnique.mockResolvedValue({
     id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
-    amount: 500, category: { code: "OTHER" },
+    amount: dec(500), currency: "BDT", periodMonth: 3, periodYear: 2026, category: { code: "OTHER" },
   })
 })
 
 describe("createCost", () => {
+  it("rejects USD because operating costs do not store an FX snapshot", async () => {
+    tx.costCategory.findUnique.mockResolvedValue({ id: "cat-1", code: "OTHER", name: "Other" })
+
+    await expect(
+      createCost(
+        {
+          categoryId: "cat-1",
+          label: "USD software license",
+          payee: "Vendor",
+          periodMonth: 3,
+          periodYear: 2026,
+          amount: 100,
+          currency: "USD",
+        },
+        finance
+      )
+    ).rejects.toMatchObject({ statusCode: 400 })
+
+    expect(tx.operatingCost.create).not.toHaveBeenCalled()
+  })
+
   it("409s on a second bill for the same commitment and period, naming the existing one", async () => {
     tx.costCategory.findUnique.mockResolvedValue({ id: "cat-1", code: "RENT", name: "Office rent" })
     tx.costCommitment.findUnique.mockResolvedValue({ id: "cm-1", label: "Office rent — Banani" })
@@ -86,7 +111,7 @@ describe("createCost", () => {
 
   it("allows two bills in the same period when neither is linked to a commitment", async () => {
     tx.costCategory.findUnique.mockResolvedValue({ id: "cat-1", code: "OTHER", name: "Other" })
-    tx.operatingCost.create.mockResolvedValue({ id: "cost-1" })
+    tx.operatingCost.create.mockResolvedValue({ id: "cost-1", currency: "BDT", periodMonth: 3, periodYear: 2026 })
 
     await createCost(
       {
@@ -107,7 +132,7 @@ describe("createCost", () => {
 
   it("writes an AuditLog row in the same transaction as the bill", async () => {
     tx.costCategory.findUnique.mockResolvedValue({ id: "cat-1", code: "OTHER", name: "Other" })
-    tx.operatingCost.create.mockResolvedValue({ id: "cost-1" })
+    tx.operatingCost.create.mockResolvedValue({ id: "cost-1", currency: "BDT", periodMonth: 3, periodYear: 2026 })
 
     await createCost(
       {
@@ -129,6 +154,70 @@ describe("createCost", () => {
   })
 })
 
+describe("updateCost", () => {
+  const pending = () =>
+    tx.operatingCost.findUnique.mockResolvedValue({
+      id: "cost-1",
+      status: "PENDING",
+      categoryId: "cat-1",
+      label: "One-off repair",
+      payee: "Handyman",
+      amount: dec(500),
+      currency: "BDT",
+    })
+
+  it("rejects an edit to a figure the posted journal was built from, naming it", async () => {
+    pending()
+    tx.journal.findFirst.mockResolvedValue({ journalNo: "JV-000042" })
+
+    await expect(updateCost("cost-1", { amount: 600 }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("JV-000042"),
+    })
+    expect(tx.operatingCost.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects a re-categorisation, which would move the expense to another account", async () => {
+    pending()
+    tx.journal.findFirst.mockResolvedValue({ journalNo: "JV-000042" })
+    tx.costCategory.findUnique.mockResolvedValue({ id: "cat-2", code: "RENT" })
+
+    await expect(updateCost("cost-1", { categoryId: "cat-2" }, finance)).rejects.toMatchObject({
+      statusCode: 409,
+    })
+  })
+
+  /**
+   * The narration is not a figure. Refusing to fix a misspelt payee would be
+   * a rule with nothing behind it — the ledger line's text is cosmetic, and a
+   * reversal to correct one would be absurd.
+   */
+  it("allows a correction to the payee, which only reaches the ledger as narration", async () => {
+    pending()
+    tx.journal.findFirst.mockResolvedValue({ journalNo: "JV-000042" })
+    tx.operatingCost.update.mockResolvedValue({ id: "cost-1", payee: "Handyman Ltd" })
+
+    await expect(updateCost("cost-1", { payee: "Handyman Ltd" }, finance)).resolves.toBeTruthy()
+    expect(tx.operatingCost.update).toHaveBeenCalled()
+  })
+
+  it("allows an amount correction while no journal has been posted from it", async () => {
+    pending()
+    tx.journal.findFirst.mockResolvedValue(null)
+    tx.operatingCost.update.mockResolvedValue({ id: "cost-1", amount: 600 })
+
+    await expect(updateCost("cost-1", { amount: 600 }, finance)).resolves.toBeTruthy()
+  })
+
+  it("does not go looking for a journal when nothing material changed", async () => {
+    pending()
+
+    await updateCost("cost-1", { amount: 500 }, finance)
+
+    expect(tx.journal.findFirst).not.toHaveBeenCalled()
+  })
+})
+
 describe("payCost", () => {
   it("409s when paying a bill that is already PAID", async () => {
     tx.operatingCost.findUnique.mockResolvedValue({ id: "cost-1", status: "PAID" })
@@ -140,7 +229,7 @@ describe("payCost", () => {
   it("stamps paidAt, paidBy and paymentRef on payment", async () => {
     tx.operatingCost.findUnique.mockResolvedValue({
       id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
-      amount: 500, category: { code: "OTHER" },
+      amount: dec(500), currency: "BDT", category: { code: "OTHER" },
     })
     tx.operatingCost.update.mockResolvedValue({ id: "cost-1", status: "PAID" })
 
@@ -164,7 +253,7 @@ describe("payCost", () => {
 
     tx.operatingCost.findUnique.mockResolvedValue({
       id: "cost-1", status: "PENDING", label: "One-off repair", payee: "Handyman",
-      amount: 500, category: { code: "OTHER" },
+      amount: dec(500), currency: "BDT", category: { code: "OTHER" },
     })
     tx.operatingCost.update.mockResolvedValue({ id: "cost-1", status: "PAID" })
 

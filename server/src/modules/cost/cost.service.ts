@@ -303,6 +303,19 @@ export async function getCost(id: string) {
  */
 export async function createCost(input: CreateCostInput, actor: AccessTokenPayload) {
   return prisma.$transaction(async (tx) => {
+    // Refused here rather than at posting time, so the failure lands on the
+    // form somebody is filling in instead of on a bill they thought they had
+    // recorded. `OperatingCost` freezes no exchange rate, and without one the
+    // accrual and the payment would convert at different rates and leave a
+    // residue on Trade and other Payables that never clears.
+    // Omitted means BDT — the column defaults to it and the validator leaves
+    // it optional.
+    if (input.currency && input.currency !== "BDT") {
+      throw new AppError(
+        400,
+        `Operating costs carry no exchange rate, so a bill in ${input.currency} cannot reach the ledger. Record it in BDT at the rate you paid.`
+      )
+    }
     const category = await tx.costCategory.findUnique({ where: { id: input.categoryId } })
     if (!category) throw new AppError(400, "Cost category not found")
 
@@ -369,6 +382,34 @@ export async function updateCost(id: string, input: UpdateCostInput, actor: Acce
   return prisma.$transaction(async (tx) => {
     const existing = await tx.operatingCost.findUnique({ where: { id } })
     if (!existing) throw new AppError(404, "Cost not found")
+
+    // Once a journal exists, the figures it was built from are frozen: a
+    // posted journal is immutable and corrections go through a reversal, so
+    // letting the source record drift would leave the ledger describing a
+    // bill that no longer says what it said.
+    //
+    // Only the fields the journal is actually built from. `label` and `payee`
+    // reach it as narration, and refusing to fix a misspelt payee would be a
+    // rule with no purpose behind it.
+    const changesFigures =
+      (input.categoryId !== undefined && input.categoryId !== existing.categoryId) ||
+      // Compared as text so a Decimal and the number the API parsed agree.
+      (input.amount !== undefined && String(input.amount) !== String(existing.amount)) ||
+      (input.currency !== undefined && input.currency !== existing.currency)
+
+    if (changesFigures) {
+      const journal = await tx.journal.findFirst({
+        where: { sourceModule: "COST", sourceRefId: id },
+        select: { journalNo: true },
+      })
+      if (journal) {
+        throw new AppError(
+          409,
+          `${journal.journalNo} was posted from this bill, so its category, amount and currency are fixed. Reverse that journal in the accounting module and record the correction there.`,
+          { costId: id, journalNo: journal.journalNo }
+        )
+      }
+    }
 
     if (input.categoryId !== undefined && input.categoryId !== existing.categoryId) {
       const category = await tx.costCategory.findUnique({ where: { id: input.categoryId } })
