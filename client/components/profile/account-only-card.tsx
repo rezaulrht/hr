@@ -49,6 +49,7 @@ export function AccountOnlyCard({ account }: { account: MyProfileResponse["accou
         <Button
           type="button"
           variant="outline"
+          nativeButton={false}
           render={<Link href="/change-password" />}
         >
           Change password

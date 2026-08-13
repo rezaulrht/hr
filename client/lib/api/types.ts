@@ -1481,3 +1481,93 @@ export interface TrialBalanceResult {
   }
   isBalanced: boolean
 }
+
+// -- FINANCIAL STATEMENTS --------------------------------------------
+// Hand-mirrored from server/src/modules/statements/statements.types.ts.
+// No shared package, deliberately � keep these in step by hand.
+
+export interface StatementPeriod {
+  from: string
+  to: string
+  /** "July 2026" � the server labels it so the client need not re-derive it. */
+  label: string
+}
+
+export interface BreakdownRow {
+  accountId: string
+  code: string
+  name: string
+  current: string
+  comparative: string
+}
+
+export interface StatementLine {
+  key: string
+  label: string
+  code: string | null
+  current: string
+  comparative: string
+  kind: "LINE" | "SUBTOTAL" | "DERIVED"
+  breakdown: BreakdownRow[]
+}
+
+export interface PnlResult {
+  period: StatementPeriod
+  comparative: StatementPeriod
+  lines: StatementLine[]
+  netProfit: { current: string; comparative: string }
+}
+
+export interface PositionSection {
+  heading: string
+  lines: StatementLine[]
+  subtotal: { current: string; comparative: string }
+}
+
+export interface PositionResult {
+  period: StatementPeriod
+  comparative: StatementPeriod
+  assets: PositionSection[]
+  totalAssets: { current: string; comparative: string }
+  equityAndLiabilities: PositionSection[]
+  totalEquityAndLiabilities: { current: string; comparative: string }
+  balances: boolean
+}
+
+export interface EquityColumn {
+  accountId: string
+  code: string
+  name: string
+}
+
+export interface EquityRow {
+  label: string
+  /** Keyed by accountId, matching `columns`. */
+  values: Record<string, string>
+  total: string
+  kind: "OPENING" | "MOVEMENT" | "PROFIT" | "CLOSING"
+}
+
+/** No comparative � the statement carries its own opening and closing. */
+export interface EquityResult {
+  period: StatementPeriod
+  columns: EquityColumn[]
+  rows: EquityRow[]
+}
+
+/** The shape of the 409 body when the trial balance does not agree. */
+export interface UnbalancedDetails {
+  debitTotal: string
+  creditTotal: string
+  difference: string
+  to: string
+}
+
+export interface CashFlowRow { key: string; label: string; current: string; comparative: string; isSubtotal?: boolean }
+export interface CashFlowResult { period: StatementPeriod; comparativePeriod: StatementPeriod; operating: CashFlowRow[]; investing: CashFlowRow[]; financing: CashFlowRow[]; summary: CashFlowRow[] }
+export interface NoteRow { accountId: string; code: string; name: string; current: string; comparative: string }
+export interface StatementNoteView { ref: string; title: string; body: string | null; rows: NoteRow[]; total: string | null; totalComparative: string | null }
+export interface NotesResult { period: StatementPeriod; comparativePeriod: StatementPeriod; notes: StatementNoteView[] }
+export interface AnnexureRow { accountId: string; particulars: string; rate: string | null; costOpening: string; costAddition: string; costClosing: string; depOpening: string; depCharged: string; depClosing: string; writtenDownValue: string }
+export interface AnnexureResult { period: StatementPeriod; rows: AnnexureRow[]; total: Omit<AnnexureRow, "accountId" | "particulars" | "rate"> }
+export interface PolicyNote { id: string; ref: string; title: string; body: string; sortOrder: number; updatedBy: string | null; updatedAt: string; createdAt: string }

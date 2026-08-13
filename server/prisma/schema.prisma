@@ -1254,6 +1254,15 @@ enum AccountCashKind {
   BANK
 }
 
+enum CashFlowKind {
+  NONE
+  CASH
+  OPERATING_WC
+  NON_CASH_ADDBACK
+  INVESTING
+  FINANCING
+}
+
 model Account {
   id String @id @default(uuid())
   // Four digits. The first digit is fixed by `type`: 1 ASSET, 2 LIABILITY,
@@ -1296,12 +1305,21 @@ model Account {
 
   description String?
 
+  noteRef String?
+  cashFlowKind CashFlowKind @default(NONE)
+  depreciationRate Decimal? @db.Decimal(5, 2)
+  contraAccountId String? @unique
+  contra          Account? @relation("AccountContra", fields: [contraAccountId], references: [id])
+  contraOf        Account? @relation("AccountContra")
+
   lines     JournalLine[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   @@index([type, code])
   @@index([parentId])
+  @@index([noteRef])
+  @@index([cashFlowKind])
 }
 
 model FinancialYear {
@@ -1501,4 +1519,16 @@ model JournalAttachment {
   uploadedAt DateTime @default(now())
 
   @@index([journalId, uploadedAt])
+}
+
+model StatementNote {
+  id String @id @default(uuid())
+  ref String @unique
+  title String
+  body String
+  sortOrder Int @default(0)
+
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }

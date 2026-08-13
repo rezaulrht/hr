@@ -92,7 +92,7 @@ export function JournalRegisterPage() {
         title="Journal register"
         sub="Every entry, in every state, with the account and period it touches."
         aside={
-          <Button render={<Link href="journals/new" />}>
+          <Button nativeButton={false} render={<Link href="journals/new" />}>
             <RiAddLine className="size-4" /> New journal
           </Button>
         }
