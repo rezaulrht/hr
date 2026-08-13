@@ -14,6 +14,7 @@ import { Prisma } from "../../generated/prisma/client"
 import { utcDate } from "../accounting/accounting.utils"
 import {
   assertChartCoversLedger,
+  assertEveryAccountClassified,
   assertLedgerBalanced,
   balancesFor,
   isVisible,
@@ -260,6 +261,114 @@ describe("assertChartCoversLedger", () => {
 
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1300/)
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1399/)
+  })
+})
+
+describe("assertEveryAccountClassified", () => {
+  type Row = {
+    id: string
+    code: string
+    name: string
+    type: string
+    parentId: string | null
+    isGroup: boolean
+    systemRole: string | null
+    cashFlowKind: string
+  }
+
+  const account = (over: Partial<Row> & { id: string; code: string }): Row => ({
+    name: "Something", type: "ASSET", parentId: null, isGroup: false,
+    systemRole: null, cashFlowKind: "NONE", ...over,
+  })
+
+  /** A ChartIndex over a flat list, with real recursive `leavesUnder`. */
+  function indexOf(rows: Row[]) {
+    const byId = new Map(rows.map((r) => [r.id, r]))
+    const childrenOf = (id: string) => rows.filter((r) => r.parentId === id)
+    const leavesUnder = (id: string): Row[] => {
+      const root = byId.get(id)
+      if (!root) return []
+      return root.isGroup ? childrenOf(id).flatMap((c) => leavesUnder(c.id)) : [root]
+    }
+    return {
+      all: rows,
+      byId,
+      byRole: new Map(rows.filter((r) => r.systemRole).map((r) => [r.systemRole!, r])),
+      byNoteRef: new Map(),
+      childrenOf,
+      leavesUnder,
+      equityRoot: null,
+    } as never
+  }
+
+  const balances = (entries: Record<string, string>) =>
+    new Map(Object.entries(entries).map(([id, signed]) => [id, { debit: D(0), credit: D(0), signed: D(signed) }]))
+
+  it("names an unclassified account carrying a balance", () => {
+    const loan = account({ id: "loan", code: "1265", name: "Staff Loan — Vehicles" })
+
+    expect(() => assertEveryAccountClassified(indexOf([loan]), balances({ loan: "40000.00" }))).toThrow(
+      /1265 Staff Loan — Vehicles/
+    )
+  })
+
+  it("passes an unclassified account at nil — nothing of it reaches the statement", () => {
+    const loan = account({ id: "loan", code: "1265" })
+
+    expect(() => assertEveryAccountClassified(indexOf([loan]), balances({ loan: "0" }))).not.toThrow()
+  })
+
+  it("passes an account that is classified", () => {
+    const recv = account({ id: "recv", code: "1220", cashFlowKind: "OPERATING_WC" })
+
+    expect(() => assertEveryAccountClassified(indexOf([recv]), balances({ recv: "40000.00" }))).not.toThrow()
+  })
+
+  it("names every unclassified account at once rather than stopping at the first", () => {
+    const rows = [account({ id: "a", code: "1265" }), account({ id: "b", code: "1266" })]
+    const check = () => assertEveryAccountClassified(indexOf(rows), balances({ a: "1.00", b: "2.00" }))
+
+    expect(check).toThrow(/1265/)
+    expect(check).toThrow(/1266/)
+  })
+
+  // The three deliberate exclusions of 2b Decision 5. Each is identified
+  // structurally — a descendant of PPE_ACCUM_DEP, the RETAINED_EARNINGS
+  // account, and type in (INCOME, EXPENSE) — so the guard can tell a
+  // deliberate exclusion from a forgotten one with no fourth column
+  // recording intent.
+  it("excludes accumulated depreciation, whose movement is the add-back from the other side", () => {
+    const group = account({ id: "ad", code: "1120", isGroup: true, systemRole: "PPE_ACCUM_DEP" })
+    const leaf = account({ id: "ad-f", code: "1121", parentId: "ad" })
+
+    expect(() =>
+      assertEveryAccountClassified(indexOf([group, leaf]), balances({ "ad-f": "-29650.00" }))
+    ).not.toThrow()
+  })
+
+  it("excludes retained earnings, which the profit line at the top already carries", () => {
+    const re = account({ id: "re", code: "3300", type: "EQUITY", systemRole: "RETAINED_EARNINGS" })
+
+    expect(() => assertEveryAccountClassified(indexOf([re]), balances({ re: "-256935.00" }))).not.toThrow()
+  })
+
+  it("excludes income and expense accounts, which the profit line already carries", () => {
+    const rent = account({ id: "rent", code: "5206", type: "EXPENSE" })
+    const rev = account({ id: "rev", code: "4110", type: "INCOME" })
+
+    expect(() =>
+      assertEveryAccountClassified(indexOf([rent, rev]), balances({ rent: "70500.00", rev: "1000000.00" }))
+    ).not.toThrow()
+  })
+
+  it("still names a depreciation account if somebody clears its classification", () => {
+    // 5128 and 5215 are the exception to the income/expense exclusion: they
+    // are the add-back. But they are excluded here by *type*, not by role —
+    // so this documents that the guard cannot catch that particular mistake,
+    // and assertCashReconciles is what does.
+    const dep = account({ id: "dep", code: "5215", type: "EXPENSE", name: "Depreciation — Admin" })
+
+    expect(() => assertEveryAccountClassified(indexOf([dep]), balances({ dep: "29650.00" }))).not.toThrow()
   })
 })
 

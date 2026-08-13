@@ -1,3 +1,15 @@
+/**
+ * The figures below are the audited FY 2024-25 ones — net loss after tax
+ * 256,935, depreciation 29,650, PP&E additions 156,000, share capital
+ * 1,000,000 — so this file doubles as the cash flow's golden master. If a
+ * change breaks one of those numbers, the change is wrong until proven
+ * otherwise: somebody signed them.
+ *
+ * The working-capital movements are not from the filed statement. What was
+ * supplied gives the trial balance, not the cash flow's own line items, and
+ * inventing them would make this look like a golden master without being one.
+ */
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("./statements.balances", async (importOriginal) => {
@@ -89,6 +101,34 @@ describe("cashFlowStatement", () => {
     const result = await cashFlowStatement(range)
     expect(result.operating.some((r) => r.current === "0.00" && r.key.startsWith("WC_"))).toBe(false)
   })
+  it("refuses rather than misreports when an asset is disposed of", async () => {
+    // 2b's known limitation. Disposals are not modelled anywhere: no
+    // gain-or-loss account and no disposal journal type. Here a laptop leaves
+    // the books — 30,000 credited off the cost account — and there is nowhere
+    // for the other side to land, so the sections stop tying to the movement
+    // on cash.
+    //
+    // Refusing is the correct behaviour: a cash flow wrong by the book value
+    // of a disposed asset is worse than no cash flow. It does mean the first
+    // disposal blocks the statement until asset phase 2 exists, which is
+    // asserted here so that stays a decision rather than a surprise.
+    ;(balancesFor as any).mockImplementation(async (opts: any) => {
+      if (opts.from === undefined) return new Map([["cash", bal("0.00")]])
+      if (opts.excludeClosing) return new Map([["dep", bal("29650.00", "29650.00")]])
+      return new Map([
+        ["cash", bal("693715.00")], ["recv", bal("40000.00")], ["pay", bal("117000.00")],
+        // The laptop leaves at 30,000 cost against 20,000 of depreciation.
+        ["ppe", bal("126000.00", "156000.00", "30000.00")],
+        ["share", bal("1000000.00")],
+      ])
+    })
+
+    await expect(cashFlowStatement(range)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/does not reconcile/i),
+    })
+  })
+
   it("carries the prior-year comparative", async () => {
     const result = await cashFlowStatement(range)
     expect(result.comparativePeriod.from).toBe(utcDate(2023, 7, 1).toISOString())
