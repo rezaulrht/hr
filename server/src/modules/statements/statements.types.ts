@@ -96,3 +96,36 @@ export interface CashFlowResult {
   financing: CashFlowRow[]
   summary: CashFlowRow[]
 }
+
+export interface NoteRow { accountId: string; code: string; name: string; current: string; comparative: string }
+export interface StatementNoteView {
+  ref: string
+  title: string
+  body: string | null
+  rows: NoteRow[]
+  total: string | null
+  totalComparative: string | null
+}
+export interface NotesResult {
+  period: StatementPeriod
+  comparativePeriod: StatementPeriod
+  notes: StatementNoteView[]
+}
+
+export interface AnnexureRow {
+  accountId: string
+  particulars: string
+  rate: string | null
+  costOpening: string
+  costAddition: string
+  costClosing: string
+  depOpening: string
+  depCharged: string
+  depClosing: string
+  writtenDownValue: string
+}
+export interface AnnexureResult {
+  period: StatementPeriod
+  rows: AnnexureRow[]
+  total: Omit<AnnexureRow, "accountId" | "particulars" | "rate">
+}
