@@ -105,6 +105,7 @@ export const CHART: ChartEntry[] = [
   a("2132", "Salary Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2133", "Bonus Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2134", "Overtime Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2135", "Employee Reimbursements Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2140", "Tax Deducted at Source Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
   a("2150", "VAT Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
   g("2200", "Non-Current Liabilities", "LIABILITY", { parent: "2000", systemRole: "NON_CURRENT_LIABILITIES" }),
@@ -159,6 +160,8 @@ export const CHART: ChartEntry[] = [
   a("5215", "Depreciation — Admin", "EXPENSE", "5200", { cashFlow: "NON_CASH_ADDBACK" }),
   a("5216", "Training Expense", "EXPENSE", "5200"),
   a("5217", "Miscellaneous Expenses", "EXPENSE", "5200"),
+  a("5220", "Gratuity Expense", "EXPENSE", "5200"),
+  a("5221", "Notice Pay", "EXPENSE", "5200"),
 
   g("5300", "Financial Expenses", "EXPENSE", { parent: "5000", systemRole: "FINANCIAL_EXPENSE", note: "18.00", noteRef: "18.00" }),
   a("5310", "Bank Interest & Charges", "EXPENSE", "5300"),

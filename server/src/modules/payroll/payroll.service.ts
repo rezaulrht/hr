@@ -547,7 +547,7 @@ export async function processRun(id: string, actorUserId: string) {
         const amountInBdt = dec(claim.amount).times(claimRate)
         return {
           claimId: claim.id,
-          category: claim.category,
+          category: claim.categoryId,
           expenseDate: claim.expenseDate.toISOString().slice(0, 10),
           spentCurrency: claim.currency,
           spentAmount: dec(claim.amount),

@@ -233,7 +233,7 @@ export async function calculateSettlement(employeeId: string, actorUserId: strin
     notice: { ...notice, amount: toMoneyString(notice.amount) },
     claims: claims.map((c) => ({
       claimId: c.id,
-      category: c.category,
+      category: c.categoryId,
       spentCurrency: c.currency,
       spentAmount: toMoneyString(c.amount),
       fxRateToBdt: (c.fxRateToBdt ?? dec(1)).toFixed(6),

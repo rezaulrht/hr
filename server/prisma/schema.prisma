@@ -167,6 +167,7 @@ model Department {
   assets        Asset[]
 
   journalLines JournalLine[]
+  costNature CostNature @default(ADMINISTRATIVE)
 }
 
 enum DocumentType {
@@ -692,7 +693,9 @@ model ExpenseClaim {
   employeeId  String
   employee    Employee      @relation(fields: [employeeId], references: [id])
   amount      Decimal       @db.Decimal(14, 2)
-  category    String
+  categoryId  String
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+  legacyCategoryText String?
   description String?
   receiptUrl  String?
   status      ExpenseStatus @default(PENDING)
@@ -1313,6 +1316,7 @@ model Account {
   contraOf        Account? @relation("AccountContra")
 
   lines     JournalLine[]
+  postingRules PostingRule[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -1519,6 +1523,33 @@ model JournalAttachment {
   uploadedAt DateTime @default(now())
 
   @@index([journalId, uploadedAt])
+}
+
+// ── POSTING RULES ─────────────────────────────
+model PostingRule {
+  id String @id @default(uuid())
+  event String
+  key String
+  accountId String
+  account Account @relation(fields: [accountId], references: [id])
+  note String?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  @@unique([event, key])
+  @@index([event])
+}
+
+enum CostNature {
+  DIRECT
+  ADMINISTRATIVE
+}
+
+model ExpenseCategory {
+  id String @id @default(uuid())
+  code String @unique
+  name String @unique
+  claims ExpenseClaim[]
 }
 
 model StatementNote {

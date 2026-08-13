@@ -51,11 +51,14 @@ export async function createClaim(actor: AccessTokenPayload, body: CreateClaimBo
   }
 
   return prisma.$transaction(async (tx) => {
+    const category = await tx.expenseCategory.findUnique({ where: { code: body.category } })
+    if (!category) throw new AppError(400, "Choose a valid expense category")
     const claim = await tx.expenseClaim.create({
       data: {
         employeeId: self.id,
         amount: dec(body.amount),
-        category: body.category,
+        categoryId: category.id,
+        legacyCategoryText: body.category,
         currency: body.currency,
         expenseDate,
         description: body.description,
@@ -80,7 +83,7 @@ export async function createClaim(actor: AccessTokenPayload, body: CreateClaimBo
         stage: "submitted",
         claimId: claim.id,
         employeeId: claim.employeeId,
-        category: claim.category,
+        category: claim.categoryId,
         amount: toMoneyString(claim.amount),
         currency: claim.currency,
         actorUserId: actor.sub,
@@ -152,7 +155,7 @@ export async function approveClaim(id: string, actorUserId: string, body: Approv
         stage: "approved",
         claimId: id,
         employeeId: claim.employeeId,
-        category: claim.category,
+        category: claim.categoryId,
         amount: toMoneyString(claim.amount),
         currency: claim.currency,
         actorUserId: actorUserId,
@@ -194,7 +197,7 @@ export async function rejectClaim(id: string, actorUserId: string, body: RejectC
         stage: "rejected",
         claimId: id,
         employeeId: claim.employeeId,
-        category: claim.category,
+        category: claim.categoryId,
         amount: toMoneyString(claim.amount),
         currency: claim.currency,
         actorUserId,
