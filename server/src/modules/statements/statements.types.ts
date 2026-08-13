@@ -79,3 +79,20 @@ export interface EquityResult {
   columns: EquityColumn[]
   rows: EquityRow[]
 }
+
+export interface CashFlowRow {
+  key: string
+  label: string
+  current: string
+  comparative: string
+  isSubtotal?: boolean
+}
+
+export interface CashFlowResult {
+  period: StatementPeriod
+  comparativePeriod: StatementPeriod
+  operating: CashFlowRow[]
+  investing: CashFlowRow[]
+  financing: CashFlowRow[]
+  summary: CashFlowRow[]
+}
