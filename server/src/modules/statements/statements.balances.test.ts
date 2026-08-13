@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../config/prisma", () => ({
@@ -258,6 +260,22 @@ describe("assertChartCoversLedger", () => {
 
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1300/)
     expect(() => assertChartCoversLedger(chart, balances)).toThrow(/1399/)
+  })
+})
+
+/**
+ * A source-text assertion, which is unusual and deliberate.
+ *
+ * `assertChartCoversLedger` shipped fully tested and called from one of the
+ * four statements. The defect is *"the call is missing"*, and every
+ * behavioural test of a guard needs that guard reachable from the statement —
+ * which is exactly the condition that failed. A test that mocks the guard to
+ * prove it was called proves only that the mock was called.
+ */
+describe("the chart guard is wired into every statement", () => {
+  it.each(["pnl", "position", "equity", "cashflow"])("is called by statements.%s.ts", (name) => {
+    const source = readFileSync(join(__dirname, `statements.${name}.ts`), "utf8")
+    expect(source).toMatch(/assertChartCoversLedger\(/)
   })
 })
 

@@ -42,10 +42,16 @@ const ACCOUNTS = [
   { id: "cap", code: "3100", name: "Share Capital", type: "EQUITY", parentId: "e-root", isGroup: false, isActive: true, systemRole: null },
   { id: "retained", code: "3300", name: "Retained Earnings", type: "EQUITY", parentId: "e-root", isGroup: false, isActive: true, systemRole: "RETAINED_EARNINGS" },
 
+  // The profit-and-loss side sits under its roled section groups, as the
+  // seeded chart does. A leaf parented straight onto 4000 or 5000 is in the
+  // trial balance and in no statement section, which is what
+  // `assertChartCoversLedger` refuses.
   { id: "i-root", code: "4000", name: "Income", type: "INCOME", parentId: null, isGroup: true, isActive: true, systemRole: null },
-  { id: "rev", code: "4110", name: "Service Revenue", type: "INCOME", parentId: "i-root", isGroup: false, isActive: true, systemRole: null },
+  { id: "rev-grp", code: "4100", name: "Revenue", type: "INCOME", parentId: "i-root", isGroup: true, isActive: true, systemRole: "REVENUE" },
+  { id: "rev", code: "4110", name: "Service Revenue", type: "INCOME", parentId: "rev-grp", isGroup: false, isActive: true, systemRole: null },
   { id: "x-root", code: "5000", name: "Expenses", type: "EXPENSE", parentId: null, isGroup: true, isActive: true, systemRole: null },
-  { id: "sal", code: "5201", name: "Salary and Allowances", type: "EXPENSE", parentId: "x-root", isGroup: false, isActive: true, systemRole: null },
+  { id: "admin", code: "5200", name: "Administrative & Selling Expenses", type: "EXPENSE", parentId: "x-root", isGroup: true, isActive: true, systemRole: "ADMIN_SELLING" },
+  { id: "sal", code: "5201", name: "Salary and Allowances", type: "EXPENSE", parentId: "admin", isGroup: false, isActive: true, systemRole: null },
 ]
 
 function chartIndex() {

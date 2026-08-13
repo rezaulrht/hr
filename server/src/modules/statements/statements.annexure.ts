@@ -2,7 +2,7 @@ import { Prisma } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
 import { balancesFor, loadChart, ZERO, type BalanceMap, type ChartAccount, type ChartIndex } from "./statements.balances"
 import { assertValidRange, describeRange, type DateRange } from "./statements.period"
-import type { AnnexureResult, AnnexureRow } from "./statements.types"
+import type { AnnexureResult, AnnexureRow, PositionResult } from "./statements.types"
 
 const two = (d: Prisma.Decimal) => d.toFixed(2)
 const openingOf = (balances: BalanceMap, id: string) => (balances.get(id)?.signed ?? ZERO).abs()
@@ -37,6 +37,20 @@ export async function annexureA(range: DateRange): Promise<AnnexureResult> {
   })
   const sum = (pick: (r: AnnexureRow) => string) => two(rows.reduce((t, r) => t.plus(new Prisma.Decimal(pick(r))), ZERO))
   return { period: { from: range.from.toISOString(), to: range.to.toISOString(), label: describeRange(range) }, rows, total: { costOpening: sum((r) => r.costOpening), costAddition: sum((r) => r.costAddition), costClosing: sum((r) => r.costClosing), depOpening: sum((r) => r.depOpening), depCharged: sum((r) => r.depCharged), depClosing: sum((r) => r.depClosing), writtenDownValue: sum((r) => r.writtenDownValue) } }
+}
+
+/**
+ * The PP&E line on the balance sheet, found by role.
+ *
+ * `buildSection` sets each line's `key` to the account id, so the role lookup
+ * lands on the right line without anybody here knowing that PP&E happens to
+ * be coded 1110 — which is the whole reason `systemRole` exists.
+ */
+export function positionPpe(chart: ChartIndex, position: PositionResult): Prisma.Decimal {
+  const ppe = chart.byRole.get("PPE_COST")
+  if (!ppe) return ZERO
+  const line = position.assets.flatMap((s) => s.lines).find((l) => l.key === ppe.id)
+  return new Prisma.Decimal(line?.current ?? "0")
 }
 
 export function assertAnnexureTiesToPosition(annexure: AnnexureResult, positionPpe: Prisma.Decimal): void {

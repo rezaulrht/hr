@@ -60,6 +60,31 @@ describe("cashFlowStatement", () => {
     })
     await expect(cashFlowStatement(range)).rejects.toMatchObject({ statusCode: 409, message: expect.stringMatching(/does not reconcile/i) })
   })
+  it("refuses when the prior-year column does not reconcile", async () => {
+    // The current year ties; FY 2023-24 is missing the receivables movement,
+    // so its sections do not add up to the movement on cash. The comparative
+    // column's closing cash is derived as opening plus net change and never
+    // read back, so an unchecked prior year prints a figure nothing has
+    // agreed against.
+    ;(balancesFor as any).mockImplementation(async (opts: any) => {
+      if (opts.from === undefined) return new Map([["cash", bal("0.00")]])
+      if (opts.excludeClosing) return new Map([["dep", bal("29650.00", "29650.00")]])
+      const prior = opts.from.getUTCFullYear() === 2023
+      return new Map([
+        ["cash", bal("693715.00")],
+        ...(prior ? [] : [["recv", bal("40000.00")] as const]),
+        ["pay", bal("117000.00")],
+        ["ppe", bal("156000.00", "156000.00")],
+        ["share", bal("1000000.00")],
+      ] as any)
+    })
+
+    await expect(cashFlowStatement(range)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/comparative/i),
+    })
+  })
+
   it("suppresses nil working-capital rows", async () => {
     const result = await cashFlowStatement(range)
     expect(result.operating.some((r) => r.current === "0.00" && r.key.startsWith("WC_"))).toBe(false)

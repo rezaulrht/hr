@@ -61,15 +61,30 @@ function balanceMap(entries: Record<string, string>) {
 
 const range = { from: utcDate(2024, 7, 1), to: utcDate(2025, 6, 30) }
 
+/**
+ * `buildPnl` makes three reads: the current period, the comparative, and a
+ * cumulative one that exists only to feed `assertChartCoversLedger`. Keying
+ * the mock on the arguments rather than on call order keeps each test saying
+ * what it means, and stops a fourth read from silently returning undefined.
+ */
+function mockPeriods(current: Map<string, unknown>, comparative: Map<string, unknown>) {
+  ;(balancesFor as any).mockImplementation(async (opts: any) =>
+    opts.from === undefined || opts.from.getTime() === range.from.getTime() ? current : comparative
+  )
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  ;(balancesFor as any).mockReset()
   ;(loadChart as any).mockResolvedValue(chartIndex())
   // Current period: the audited FY2024-25 figures. Comparative: nothing,
   // the company was incorporated in December 2024.
-  ;(balancesFor as any)
-    .mockResolvedValueOnce(balanceMap({ "admin-sal": "254530.00", "fin-bank": "2405.00" }))
-    .mockResolvedValueOnce(balanceMap({}))
+  mockPeriods(balanceMap({ "admin-sal": "254530.00", "fin-bank": "2405.00" }), balanceMap({}))
 })
+
+/** The two reads the statement is built from — not the guard's. */
+const statementReads = () =>
+  ((balancesFor as any).mock.calls as any[]).map((c) => c[0]).filter((o) => o.from !== undefined)
 
 describe("buildPnl", () => {
   it("reproduces the audited FY2024-25 operating loss and net loss", async () => {
@@ -95,10 +110,7 @@ describe("buildPnl", () => {
   })
 
   it("subtracts revenue less cost of sales to reach gross profit", async () => {
-    ;(balancesFor as any).mockReset()
-    ;(balancesFor as any)
-      .mockResolvedValueOnce(balanceMap({ "rev-exp": "1000000.00", "cogs-mat": "400000.00" }))
-      .mockResolvedValueOnce(balanceMap({}))
+        mockPeriods(balanceMap({ "rev-exp": "1000000.00", "cogs-mat": "400000.00" }), balanceMap({}))
 
     const result = await buildPnl(range)
     const by = Object.fromEntries(result.lines.map((l) => [l.key, l.current]))
@@ -107,10 +119,7 @@ describe("buildPnl", () => {
   })
 
   it("adds other income after operating profit, not before", async () => {
-    ;(balancesFor as any).mockReset()
-    ;(balancesFor as any)
-      .mockResolvedValueOnce(balanceMap({ "admin-sal": "100000.00", "oth-int": "30000.00" }))
-      .mockResolvedValueOnce(balanceMap({}))
+        mockPeriods(balanceMap({ "admin-sal": "100000.00", "oth-int": "30000.00" }), balanceMap({}))
 
     const result = await buildPnl(range)
     const by = Object.fromEntries(result.lines.map((l) => [l.key, l.current]))
@@ -164,10 +173,7 @@ describe("buildPnl", () => {
   })
 
   it("keeps a deactivated account that still carries a balance", async () => {
-    ;(balancesFor as any).mockReset()
-    ;(balancesFor as any)
-      .mockResolvedValueOnce(balanceMap({ "admin-old": "500.00" }))
-      .mockResolvedValueOnce(balanceMap({}))
+        mockPeriods(balanceMap({ "admin-old": "500.00" }), balanceMap({}))
 
     const result = await buildPnl(range)
     const admin = result.lines.find((l) => l.key === "ADMIN_SELLING")!
@@ -186,18 +192,29 @@ describe("buildPnl", () => {
   it("excludes CLOSING journals from both periods", async () => {
     await buildPnl(range)
 
-    for (const call of (balancesFor as any).mock.calls) {
-      expect(call[0].excludeClosing).toBe(true)
+    for (const read of statementReads()) {
+      expect(read.excludeClosing).toBe(true)
     }
   })
 
   it("bounds both periods, never running from inception", async () => {
     await buildPnl(range)
 
-    const [current, comparative] = (balancesFor as any).mock.calls.map((c: any) => c[0])
+    const [current, comparative] = statementReads()
     expect(current.from).toEqual(utcDate(2024, 7, 1))
     expect(comparative.from).toEqual(utcDate(2023, 7, 1))
     expect(comparative.to).toEqual(utcDate(2024, 6, 30))
+  })
+
+  it("reads cumulatively for the chart guard, which is a ledger check not a period one", async () => {
+    await buildPnl(range)
+
+    const guardRead = ((balancesFor as any).mock.calls as any[])
+      .map((c) => c[0])
+      .find((o) => o.from === undefined)
+    // An account whose activity is all in prior periods is still missing from
+    // every statement; a movement-shaped check would not see it.
+    expect(guardRead).toEqual({ to: utcDate(2025, 6, 30), excludeClosing: false })
   })
 
   it("labels both periods so the client need not re-derive them", async () => {

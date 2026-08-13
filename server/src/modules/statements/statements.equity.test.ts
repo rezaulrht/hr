@@ -24,10 +24,15 @@ const ACCOUNTS = [
   { id: "cap", code: "3100", name: "Share Capital", type: "EQUITY", parentId: "e-root", isGroup: false, isActive: true, systemRole: null },
   { id: "money", code: "3200", name: "Share Money Deposit", type: "EQUITY", parentId: "e-root", isGroup: false, isActive: true, systemRole: null },
   { id: "retained", code: "3300", name: "Retained Earnings", type: "EQUITY", parentId: "e-root", isGroup: false, isActive: true, systemRole: "RETAINED_EARNINGS" },
+  // Under their roled section groups, as the seeded chart has them. A leaf
+  // parented straight onto 4000 or 5000 is in the trial balance and in no
+  // statement section, which `assertChartCoversLedger` refuses.
   { id: "i-root", code: "4000", name: "Income", type: "INCOME", parentId: null, isGroup: true, isActive: true, systemRole: null },
-  { id: "rev", code: "4110", name: "Service Revenue", type: "INCOME", parentId: "i-root", isGroup: false, isActive: true, systemRole: null },
+  { id: "rev-grp", code: "4100", name: "Revenue", type: "INCOME", parentId: "i-root", isGroup: true, isActive: true, systemRole: "REVENUE" },
+  { id: "rev", code: "4110", name: "Service Revenue", type: "INCOME", parentId: "rev-grp", isGroup: false, isActive: true, systemRole: null },
   { id: "x-root", code: "5000", name: "Expenses", type: "EXPENSE", parentId: null, isGroup: true, isActive: true, systemRole: null },
-  { id: "sal", code: "5201", name: "Salary and Allowances", type: "EXPENSE", parentId: "x-root", isGroup: false, isActive: true, systemRole: null },
+  { id: "admin", code: "5200", name: "Administrative & Selling Expenses", type: "EXPENSE", parentId: "x-root", isGroup: true, isActive: true, systemRole: "ADMIN_SELLING" },
+  { id: "sal", code: "5201", name: "Salary and Allowances", type: "EXPENSE", parentId: "admin", isGroup: false, isActive: true, systemRole: null },
 ]
 
 function chartIndex() {
@@ -54,17 +59,24 @@ function balanceMap(entries: Record<string, string>) {
 const range = { from: utcDate(2024, 7, 1), to: utcDate(2025, 6, 30) }
 
 /**
- * balancesFor is called three times, in this order:
- *   1. opening   — cumulative to the day before `from`, closing included
- *   2. movement  — within the range, closing EXCLUDED
- *   3. profit    — within the range, closing EXCLUDED
+ * balancesFor is called three times:
+ *   - opening    — cumulative to the day before `from`, closing included
+ *   - movement   — within the range, closing EXCLUDED; feeds both the
+ *                  movement rows and the profit row, which is why they can
+ *                  never disagree
+ *   - cumulative — to `range.to`, closing included, for the chart guard only
+ *
+ * Keyed on the arguments rather than on call order. The movement map holds
+ * the equity movements *and* the profit-and-loss movements together, because
+ * that is what one query over a period actually returns — the old fixture
+ * fed the profit a separate map, which no ledger could produce.
  */
-function mockCalls(opening: any, movement: any, profit: any) {
+function mockCalls(opening: any, movement: any) {
   ;(balancesFor as any).mockReset()
-  ;(balancesFor as any)
-    .mockResolvedValueOnce(balanceMap(opening))
-    .mockResolvedValueOnce(balanceMap(movement))
-    .mockResolvedValueOnce(balanceMap(profit))
+  ;(balancesFor as any).mockImplementation(async (opts: any) => {
+    if (opts.from !== undefined) return balanceMap(movement)
+    return opts.to.getTime() === range.to.getTime() ? balanceMap(movement) : balanceMap(opening)
+  })
 }
 
 beforeEach(() => {
@@ -72,7 +84,7 @@ beforeEach(() => {
   ;(loadChart as any).mockResolvedValue(chartIndex())
   // The audited FY2024-25: nothing opening, 1,000,000 share capital issued,
   // a 256,935 loss.
-  mockCalls({}, { cap: "1000000.00" }, { sal: "256935.00" })
+  mockCalls({}, { cap: "1000000.00", sal: "256935.00" })
 })
 
 describe("buildEquity", () => {
@@ -107,7 +119,7 @@ describe("buildEquity", () => {
   })
 
   it("emits one movement row per account that moved", async () => {
-    mockCalls({}, { cap: "1000000.00", money: "250000.00" }, {})
+    mockCalls({}, { cap: "1000000.00", money: "250000.00" })
 
     const result = await buildEquity(range)
     const movements = result.rows.filter((r) => r.kind === "MOVEMENT")
@@ -116,7 +128,7 @@ describe("buildEquity", () => {
   })
 
   it("emits no movement row when nothing moved", async () => {
-    mockCalls({ cap: "1000000.00" }, {}, { sal: "50000.00" })
+    mockCalls({ cap: "1000000.00" }, { sal: "50000.00" })
 
     const result = await buildEquity(range)
 
@@ -125,7 +137,7 @@ describe("buildEquity", () => {
   })
 
   it("closes at opening plus movements plus profit, per column and in total", async () => {
-    mockCalls({ cap: "1000000.00", retained: "-100000.00" }, { money: "50000.00" }, { sal: "40000.00" })
+    mockCalls({ cap: "1000000.00", retained: "-100000.00" }, { money: "50000.00", sal: "40000.00" })
 
     const result = await buildEquity(range)
     const closing = result.rows.find((r) => r.kind === "CLOSING")!

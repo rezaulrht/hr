@@ -193,11 +193,24 @@ beforeEach(() => {
   ;(loadChart as any).mockResolvedValue(chartIndex())
 })
 
+/**
+ * Keyed on the arguments rather than on call order, because each statement
+ * also issues a cumulative read for `assertChartCoversLedger` that builds no
+ * line. `current` answers both the current period and that guard read;
+ * `prior` answers the comparative.
+ */
+function mockPeriods(current: Record<string, string>, prior: Record<string, string>) {
+  ;(balancesFor as any).mockImplementation(async (opts: any) => {
+    if (opts.from !== undefined) {
+      return balanceMap(opts.from.getTime() === FY.from.getTime() ? current : prior)
+    }
+    return balanceMap(opts.to.getTime() === FY.to.getTime() ? current : prior)
+  })
+}
+
 describe("Statement of Profit or Loss, FY 2024-25", () => {
   beforeEach(() => {
-    ;(balancesFor as any)
-      .mockResolvedValueOnce(balanceMap({ ...ADMIN_EXPENSES, "fin-bank": "2405.00" }))
-      .mockResolvedValueOnce(balanceMap(NOTHING))
+    mockPeriods({ ...ADMIN_EXPENSES, "fin-bank": "2405.00" }, NOTHING)
   })
 
   it("matches the filed statement line for line", async () => {
@@ -237,9 +250,7 @@ describe("Statement of Profit or Loss, FY 2024-25", () => {
 
 describe("Statement of Financial Position at 30 June 2025", () => {
   beforeEach(() => {
-    ;(balancesFor as any)
-      .mockResolvedValueOnce(balanceMap(CUMULATIVE_TO_30_JUN_2025))
-      .mockResolvedValueOnce(balanceMap(NOTHING))
+    mockPeriods(CUMULATIVE_TO_30_JUN_2025, NOTHING)
   })
 
   it("matches the filed asset side", async () => {
@@ -301,13 +312,12 @@ describe("Statement of Financial Position at 30 June 2025", () => {
 
 describe("Statement of Changes in Equity, FY 2024-25", () => {
   beforeEach(() => {
-    ;(balancesFor as any)
-      // opening: nothing existed
-      .mockResolvedValueOnce(balanceMap(NOTHING))
-      // movement, closing excluded: the share capital issue
-      .mockResolvedValueOnce(balanceMap({ cap: "1000000.00" }))
-      // profit, closing excluded
-      .mockResolvedValueOnce(balanceMap({ ...ADMIN_EXPENSES, "fin-bank": "2405.00" }))
+    // Opening: nothing existed, the company being newly incorporated. The
+    // movement over FY 2024-25 carries the share capital issue *and* the
+    // year's expenses — one query over a period returns both, and the
+    // statement's movement rows and profit row read the same map, which is
+    // why they cannot disagree.
+    mockPeriods({ cap: "1000000.00", ...ADMIN_EXPENSES, "fin-bank": "2405.00" }, NOTHING)
   })
 
   it("closes at 743,065, agreeing with the balance sheet", async () => {
