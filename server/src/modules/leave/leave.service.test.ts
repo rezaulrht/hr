@@ -605,7 +605,10 @@ describe("applyForLeave validation", () => {
   })
 
   it("measures maxConsecutive against the calendar span, not charged days", async () => {
-    // Thu 13th -> Wed 19th Aug 2026 = 7 calendar days, 6 charged (one Friday).
+    // Any seven consecutive days span 7 calendar days and contain exactly one
+    // Friday, so this is always 6 charged days against a limit of 6 — whatever
+    // weekday it is run on. The dates were once written out in full, which made
+    // the test pass until the day they fell into the past.
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue({
       ...casual,
       maxConsecutive: 6,
@@ -613,8 +616,8 @@ describe("applyForLeave validation", () => {
     await expect(
       applyForLeave("user-1", {
         leaveTypeId: "lt-1",
-        startDate: "2026-08-13",
-        endDate: "2026-08-19",
+        startDate: futureDate(1),
+        endDate: futureDate(7),
       })
     ).rejects.toThrow(/consecutive/i)
   })
