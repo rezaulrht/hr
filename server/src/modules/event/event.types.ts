@@ -52,6 +52,7 @@ export type EventType =
   | "asset.retired"
   | "asset.marked_lost"
   | "asset.imported"
+  | "asset.recovery.collected"
   // Fulfilment emits nothing of its own: it creates an assignment, which
   // already emits asset.assigned with the request id in the payload. Two
   // events for one action would put the same fact in the feed twice.

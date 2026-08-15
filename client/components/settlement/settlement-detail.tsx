@@ -71,6 +71,7 @@ export function SettlementDetail({
   const [overriding, setOverriding] = useState(false)
   const [gratuity, setGratuity] = useState(settlement.gratuity)
   const [deductions, setDeductions] = useState(settlement.outstandingDeductions)
+  const [assetRecoveries, setAssetRecoveries] = useState(settlement.assetRecoveries)
   const [reason, setReason] = useState("")
 
   const overrideMutation = useMutation({
@@ -78,6 +79,7 @@ export function SettlementDetail({
       overrideSettlement(accessToken!, settlement.id, {
         gratuity: Number(gratuity),
         outstandingDeductions: Number(deductions),
+        assetRecoveries: Number(assetRecoveries),
         reason: reason.trim(),
       }),
     onSuccess: (next) => {
@@ -169,6 +171,12 @@ export function SettlementDetail({
             amount={settlement.outstandingDeductions}
             currency={currency}
           />
+          <Head
+            label="Asset recoveries"
+            amount={settlement.assetRecoveries}
+            currency={currency}
+            working="Lost or damaged assets deducted from the final amount"
+          />
         </div>
       </div>
 
@@ -256,6 +264,19 @@ export function SettlementDetail({
                 step="0.01"
                 value={deductions}
                 onChange={(e) => setDeductions(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="ovr-asset-recoveries" className="mb-1.5 text-xs font-bold">
+                Asset recoveries
+              </Label>
+              <Input
+                id="ovr-asset-recoveries"
+                type="number"
+                min="0"
+                step="0.01"
+                value={assetRecoveries}
+                onChange={(e) => setAssetRecoveries(e.target.value)}
               />
             </div>
           </div>

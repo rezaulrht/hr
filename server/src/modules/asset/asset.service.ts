@@ -14,8 +14,9 @@ import { describeUsage } from "../../utils/referenceUsage"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { dec, toMoneyString } from "../payroll/payroll.money"
-import { assetScopeFor, stripCosts } from "./asset.access"
+import { assetScopeFor, canSeeCosts, stripCosts } from "./asset.access"
 import { assetLifecycleEvent } from "./asset.events"
+import { createRecoveryIn } from "./asset.recoveries"
 import { computeAssetStatus } from "./asset.status"
 import type { HeldBy } from "./asset.types"
 import type {
@@ -179,6 +180,33 @@ export async function markAssetLost(
       },
     })
 
+    // Decision 4: the same dialog offers to price the recovery while the
+    // circumstances are fresh. The debt is raised against whoever holds the
+    // asset — an asset missing from the store room with nobody holding it is
+    // a loss with no employee to recover from, so it is simply not priced.
+    if (body.recovery) {
+      const holder = await tx.assetAssignment.findFirst({
+        where: { assetId: id, returnedAt: null },
+        orderBy: { assignedAt: "desc" },
+        select: { id: true, employeeId: true },
+      })
+      if (holder) {
+        await createRecoveryIn(
+          tx,
+          {
+            assetId: id,
+            employeeId: holder.employeeId,
+            assignmentId: holder.id,
+            amount: body.recovery.amount,
+            currency: body.recovery.currency,
+            reason: body.recovery.reason,
+            kind: body.recovery.kind ?? "LOST",
+          },
+          actor
+        )
+      }
+    }
+
     await writeAudit(tx, {
       entity: "ASSET",
       entityId: id,
@@ -270,6 +298,20 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
     orderBy: { assetTag: "asc" },
   })
 
+  // Cost-visible roles need to know whether an asset's payable has been
+  // cleared, which is a fact about the ledger, not the register. One batch
+  // lookup across the page's assets rather than a query per row.
+  const paidIds = canSeeCosts(viewer.role)
+    ? new Set(
+        (
+          await prisma.journal.findMany({
+            where: { sourceModule: "ASSET", sourceEvent: "PAYMENT", sourceRefId: { in: assets.map((a) => a.id) } },
+            select: { sourceRefId: true },
+          })
+        ).map((j) => j.sourceRefId!)
+      )
+    : new Set<string>()
+
   return assets.map(({ assignments, repairs, ...asset }) => {
     const openAssignment = assignments[0] ?? null
     const { status, heldBy } = computeAssetStatus({
@@ -277,7 +319,10 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       openAssignment: openAssignment ? heldByFrom(openAssignment) : null,
       hasOpenRepair: repairs.length > 0,
     })
-    return stripCosts({ ...asset, status, heldBy }, viewer.role)
+    const withCosts = canSeeCosts(viewer.role)
+      ? { ...asset, status, heldBy, paid: paidIds.has(asset.id) }
+      : { ...asset, status, heldBy }
+    return stripCosts(withCosts, viewer.role)
   })
 }
 

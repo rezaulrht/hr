@@ -222,11 +222,12 @@ export interface SettlementHeads {
   expenseReimbursement: Money
   leaveEncashment: Money
   outstandingDeductions: Money
+  assetRecoveries: Money
 }
 
 /**
  * `pendingSalary + gratuity + noticePay + expenseReimbursement +
- *  leaveEncashment − outstandingDeductions`.
+ *  leaveEncashment − outstandingDeductions − assetRecoveries`.
  */
 export function finalAmount(heads: SettlementHeads): Money {
   return round2(
@@ -236,6 +237,6 @@ export function finalAmount(heads: SettlementHeads): Money {
       heads.noticePay,
       heads.expenseReimbursement,
       heads.leaveEncashment,
-    ]).minus(heads.outstandingDeductions)
+    ]).minus(heads.outstandingDeductions).minus(heads.assetRecoveries)
   )
 }

@@ -19,6 +19,7 @@ import departmentRoutes from "./modules/department/department.routes"
 import eventRoutes from "./modules/event/event.routes"
 import expenseRoutes from "./modules/expense/expense.routes"
 import employeeRoutes from "./modules/employee/employee.routes"
+import depreciationRoutes from "./modules/depreciation/depreciation.routes"
 import leaveRoutes from "./modules/leave/leave.routes"
 import settlementRoutes from "./modules/settlement/settlement.routes"
 import payrollRoutes from "./modules/payroll/payroll.routes"
@@ -53,6 +54,7 @@ app.use("/api/expenses", expenseRoutes)
 app.use("/api/settlements", settlementRoutes)
 app.use("/api/announcements", announcementRoutes)
 app.use("/api/assets", assetRoutes)
+app.use("/api/depreciation", depreciationRoutes)
 app.use("/api/costs", costRoutes)
 app.use("/api/accounting", accountingRoutes)
 app.use("/api/statements", statementRoutes)

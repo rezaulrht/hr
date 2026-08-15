@@ -770,6 +770,15 @@ export interface Asset {
   vendor?: string
   currency: Currency
   warrantyExpiry: string | null
+  /** Set once Finance capitalises it — the ledger half of the register. */
+  capitalisedAt?: string
+  capitalisedBy?: string
+  /** Frozen at capitalisation; 1.000000 for a BDT asset. */
+  fxRateToBdt?: string
+  purchaseCostBdt?: string
+  /** True once the payable raised at capitalisation has been cleared. Only
+   *  present for roles that can see costs — the server omits it otherwise. */
+  paid?: boolean
 }
 
 export interface AssetCategory {
@@ -925,6 +934,8 @@ export type UpdateAssetInput = Partial<CreateAssetInput>
  */
 export interface AssetLifecycleInput {
   note: string
+  /** Decision 4: optional recovery priced where the facts are fresh. */
+  recovery?: { amount: string; currency?: Currency; reason: string; kind?: AssetRecoveryKind }
 }
 
 export interface CreateAssetCategoryInput {
@@ -946,6 +957,8 @@ export interface AssignAssetInput {
 export interface ReturnAssetInput {
   conditionIn: AssetCondition
   returnNote?: string
+  /** Decision 4: optional recovery offered on a damaged return. */
+  recovery?: { amount: string; currency?: Currency; reason: string; kind?: AssetRecoveryKind }
 }
 
 export interface SendAssetRepairInput {
@@ -1575,3 +1588,149 @@ export interface NotesResult { period: StatementPeriod; comparativePeriod: State
 export interface AnnexureRow { accountId: string; particulars: string; rate: string | null; costOpening: string; costAddition: string; costClosing: string; depOpening: string; depCharged: string; depClosing: string; writtenDownValue: string }
 export interface AnnexureResult { period: StatementPeriod; rows: AnnexureRow[]; total: Omit<AnnexureRow, "accountId" | "particulars" | "rate"> }
 export interface PolicyNote { id: string; ref: string; title: string; body: string; sortOrder: number; updatedBy: string | null; updatedAt: string; createdAt: string }
+
+// ── DEPRECIATION & ASSET VALUE ─────────────────
+// Hand-mirrored from server/src/modules/depreciation/* and
+// server/src/modules/asset/asset.value.ts.
+
+export type DepreciationRunStatus = "DRAFT" | "POSTED" | "REVERSED"
+
+export interface DepreciationRunCharge {
+  id: string
+  assetId: string
+  amount: string
+  openingBookValue: string
+  rate: string
+  months: number
+  asset?: { assetTag: string; name: string; categoryName?: string }
+}
+
+export interface DepreciationRunDetail {
+  id: string
+  runNo: string
+  year: number
+  month: number
+  status: DepreciationRunStatus
+  journalId: string | null
+  journal?: { journalNo: string } | null
+  createdBy: string
+  createdAt: string
+  postedBy: string | null
+  postedAt: string | null
+  reversedBy: string | null
+  reversedAt: string | null
+  charges: DepreciationRunCharge[]
+}
+
+export interface DepreciationRunSummary {
+  id: string
+  runNo: string
+  year: number
+  month: number
+  status: DepreciationRunStatus
+  journalId: string | null
+  chargeCount: number
+  total: string
+}
+
+export interface DepreciationPreflightItem {
+  code: string
+  message: string
+}
+
+export interface DepreciationPreflight {
+  blockers: DepreciationPreflightItem[]
+  warnings: DepreciationPreflightItem[]
+  ok: boolean
+}
+
+export type AssetValueRowStatus = "VALUED" | "UNKNOWN" | "NOT_CAPITALISED"
+
+export interface AssetValueRow {
+  assetId: string
+  assetTag: string
+  name: string
+  categoryName: string
+  currency: Currency
+  purchaseCost: string | null
+  accumulated: string | null
+  bookValue: string | null
+  status: AssetValueRowStatus
+}
+
+export interface AssetValueTotal {
+  currency: Currency
+  purchaseCost: string
+  accumulated: string
+  bookValue: string
+}
+
+export interface AssetValueReport {
+  rows: AssetValueRow[]
+  totals: AssetValueTotal[]
+  asOf: string
+}
+
+// ── ASSET RECOVERIES & EXIT CHECKLIST ─────────
+// Hand-mirrored from server/src/modules/asset/asset.recoveries.ts and
+// server/src/modules/asset/asset.exit.ts.
+
+export type AssetRecoveryKind = "NOT_RETURNED" | "DAMAGED" | "LOST"
+export type AssetRecoveryStatus = "PENDING" | "RECOVERED" | "WAIVED"
+
+export interface AssetRecovery {
+  id: string
+  assetId: string
+  employeeId: string
+  assignmentId: string | null
+  kind: AssetRecoveryKind
+  amount: string
+  currency: Currency
+  reason: string
+  status: AssetRecoveryStatus
+  waivedBy: string | null
+  waivedAt: string | null
+  waiverReason: string | null
+  adjustmentId: string | null
+  settlementId: string | null
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  asset?: { assetTag: string; name: string; category?: { name: string } }
+  adjustment?: { payslip?: { payslipNo: string } | null } | null
+  settlement?: { settlementNo: string } | null
+}
+
+export interface CreateRecoveryInput {
+  assetId: string
+  employeeId: string
+  assignmentId?: string
+  kind?: AssetRecoveryKind
+  amount: string
+  currency?: Currency
+  reason: string
+}
+
+export interface UpdateRecoveryInput {
+  amount?: string
+  currency?: Currency
+  reason?: string
+}
+
+export interface ExitChecklistOpenAssignment {
+  assignmentId: string
+  assetId: string
+  assetTag: string
+  assetName: string
+  categoryName: string
+  assignedAt: string
+  conditionOut: string
+  acknowledgedAt: string | null
+}
+
+export interface ExitChecklist {
+  employeeId: string
+  openAssignments: ExitChecklistOpenAssignment[]
+  pendingRecoveries: AssetRecovery[]
+  hasOutstanding: boolean
+}

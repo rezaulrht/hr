@@ -25,6 +25,34 @@ vi.mock("./asset.assignments", () => ({
   openAssignmentsFor: vi.fn(async () => []),
 }))
 
+vi.mock("./asset.capitalise", () => ({
+  capitaliseAsset: vi.fn(async () => ({ id: "ast-1", capitalisedAt: new Date() })),
+  payForAsset: vi.fn(async () => ({ id: "ast-1" })),
+  disposeAsset: vi.fn(async () => ({ id: "ast-1", lifecycle: "RETIRED" })),
+}))
+
+vi.mock("./asset.value", () => ({
+  assetValueReport: vi.fn(async () => ({ rows: [], totals: [], asOf: "2026-08-15" })),
+}))
+
+vi.mock("./asset.recoveries", () => ({
+  createRecovery: vi.fn(async () => ({ id: "rec-1", status: "PENDING" })),
+  listRecoveries: vi.fn(async () => []),
+  updateRecovery: vi.fn(async () => ({ id: "rec-1" })),
+  waiveRecovery: vi.fn(async () => ({ id: "rec-1", status: "WAIVED" })),
+  recoverFromPayroll: vi.fn(async () => ({ id: "rec-1" })),
+}))
+
+vi.mock("./asset.exit", () => ({
+  exitChecklistFor: vi.fn(async () => ({ employeeId: "emp-1", openAssignments: [], pendingRecoveries: [], hasOutstanding: false })),
+}))
+
+vi.mock("../../config/prisma", () => ({
+  default: {
+    employee: { findUnique: vi.fn(async () => ({ id: "emp-1" })) },
+  },
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import { listAssets } from "./asset.service"
@@ -146,5 +174,147 @@ describe("DELETE /api/assets/categories/:id", () => {
     const res = await request(app).delete("/api/assets/categories/c1").set(authHeader("HR_ADMIN"))
 
     expect(res.status).toBe(204)
+  })
+})
+
+describe("the ledger actions", () => {
+  it("lets FINANCE_OFFICER capitalise and refuses HR_ADMIN", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/capitalise")
+      .set(authHeader("FINANCE_OFFICER"))
+    expect(fin.status).toBe(201)
+
+    const hr = await request(app)
+      .post("/api/assets/ast-1/capitalise")
+      .set(authHeader("HR_ADMIN"))
+    expect(hr.status).toBe(403)
+  })
+
+  it("lets FINANCE_OFFICER pay and refuses EMPLOYEE", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/pay")
+      .set(authHeader("FINANCE_OFFICER"))
+      .send({ paidAt: "2026-08-10" })
+    expect(fin.status).toBe(201)
+
+    const emp = await request(app)
+      .post("/api/assets/ast-1/pay")
+      .set(authHeader("EMPLOYEE"))
+      .send({})
+    expect(emp.status).toBe(403)
+  })
+
+  it("lets FINANCE_OFFICER dispose and refuses REPORTING_MANAGER", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/dispose")
+      .set(authHeader("FINANCE_OFFICER"))
+      .send({ proceeds: "10000" })
+    expect(fin.status).toBe(201)
+
+    const mgr = await request(app)
+      .post("/api/assets/ast-1/dispose")
+      .set(authHeader("REPORTING_MANAGER"))
+      .send({})
+    expect(mgr.status).toBe(403)
+  })
+
+  it("lets HR_ADMIN read the value report — HR prices a lost laptop from it", async () => {
+    const res = await request(app).get("/api/assets/value").set(authHeader("HR_ADMIN"))
+
+    expect(res.status).toBe(200)
+  })
+
+  it("refuses EMPLOYEE the value report", async () => {
+    const res = await request(app).get("/api/assets/value").set(authHeader("EMPLOYEE"))
+
+    expect(res.status).toBe(403)
+  })
+})
+
+describe("recoveries", () => {
+  it("lets HR_ADMIN create a recovery and refuses FINANCE_OFFICER", async () => {
+    const body = {
+      assetId: "550e8400-e29b-41d4-a716-446655440000",
+      employeeId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      amount: "45000",
+      reason: "Not returned",
+    }
+    const hr = await request(app).post("/api/assets/recoveries").set(authHeader("HR_ADMIN")).send(body)
+    expect(hr.status).toBe(201)
+
+    const fin = await request(app).post("/api/assets/recoveries").set(authHeader("FINANCE_OFFICER")).send(body)
+    expect(fin.status).toBe(403)
+  })
+
+  it("lets FINANCE_OFFICER read recoveries", async () => {
+    const res = await request(app).get("/api/assets/recoveries").set(authHeader("FINANCE_OFFICER"))
+    expect(res.status).toBe(200)
+  })
+
+  it("lets HR_ADMIN waive and recover from payroll", async () => {
+    const waive = await request(app)
+      .post("/api/assets/recoveries/rec-1/waive")
+      .set(authHeader("HR_ADMIN"))
+      .send({ waiverReason: "Company fault" })
+    expect(waive.status).toBe(200)
+
+    const collect = await request(app)
+      .post("/api/assets/recoveries/rec-1/recover-from-payroll")
+      .set(authHeader("HR_ADMIN"))
+    expect(collect.status).toBe(200)
+  })
+
+  it("refuses FINANCE_OFFICER the write actions — HR decides", async () => {
+    const waive = await request(app)
+      .post("/api/assets/recoveries/rec-1/waive")
+      .set(authHeader("FINANCE_OFFICER"))
+      .send({ waiverReason: "x" })
+    expect(waive.status).toBe(403)
+
+    const collect = await request(app)
+      .post("/api/assets/recoveries/rec-1/recover-from-payroll")
+      .set(authHeader("FINANCE_OFFICER"))
+    expect(collect.status).toBe(403)
+  })
+
+  it("refuses DELETE on a recovery with 405", async () => {
+    const res = await request(app)
+      .delete("/api/assets/recoveries/rec-1")
+      .set(authHeader("SUPER_ADMIN"))
+    expect(res.status).toBe(405)
+  })
+
+  it("does not match /recoveries as an asset id", async () => {
+    const res = await request(app).get("/api/assets/recoveries").set(authHeader("HR_ADMIN"))
+    expect(res.status).toBe(200)
+    // If /:id were declared first, Express would call getAsset with id
+    // "recoveries" and this would 404.
+    expect(res.body).toEqual([])
+  })
+
+  it("lets an employee read their own recoveries — scoped by the service", async () => {
+    const res = await request(app).get("/api/assets/recoveries").set(authHeader("EMPLOYEE"))
+    expect(res.status).toBe(200)
+    // The scope is applied in the service (own employee id), not the route.
+    const { listRecoveries } = await import("./asset.recoveries")
+    expect(listRecoveries).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ role: "EMPLOYEE" })
+    )
+  })
+})
+
+describe("exit checklist", () => {
+  it("lets HR_ADMIN and FINANCE_OFFICER read it", async () => {
+    const hr = await request(app).get("/api/assets/exit-checklist/emp-1").set(authHeader("HR_ADMIN"))
+    expect(hr.status).toBe(200)
+
+    const fin = await request(app).get("/api/assets/exit-checklist/emp-1").set(authHeader("FINANCE_OFFICER"))
+    expect(fin.status).toBe(200)
+  })
+
+  it("refuses EMPLOYEE", async () => {
+    const res = await request(app).get("/api/assets/exit-checklist/emp-1").set(authHeader("EMPLOYEE"))
+    expect(res.status).toBe(403)
   })
 })

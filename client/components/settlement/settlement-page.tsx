@@ -27,6 +27,7 @@ import {
   SETTLEMENT_STATUS_LABEL,
   SETTLEMENT_STATUS_TONE,
 } from "@/components/payroll/payroll-shared"
+import { ExitChecklistPanel } from "@/components/asset/exit-checklist-panel"
 import { SettlementDetail } from "@/components/settlement/settlement-detail"
 
 export function SettlementPage() {
@@ -180,20 +181,23 @@ export function SettlementPage() {
               <div className="text-[15px] font-bold">Leavers awaiting settlement</div>
               <ul className="mt-3 space-y-2">
                 {awaiting.map((employee) => (
-                  <li key={employee.id} className="flex items-center justify-between gap-3">
-                    <div className="text-[13px]">
-                      <span className="font-semibold">{employee.work.fullName}</span>{" "}
-                      <span className="text-[#A5AFBE]">{employee.employment?.employeeCode}</span>
+                  <li key={employee.id} className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[13px]">
+                        <span className="font-semibold">{employee.work.fullName}</span>{" "}
+                        <span className="text-[#A5AFBE]">{employee.employment?.employeeCode}</span>
+                      </div>
+                      {isFinance ? (
+                        <Button
+                          variant="outline"
+                          disabled={calculateMutation.isPending}
+                          onClick={() => calculateMutation.mutate(employee.id)}
+                        >
+                          Calculate
+                        </Button>
+                      ) : null}
                     </div>
-                    {isFinance ? (
-                      <Button
-                        variant="outline"
-                        disabled={calculateMutation.isPending}
-                        onClick={() => calculateMutation.mutate(employee.id)}
-                      >
-                        Calculate
-                      </Button>
-                    ) : null}
+                    <ExitChecklistPanel employeeId={employee.id} />
                   </li>
                 ))}
               </ul>

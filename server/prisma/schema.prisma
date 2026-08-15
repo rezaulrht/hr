@@ -130,6 +130,7 @@ model Employee {
 
   assetAssignments AssetAssignment[]
   assetRequests    AssetRequest[]
+  assetRecoveries  AssetRecovery[]
 
   journalLines JournalLine[]
 }
@@ -647,6 +648,8 @@ model PayrollAdjustment {
   payslipId  String?
   payslip    Payslip?      @relation(fields: [payslipId], references: [id])
 
+  assetRecovery AssetRecovery?
+
   @@index([employeeId, year, month])
   @@index([year, month, payslipId])
 }
@@ -771,6 +774,11 @@ model Settlement {
   // column on a paid document is worse than a zero.
   leaveEncashment       Decimal @default(0) @db.Decimal(14, 2)
   outstandingDeductions Decimal @default(0) @db.Decimal(14, 2)
+  // Its own head rather than folded into outstandingDeductions, which posts
+  // entirely to ADVANCE_RECOVERY → 1250 Employee Advances. Nothing was ever
+  // advanced for a lost laptop, so there is no receivable to clear, and
+  // folding it in would credit an asset account that was never debited.
+  assetRecoveries       Decimal @default(0) @db.Decimal(14, 2)
   finalAmount           Decimal @db.Decimal(14, 2)
   finalAmountBdt        Decimal @db.Decimal(14, 2)
 
@@ -791,6 +799,7 @@ model Settlement {
   generatedAt DateTime  @default(now())
 
   claims ExpenseClaim[]
+  assetRecoveryRows AssetRecovery[]
 
   @@index([employeeId])
   @@index([status])
@@ -961,6 +970,18 @@ model Asset {
   vendor         String?
   warrantyExpiry DateTime?
 
+  // ── ledger (phase 2) ──
+  // Frozen at capitalisation, and 1.000000 for a BDT asset. Everything the
+  // ledger sees derives from purchaseCostBdt; nothing reconverts, ever.
+  // Operating costs lack this column, which is exactly why USD costs cannot
+  // post at all.
+  fxRateToBdt     Decimal?  @db.Decimal(18, 6)
+  purchaseCostBdt Decimal?  @db.Decimal(14, 2)
+  capitalisedAt   DateTime?
+  capitalisedBy   String?
+
+  depreciationCharges AssetDepreciation[]
+
   // ── where it belongs, as distinct from who is holding it ──
   // The owning cost centre. NOT the holder's department — a laptop bought by
   // Engineering can be lent to Sales without changing which budget owns it.
@@ -979,12 +1000,135 @@ model Asset {
   repairs     AssetRepair[]
   requests    AssetRequest[]
   attachments AssetAttachment[]
+  recoveries  AssetRecovery[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([categoryId])
   @@index([lifecycle])
+}
+
+// ── ledger (phase 2) ──
+// Frozen at capitalisation, and 1.000000 for a BDT asset. Everything the
+// ledger sees derives from purchaseCostBdt; nothing reconverts, ever.
+// Operating costs lack this column, which is exactly why USD costs cannot
+// post at all.
+model DepreciationRun {
+  id     String @id @default(uuid())
+  // IdCounter key "DEP" — the mechanism already issuing journal and employee
+  // numbers. "BS-DEP-00007".
+  runNo  String @unique
+  year   Int
+  month  Int
+  status DepreciationRunStatus @default(DRAFT)
+
+  // The journal this run produced. Null while DRAFT; kept after a reversal so
+  // the reversal has something to name.
+  journalId String?
+  journal   Journal? @relation(fields: [journalId], references: [id])
+
+  createdBy String
+  createdAt DateTime  @default(now())
+  postedBy  String?
+  postedAt  DateTime?
+  reversedBy String?
+  reversedAt DateTime?
+
+  charges AssetDepreciation[]
+
+  // One run per month. A second attempt collides here rather than
+  // double-charging, which is the whole idempotency guard.
+  @@unique([year, month])
+  @@index([status])
+}
+
+model AssetDepreciation {
+  id    String @id @default(uuid())
+  runId String
+  run   DepreciationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id])
+
+  // Always BDT. A USD asset is converted once, at capitalisation, and never
+  // again — see spec Decision 7.
+  amount Decimal @db.Decimal(14, 2)
+
+  // The figures the charge was computed from, frozen. Without them a rate
+  // change six months from now silently rewrites history when somebody
+  // recomputes to check.
+  openingBookValue Decimal @db.Decimal(14, 2)
+  rate             Decimal @db.Decimal(5, 2)
+  // How many months this charge covers. 1 normally; more when a late
+  // capitalisation is caught up — see spec Decision 6.
+  months           Int     @default(1)
+
+  @@unique([runId, assetId])
+  @@index([assetId])
+}
+
+enum DepreciationRunStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+
+enum AssetRecoveryKind {
+  NOT_RETURNED
+  DAMAGED
+  LOST
+}
+
+enum AssetRecoveryStatus {
+  PENDING
+  RECOVERED
+  WAIVED
+}
+
+model AssetRecovery {
+  id         String   @id @default(uuid())
+  assetId    String
+  asset      Asset    @relation(fields: [assetId], references: [id])
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  // The custody episode it arose under. Nullable because an asset can go
+  // missing with nobody holding it, and because a recovery may be raised
+  // after the assignment has been closed out.
+  assignmentId String?
+  assignment   AssetAssignment? @relation(fields: [assignmentId], references: [id])
+
+  kind AssetRecoveryKind
+  // Typed by a person, never computed. Book value, replacement cost and
+  // original cost are three defensible answers and the system cannot see
+  // which one applies.
+  amount   Decimal  @db.Decimal(14, 2)
+  currency Currency @default(BDT)
+  // Required, and required non-empty. An unexplained deduction from
+  // somebody's pay is a dispute waiting.
+  reason String
+
+  status AssetRecoveryStatus @default(PENDING)
+
+  // A waived recovery is kept, never deleted. "We chose not to charge her" is
+  // precisely what an auditor asks about, and a deleted row cannot answer.
+  waivedBy     String?
+  waivedAt     DateTime?
+  waiverReason String?
+
+  // One recovery, one deduction — enforced by the database rather than by a
+  // service that remembers to check.
+  adjustmentId String?            @unique
+  adjustment   PayrollAdjustment? @relation(fields: [adjustmentId], references: [id])
+  // Not unique: one settlement legitimately clears several recoveries.
+  settlementId String?
+  settlement   Settlement? @relation(fields: [settlementId], references: [id])
+
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, status])
+  @@index([assetId])
 }
 
 enum AssetLifecycle {
@@ -1021,6 +1165,7 @@ model AssetAssignment {
   returnNote  String?
 
   attachments AssetAttachment[]
+  recoveries  AssetRecovery[]
 
   @@index([assetId, assignedAt])
   @@index([employeeId, returnedAt])
@@ -1435,6 +1580,8 @@ model Journal {
 
   lines       JournalLine[]
   attachments JournalAttachment[]
+
+  depreciationRuns DepreciationRun[]
 
   // The idempotency guard, and the reason the payroll seam needs no new
   // schema in slice 3. Postgres permits unlimited all-null rows under a

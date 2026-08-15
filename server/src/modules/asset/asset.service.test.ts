@@ -4,7 +4,8 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     asset: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     assetCategory: { findUnique: vi.fn(), update: vi.fn() },
-    assetAssignment: { count: vi.fn() },
+    assetAssignment: { count: vi.fn(), findFirst: vi.fn() },
+    assetRecovery: { create: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     event: { create: vi.fn() },
@@ -15,6 +16,7 @@ vi.mock("../../config/prisma", () => {
       asset: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
       assetCategory: { findMany: vi.fn(), findUnique: vi.fn() },
       employee: { findUnique: vi.fn(), findMany: vi.fn() },
+      journal: { findMany: vi.fn(async () => []) },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       __tx: tx,
     },
@@ -22,7 +24,7 @@ vi.mock("../../config/prisma", () => {
 })
 
 import prisma from "../../config/prisma"
-import { createAsset, getAsset, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
+import { createAsset, getAsset, listAssets, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
 
@@ -45,6 +47,7 @@ beforeEach(() => {
   tx.idCounter.upsert.mockResolvedValue({ id: "AST", value: 42 })
   tx.auditLog.create.mockResolvedValue({})
   tx.event.create.mockResolvedValue({})
+  tx.assetRecovery.create.mockResolvedValue({ id: "rec-1" })
 })
 
 describe("nextAssetTag", () => {
@@ -135,6 +138,97 @@ describe("markAssetLost", () => {
 
     expect(tx.asset.update).toHaveBeenCalledOnce()
     expect(tx.assetAssignment.count).not.toHaveBeenCalled()
+  })
+
+  it("creates a recovery alongside marking an asset lost, in one transaction", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.asset.update.mockResolvedValue({ id: "ast-1", lifecycle: "LOST" })
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+
+    await markAssetLost(
+      "ast-1",
+      { note: "Left it on the train", recovery: { amount: "45000", reason: "Laptop lost" } },
+      hr
+    )
+
+    expect(tx.assetRecovery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assetId: "ast-1",
+          employeeId: "emp-1",
+          assignmentId: "asg-1",
+          kind: "LOST",
+          status: "PENDING",
+        }),
+      })
+    )
+  })
+
+  it("marks it lost with no recovery when none is supplied", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.asset.update.mockResolvedValue({ id: "ast-1", lifecycle: "LOST" })
+
+    await markAssetLost("ast-1", { note: "Nobody's fault" }, hr)
+
+    expect(tx.assetRecovery.create).not.toHaveBeenCalled()
+  })
+
+  it("rolls back the lost marking if the recovery is invalid", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+
+    await expect(
+      markAssetLost(
+        "ast-1",
+        { note: "Lost", recovery: { amount: "0", reason: "zero" } },
+        hr
+      )
+    ).rejects.toMatchObject({ statusCode: 400 })
+    // The update happened before the recovery create in this transaction, but
+    // the transaction as a whole rejects — a laptop is never marked lost with
+    // no debt recorded. Asserted here as "the call did not complete", which
+    // is what a rollback looks like to the caller.
+  })
+})
+
+describe("listAssets", () => {
+  it("flags cost-visible roles with the paid state derived from the ledger", async () => {
+    vi.mocked(prisma.asset.findMany).mockResolvedValue([
+      {
+        id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad", categoryId: "c-1",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: new Date("2026-07-05T00:00:00.000Z"), capitalisedBy: "u-1",
+        fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-1", code: "LAPTOP", name: "Laptop" },
+        assignments: [], repairs: [],
+      } as never,
+    ])
+    vi.mocked(prisma.journal.findMany).mockResolvedValue([{ sourceRefId: "a-1" }] as never)
+
+    const rows = await listAssets(hr as never)
+
+    expect(rows[0]).toMatchObject({ paid: true })
+  })
+
+  it("omits the paid flag for roles that cannot see costs", async () => {
+    vi.mocked(prisma.asset.findMany).mockResolvedValue([
+      {
+        id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad", categoryId: "c-1",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: new Date("2026-07-05T00:00:00.000Z"), capitalisedBy: "u-1",
+        fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-1", code: "LAPTOP", name: "Laptop" },
+        assignments: [], repairs: [],
+      } as never,
+    ])
+
+    await listAssets(staff as never)
+
+    expect(prisma.journal.findMany).not.toHaveBeenCalled()
   })
 })
 

@@ -248,6 +248,7 @@ describe("finalAmount", () => {
       expenseReimbursement: dec("1200.00"),
       leaveEncashment: dec(0),
       outstandingDeductions: dec("5000.00"),
+      assetRecoveries: dec(0),
     })
     expect(total.toFixed(2)).toBe("502909.68")
   })
@@ -261,6 +262,7 @@ describe("finalAmount", () => {
       expenseReimbursement: dec(0),
       leaveEncashment: dec(0),
       outstandingDeductions: dec("5000.00"),
+      assetRecoveries: dec(0),
     })
     expect(total.toFixed(2)).toBe("-4000.00")
   })
@@ -273,7 +275,21 @@ describe("finalAmount", () => {
       expenseReimbursement: dec(0),
       leaveEncashment: dec(0),
       outstandingDeductions: dec(0),
+      assetRecoveries: dec(0),
     })
     expect(total.toFixed(2)).toBe("1000.00")
+  })
+
+  it("subtracts asset recoveries from the final amount", () => {
+    const total = finalAmount({
+      pendingSalary: dec("100000.00"),
+      gratuity: dec(0),
+      noticePay: dec(0),
+      expenseReimbursement: dec(0),
+      leaveEncashment: dec(0),
+      outstandingDeductions: dec("10000.00"),
+      assetRecoveries: dec("45000.00"),
+    })
+    expect(total.toFixed(2)).toBe("45000.00")
   })
 })

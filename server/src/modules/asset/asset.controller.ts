@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express"
 
 import type { AssetAttachmentKind } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { capitaliseAsset, disposeAsset, payForAsset } from "./asset.capitalise"
 import {
   acknowledgeAssignment,
   assignAsset,
@@ -37,6 +38,22 @@ import {
   updateAsset,
   updateCategory,
 } from "./asset.service"
+import { assetValueReport } from "./asset.value"
+import { exitChecklistFor } from "./asset.exit"
+import {
+  createRecovery,
+  listRecoveries,
+  recoverFromPayroll,
+  updateRecovery,
+  waiveRecovery,
+} from "./asset.recoveries"
+import {
+  createRecoverySchema,
+  recoveryQuerySchema,
+  updateRecoverySchema,
+  waiveRecoverySchema,
+} from "./asset.recoveries.validators"
+import { disposeSchema, payAssetSchema, valueReportQuerySchema } from "../depreciation/depreciation.validators"
 import {
   approveRequestSchema,
   assignSchema,
@@ -397,6 +414,111 @@ export async function deleteAttachmentHandler(
   try {
     await deleteAttachment(req.params.id, req.user!)
     res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── the ledger actions ──
+// Capitalise, pay and dispose move the balance sheet; the value report reads
+// it. All four are asset routes but they exist only because the asset module
+// now talks to the ledger.
+
+export async function capitaliseHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    res.status(201).json(await capitaliseAsset(req.params.id, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function payAssetHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = payAssetSchema.parse(req.body)
+    res.status(201).json(await payForAsset(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function disposeHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = disposeSchema.parse(req.body)
+    res.status(201).json(await disposeAsset(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function assetValueReportHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = valueReportQuerySchema.parse(req.query)
+    res.json(await assetValueReport(query))
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── recoveries ──
+// HR creates, corrects and waives; Finance reads. The split mirrors
+// payroll.routes.ts, and Decision 3 depends on it — recovery from payroll is
+// an act somebody takes, and Finance cannot move money alone.
+
+export async function listRecoveriesHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = recoveryQuerySchema.parse(req.query)
+    res.json(await listRecoveries(query, req.user))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function createRecoveryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = createRecoverySchema.parse(req.body)
+    res.status(201).json(await createRecovery(body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function updateRecoveryHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = updateRecoverySchema.parse(req.body)
+    res.json(await updateRecovery(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function waiveRecoveryHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = waiveRecoverySchema.parse(req.body)
+    res.json(await waiveRecovery(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function recoverFromPayrollHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    res.json(await recoverFromPayroll(req.params.id, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function exitChecklistHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employeeId = req.params.employeeId
+    if (typeof employeeId !== "string") {
+      throw new AppError(400, "A single employee id is required")
+    }
+    res.json(await exitChecklistFor(employeeId))
   } catch (err) {
     next(err)
   }

@@ -182,3 +182,31 @@ export function assetImportedEvent(args: ImportedArgs): EventInput {
     href: "/assets",
   }
 }
+
+interface RecoveryCollectedArgs {
+  recoveryId: string
+  assetId: string
+  assetTag: string
+  employeeId: string
+  amount: string
+  currency: string
+  actorUserId: string | null
+}
+
+/** Emitted by the sweep, one per recovery. A deduction from somebody's pay is
+ *  a separate fact for each person and each of them needs telling. */
+export function assetRecoveryCollectedEvent(args: RecoveryCollectedArgs): EventInput {
+  return {
+    type: "asset.recovery.collected",
+    severity: "WARNING",
+    actorUserId: args.actorUserId,
+    entity: "ASSET_RECOVERY",
+    entityId: args.recoveryId,
+    subjectEmployeeId: args.employeeId,
+    targetRoles: ["HR_ADMIN"],
+    title: "Asset recovery collected",
+    meta: `${args.assetTag} · ${args.amount} ${args.currency}`,
+    href: "/assets",
+    payload: { assetTag: args.assetTag, amount: args.amount, currency: args.currency },
+  }
+}

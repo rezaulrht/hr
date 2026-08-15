@@ -8,12 +8,15 @@ import type {
   AssetDetail,
   AssetImportCommitResult,
   AssetImportPreview,
+  AssetRecovery,
   AssetRepair,
   AssetRequest,
   AssignAssetInput,
   ApproveAssetRequestInput,
   CreateAssetCategoryInput,
   CreateAssetInput,
+  CreateRecoveryInput,
+  ExitChecklist,
   AssetLifecycleInput,
   FulfilAssetRequestInput,
   ReceiveAssetRepairInput,
@@ -24,6 +27,7 @@ import type {
   SubmitAssetRequestInput,
   UpdateAssetCategoryInput,
   UpdateAssetInput,
+  UpdateRecoveryInput,
 } from "./types"
 
 export function listAssets(
@@ -323,4 +327,103 @@ export function commitAssetImport(
 
 export function deleteCategory(accessToken: string, id: string): Promise<void> {
   return apiFetch<void>(`/api/assets/categories/${id}`, { method: "DELETE", accessToken })
+}
+
+export function capitaliseAsset(accessToken: string, id: string): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/capitalise`, { method: "POST", accessToken })
+}
+
+export function payForAsset(
+  accessToken: string,
+  id: string,
+  input: { paidAt?: string } = {}
+): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/pay`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function disposeAsset(
+  accessToken: string,
+  id: string,
+  input: { proceeds?: string; note?: string } = {}
+): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/dispose`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function getAssetValueReport(
+  accessToken: string,
+  query: { asOf?: string; categoryId?: string } = {}
+): Promise<import("./types").AssetValueReport> {
+  const params = new URLSearchParams()
+  if (query.asOf) params.set("asOf", query.asOf)
+  if (query.categoryId) params.set("categoryId", query.categoryId)
+  const qs = params.toString()
+  return apiFetch<import("./types").AssetValueReport>(`/api/assets/value${qs ? `?${qs}` : ""}`, {
+    accessToken,
+  })
+}
+
+export function listRecoveries(
+  accessToken: string,
+  query: { employeeId?: string; assetId?: string; status?: string } = {}
+): Promise<AssetRecovery[]> {
+  const params = new URLSearchParams()
+  if (query.employeeId) params.set("employeeId", query.employeeId)
+  if (query.assetId) params.set("assetId", query.assetId)
+  if (query.status) params.set("status", query.status)
+  const qs = params.toString()
+  return apiFetch<AssetRecovery[]>(`/api/assets/recoveries${qs ? `?${qs}` : ""}`, { accessToken })
+}
+
+export function createRecovery(
+  accessToken: string,
+  input: CreateRecoveryInput
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>("/api/assets/recoveries", {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateRecovery(
+  accessToken: string,
+  id: string,
+  input: UpdateRecoveryInput
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function waiveRecovery(
+  accessToken: string,
+  id: string,
+  waiverReason: string
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}/waive`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify({ waiverReason }),
+  })
+}
+
+export function recoverFromPayroll(accessToken: string, id: string): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}/recover-from-payroll`, {
+    method: "POST",
+    accessToken,
+  })
+}
+
+export function getExitChecklist(accessToken: string, employeeId: string): Promise<ExitChecklist> {
+  return apiFetch<ExitChecklist>(`/api/assets/exit-checklist/${employeeId}`, { accessToken })
 }

@@ -29,6 +29,7 @@ export const overrideSettlementBody = z
     noticePay: z.coerce.number().min(0).optional(),
     expenseReimbursement: z.coerce.number().min(0).optional(),
     outstandingDeductions: z.coerce.number().min(0).optional(),
+    assetRecoveries: z.coerce.number().min(0).optional(),
     reason: z.string().min(1, "A reason is required").max(500),
   })
   .refine(
@@ -37,7 +38,8 @@ export const overrideSettlementBody = z
       b.gratuity !== undefined ||
       b.noticePay !== undefined ||
       b.expenseReimbursement !== undefined ||
-      b.outstandingDeductions !== undefined,
+      b.outstandingDeductions !== undefined ||
+      b.assetRecoveries !== undefined,
     { message: "Provide at least one head to override" }
   )
 export type OverrideSettlementBody = z.infer<typeof overrideSettlementBody>

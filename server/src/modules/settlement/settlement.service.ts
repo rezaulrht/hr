@@ -15,6 +15,7 @@ import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
+import { sweepRecoveriesCollected } from "../asset/asset.sweep"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "../payroll/payroll.money"
 import { toComponentInputs } from "../payroll/payroll.preflight"
@@ -75,6 +76,10 @@ export async function overrideSettlement(
       body.outstandingDeductions !== undefined
         ? dec(body.outstandingDeductions)
         : existing.outstandingDeductions,
+    assetRecoveries:
+      body.assetRecoveries !== undefined
+        ? dec(body.assetRecoveries)
+        : existing.assetRecoveries,
   }
   const total = finalAmount(next)
 
@@ -98,6 +103,7 @@ export async function overrideSettlement(
         gratuity: toMoneyString(existing.gratuity),
         noticePay: toMoneyString(existing.noticePay),
         outstandingDeductions: toMoneyString(existing.outstandingDeductions),
+        assetRecoveries: toMoneyString(existing.assetRecoveries),
         finalAmount: toMoneyString(existing.finalAmount),
       },
       after: {
@@ -105,6 +111,7 @@ export async function overrideSettlement(
         gratuity: toMoneyString(next.gratuity),
         noticePay: toMoneyString(next.noticePay),
         outstandingDeductions: toMoneyString(next.outstandingDeductions),
+        assetRecoveries: toMoneyString(next.assetRecoveries),
         finalAmount: toMoneyString(total),
       },
       note: body.reason,
@@ -210,6 +217,7 @@ export async function calculateSettlement(employeeId: string, actorUserId: strin
     // rule for freezing it at exit, which is out of scope.
     leaveEncashment: dec(0),
     outstandingDeductions: dec(0),
+    assetRecoveries: dec(0),
   }
   const total = finalAmount(heads)
 
@@ -406,6 +414,8 @@ export async function paySettlement(id: string, actorUserId: string) {
       include: SETTLEMENT_INCLUDE,
     })
     await sweepClaimsReimbursed(tx, { settlementId: id, status: "APPROVED" }, actorUserId)
+    // The recoveries this settlement folded into its assetRecoveries head.
+    await sweepRecoveriesCollected(tx, { settlementId: id, status: "PENDING" }, actorUserId)
     await postSettlementPayment(tx, id, actorUserId, updated.paidAt ?? new Date())
     await writeAudit(tx, {
       entity: "SETTLEMENT",

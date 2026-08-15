@@ -25,6 +25,7 @@ export interface SettlementForPosting {
   expenseReimbursement: Prisma.Decimal
   leaveEncashment: Prisma.Decimal
   outstandingDeductions: Prisma.Decimal
+  assetRecoveries: Prisma.Decimal
   finalAmountBdt: Prisma.Decimal
 }
 
@@ -60,9 +61,9 @@ export function buildSettlementAccrualLines(s: SettlementForPosting, rules: Reso
       : { sourceCurrency: s.currency, sourceAmount: source.toFixed(2), fxRateToBdt: s.fxRateToBdt.toFixed(6) }
 
   // What the debits must add up to: the payable plus anything recovered.
-  const target = s.finalAmountBdt.plus(
-    new Prisma.Decimal(s.outstandingDeductions.times(s.fxRateToBdt).toFixed(2))
-  )
+  const target = s.finalAmountBdt
+    .plus(new Prisma.Decimal(s.outstandingDeductions.times(s.fxRateToBdt).toFixed(2)))
+    .plus(new Prisma.Decimal(s.assetRecoveries.times(s.fxRateToBdt).toFixed(2)))
   const sourceByIndex = HEADS.map((head) => head.of(s))
   const converted = toBdtAllocated(
     HEADS.map((head, i) => ({ key: String(i), amount: sourceByIndex[i] })),
@@ -93,6 +94,19 @@ export function buildSettlementAccrualLines(s: SettlementForPosting, rules: Reso
     })
   }
 
+  // Its own head, credited to income — nothing was ever advanced for a lost
+  // laptop, so there is no receivable to clear (Decision 5).
+  const assetRecovered = new Prisma.Decimal(s.assetRecoveries.times(s.fxRateToBdt).toFixed(2))
+  if (!assetRecovered.isZero()) {
+    lines.push({
+      accountCode: resolveAccountCode(rules, "ASSET_RECOVERY"),
+      credit: assetRecovered.toFixed(2),
+      narration: "Asset recoveries",
+      ...dimensions,
+      ...memo(s.assetRecoveries),
+    })
+  }
+
   lines.push({
     accountCode: resolveAccountCode(rules, "NET_PAY"),
     credit: s.finalAmountBdt.toFixed(2),
@@ -117,7 +131,7 @@ async function loadSettlement(tx: PrismaNamespace.TransactionClient, id: string)
     select: {
       id: true, employeeId: true, currency: true, fxRateToBdt: true,
       pendingSalary: true, gratuity: true, noticePay: true, expenseReimbursement: true,
-      leaveEncashment: true, outstandingDeductions: true, finalAmountBdt: true,
+      leaveEncashment: true, outstandingDeductions: true, assetRecoveries: true, finalAmountBdt: true,
       employee: {
         select: {
           employeeCode: true, fullName: true, departmentId: true,

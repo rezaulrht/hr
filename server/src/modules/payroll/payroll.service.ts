@@ -14,6 +14,7 @@ import { writeAudit } from "../../utils/audit"
 import { assertMonthNotLocked } from "../../utils/month-lock"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
+import { sweepRecoveriesCollected } from "../asset/asset.sweep"
 import { postPayrollAccrual, postPayrollPayment } from "./payroll.posting"
 import { periodStatusFor } from "../posting/posting.preflight"
 import { monthWindow, toLedgerDate } from "../accounting/accounting.utils"
@@ -815,6 +816,13 @@ export async function disburseRun(id: string, actorUserId: string) {
     await sweepClaimsReimbursed(
       tx,
       { payslip: { payrollRunId: id }, status: "APPROVED" },
+      actorUserId
+    )
+    // The recoveries this run collected through its adjustments: the sweep
+    // flips status only, matching the money that just moved.
+    await sweepRecoveriesCollected(
+      tx,
+      { status: "PENDING", adjustment: { payslip: { payrollRunId: id } } },
       actorUserId
     )
     await postPayrollPayment(tx, id, actorUserId)
