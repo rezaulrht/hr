@@ -13,7 +13,14 @@ export const POSTING_RULES: PostingRuleSeed[] = [
   { event: "EXPENSE_ACCRUAL", key: "REIMBURSEMENT", account: "2135" },
   { event: "COST_ACCRUAL", key: "RENT", account: "5206" }, { event: "COST_ACCRUAL", key: "ELECTRICITY", account: "5209" }, { event: "COST_ACCRUAL", key: "WATER", account: "5210" }, { event: "COST_ACCRUAL", key: "INTERNET", account: "5211" }, { event: "COST_ACCRUAL", key: "MAINTENANCE", account: "5213" }, { event: "COST_ACCRUAL", key: "*", account: "5207" }, { event: "COST_ACCRUAL", key: "PAYABLE", account: "2110" },
   { event: "COST_PAYMENT", key: "PAYABLE", account: "2110" }, { event: "COST_PAYMENT", key: "BANK", account: "1242" },
-  { event: "SETTLEMENT_ACCRUAL", key: "DIRECT:BASIC", account: "5122" }, { event: "SETTLEMENT_ACCRUAL", key: "ADMINISTRATIVE:BASIC", account: "5201" }, { event: "SETTLEMENT_ACCRUAL", key: "NET_PAY", account: "2132" }, { event: "SETTLEMENT_ACCRUAL", key: "GRATUITY", account: "5220" }, { event: "SETTLEMENT_ACCRUAL", key: "NOTICE_PAY", account: "5221" }, { event: "SETTLEMENT_ACCRUAL", key: "ADVANCE_RECOVERY", account: "1250" }, { event: "SETTLEMENT_ACCRUAL", key: "REIMBURSEMENT", account: "2135" },
+  { event: "SETTLEMENT_ACCRUAL", key: "DIRECT:BASIC", account: "5122" }, { event: "SETTLEMENT_ACCRUAL", key: "ADMINISTRATIVE:BASIC", account: "5201" }, { event: "SETTLEMENT_ACCRUAL", key: "NET_PAY", account: "2132" }, { event: "SETTLEMENT_ACCRUAL", key: "GRATUITY", account: "5220" }, { event: "SETTLEMENT_ACCRUAL", key: "NOTICE_PAY", account: "5221" },   { event: "SETTLEMENT_ACCRUAL", key: "ADVANCE_RECOVERY", account: "1250" }, { event: "SETTLEMENT_ACCRUAL", key: "REIMBURSEMENT", account: "2135" },
+  // Asset recovery is income — the company is made whole for something it
+  // lost — and it points at the 4290 leaf, not the 4200 group, because
+  // postSystemJournal refuses groups. Without the payroll key, the existing
+  // DEDUCTION:* fallback credits 2132 Salary Payable and the deduction sits
+  // forever as a payable to nobody.
+  { event: "SETTLEMENT_ACCRUAL", key: "ASSET_RECOVERY", account: "4290", note: "Recovering a lost/damaged asset is income; re-point if the auditor prefers it netted against the disposal loss" },
+  { event: "PAYROLL_ACCRUAL", key: "DEDUCTION:ASSET_RECOVERY", account: "4290", note: "An asset recovery is income, never a deduction payable to nobody" },
   // Always zero this phase. Seeded to the salary account so it resolves, with
   // a key of its own so a dedicated account is one edit rather than a deploy.
   { event: "SETTLEMENT_ACCRUAL", key: "DIRECT:LEAVE_ENCASHMENT", account: "5122", note: "Leave encashment is nil this phase; re-point when it is not" },
@@ -47,7 +54,7 @@ export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   PAYROLL_PAYMENT: ["NET_PAY", "REIMBURSEMENT", "BANK"],
   EXPENSE_ACCRUAL: ["*", "REIMBURSEMENT"],
   COST_ACCRUAL: ["*", "PAYABLE"], COST_PAYMENT: ["PAYABLE", "BANK"],
-  SETTLEMENT_ACCRUAL: ["DIRECT:BASIC", "ADMINISTRATIVE:BASIC", "DIRECT:LEAVE_ENCASHMENT", "ADMINISTRATIVE:LEAVE_ENCASHMENT", "GRATUITY", "NOTICE_PAY", "REIMBURSEMENT", "ADVANCE_RECOVERY", "NET_PAY"],
+  SETTLEMENT_ACCRUAL: ["DIRECT:BASIC", "ADMINISTRATIVE:BASIC", "DIRECT:LEAVE_ENCASHMENT", "ADMINISTRATIVE:LEAVE_ENCASHMENT", "GRATUITY", "NOTICE_PAY", "REIMBURSEMENT", "ADVANCE_RECOVERY", "ASSET_RECOVERY", "NET_PAY"],
   SETTLEMENT_PAYMENT: ["NET_PAY", "BANK"],
   ASSET_ACQUISITION: ["PAYABLE"],
   ASSET_PAYMENT: ["PAYABLE", "BANK"],

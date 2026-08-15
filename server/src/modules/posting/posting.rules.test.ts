@@ -52,3 +52,18 @@ describe("asset posting rules", () => {
     expect(disposal.find((r) => r.key === "BANK")?.account).toBe("1242")
   })
 })
+
+describe("asset recovery posting rules", () => {
+  it("gives asset recovery its own key on both collection paths", () => {
+    expect(POSTING_RULES).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "SETTLEMENT_ACCRUAL", key: "ASSET_RECOVERY", account: "4290" }),
+      expect.objectContaining({ event: "PAYROLL_ACCRUAL", key: "DEDUCTION:ASSET_RECOVERY", account: "4290" }),
+    ]))
+  })
+
+  /** Regression guard for the mistake this key exists to prevent. */
+  it("does not route asset recovery through ADVANCE_RECOVERY", () => {
+    const rule = POSTING_RULES.find((r) => r.event === "SETTLEMENT_ACCRUAL" && r.key === "ASSET_RECOVERY")
+    expect(rule?.account).not.toBe("1250")
+  })
+})
