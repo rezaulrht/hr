@@ -39,6 +39,20 @@ import {
   updateCategory,
 } from "./asset.service"
 import { assetValueReport } from "./asset.value"
+import { exitChecklistFor } from "./asset.exit"
+import {
+  createRecovery,
+  listRecoveries,
+  recoverFromPayroll,
+  updateRecovery,
+  waiveRecovery,
+} from "./asset.recoveries"
+import {
+  createRecoverySchema,
+  recoveryQuerySchema,
+  updateRecoverySchema,
+  waiveRecoverySchema,
+} from "./asset.recoveries.validators"
 import { disposeSchema, payAssetSchema, valueReportQuerySchema } from "../depreciation/depreciation.validators"
 import {
   approveRequestSchema,
@@ -440,6 +454,71 @@ export async function assetValueReportHandler(req: Request, res: Response, next:
   try {
     const query = valueReportQuerySchema.parse(req.query)
     res.json(await assetValueReport(query))
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── recoveries ──
+// HR creates, corrects and waives; Finance reads. The split mirrors
+// payroll.routes.ts, and Decision 3 depends on it — recovery from payroll is
+// an act somebody takes, and Finance cannot move money alone.
+
+export async function listRecoveriesHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = recoveryQuerySchema.parse(req.query)
+    res.json(await listRecoveries(query))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function createRecoveryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = createRecoverySchema.parse(req.body)
+    res.status(201).json(await createRecovery(body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function updateRecoveryHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = updateRecoverySchema.parse(req.body)
+    res.json(await updateRecovery(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function waiveRecoveryHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = waiveRecoverySchema.parse(req.body)
+    res.json(await waiveRecovery(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function recoverFromPayrollHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    res.json(await recoverFromPayroll(req.params.id, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function exitChecklistHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employeeId = req.params.employeeId
+    if (typeof employeeId !== "string") {
+      throw new AppError(400, "A single employee id is required")
+    }
+    res.json(await exitChecklistFor(employeeId))
   } catch (err) {
     next(err)
   }
