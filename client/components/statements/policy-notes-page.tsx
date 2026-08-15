@@ -16,6 +16,7 @@ import { ApiError } from "@/lib/api/client"
 import type { PolicyNote } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session-context"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { HelpLink } from "@/components/help/help-link"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -202,7 +203,8 @@ export function PolicyNotesPage() {
         </p>
       ) : notes.data.length === 0 && !adding ? (
         <p className="rounded-lg border p-8 text-center text-sm text-muted-foreground">
-          No policy notes yet. Seeding the database creates notes 1.00 to 3.00.
+          No policy notes yet. Seeding the database creates notes 1.00 to 3.00.{" "}
+          <HelpLink>How does this work?</HelpLink>
         </p>
       ) : (
         <div className="space-y-4">

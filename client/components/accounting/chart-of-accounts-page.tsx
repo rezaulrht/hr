@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AccountDialog } from "@/components/accounting/account-dialog"
+import { HelpLink } from "@/components/help/help-link"
 
 function Row({
   node,
@@ -226,7 +227,8 @@ export function ChartOfAccountsPage() {
           </div>
         ) : (tree.data ?? []).length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
-            {search ? `No account matches “${search}”.` : "No accounts yet."}
+            {search ? `No account matches “${search}”.` : "No accounts yet."}{" "}
+            <HelpLink>How does this work?</HelpLink>
           </p>
         ) : (
           (tree.data ?? []).map((node) => (

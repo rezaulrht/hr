@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { currentMonthRange, formatAmount, formatTotal } from "@/components/accounting/accounting-shared"
+import { HelpLink } from "@/components/help/help-link"
 
 /**
  * Six money columns is a lot of table, and it is the right amount: opening,
@@ -126,7 +127,8 @@ export function TrialBalancePage() {
                 {tb.data!.rows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                      Nothing has been posted in or before this period.
+                      Nothing has been posted in or before this period.{" "}
+                      <HelpLink>How does this work?</HelpLink>
                     </TableCell>
                   </TableRow>
                 ) : (
