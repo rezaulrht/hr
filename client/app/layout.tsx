@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
+import { Geist, Geist_Mono, Inter, Noto_Sans_Bengali } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { SessionProvider } from "@/lib/auth/session-context";
@@ -17,6 +17,16 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Neither Geist nor Inter carries Bengali glyphs, so without a real face the
+// browser falls back to whatever the OS has (Nirmala UI, Bangla MN, ...) —
+// three typefaces with three metrics. next/font/google self-hosts this at
+// build time, so it's a local font file, not a runtime request.
+const notoBengali = Noto_Sans_Bengali({
+  subsets: ["bengali"],
+  variable: "--font-bengali",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -39,7 +49,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable, geistHeading.variable)}
+      className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable, geistHeading.variable, notoBengali.variable)}
     >
       <body className="min-h-full flex flex-col"><QueryProvider><SessionProvider>{children}</SessionProvider></QueryProvider></body>
     </html>

@@ -29,6 +29,29 @@ import { useHelp } from "@/components/help/help-provider"
  * through the same context, so the open state lives in exactly one place.
  */
 
+/**
+ * Bangla needs more room than Latin at the same nominal size: vowel signs sit
+ * above and below the baseline and conjuncts stack. 12.5px is comfortable for
+ * Latin and ambiguous in Bengali.
+ *
+ * Section headings drop uppercase and tracking entirely. Both are Latin
+ * devices — Bengali has no capitals, and tracking pulls conjuncts apart.
+ */
+const TYPE = {
+  en: {
+    body: "text-[12.5px] leading-[1.65]",
+    name: "text-[13px] font-bold",
+    heading: "text-[11px] font-bold tracking-[0.08em] uppercase",
+    step: "text-[13px]",
+  },
+  bn: {
+    body: "font-bengali text-[14px] leading-[1.9]",
+    name: "font-bengali text-[14.5px] font-bold",
+    heading: "font-bengali text-[12px] font-bold",
+    step: "font-bengali text-[14px]",
+  },
+} as const
+
 /** Renders one string with glossary terms marked. `alreadyMarked` is shared
  *  across every paragraph in the entry, so a term is underlined on its first
  *  use in the whole entry and not again. */
