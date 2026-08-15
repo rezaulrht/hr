@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar"
 import { NotificationBell } from "@/components/dashboard/notification-bell"
+import { HelpTrigger } from "@/components/help/help-sheet"
 
 /**
  * Deliberately not `SidebarTrigger`: that primitive hard-codes a panel-toggle
@@ -42,8 +43,17 @@ export function Header({
   return (
     <header className="flex h-15 items-center gap-4 border-b border-[#E4E9EF] bg-white px-4 sm:px-7">
       <MenuButton />
+      {/* Do not change the outer gap — the grouping div below is what keeps
+          the avatar block from moving when the help control is absent. The
+          `?` sits left of the bell: the bell is the older, more frequently
+          used control and should not move. HelpTrigger renders nothing outside
+          the accounting section, so the header keeps its current shape
+          everywhere else. */}
       <div className="ml-auto flex items-center gap-3 sm:gap-4.5">
-        <NotificationBell />
+        <div className="flex items-center gap-2">
+          <HelpTrigger />
+          <NotificationBell />
+        </div>
         <div className="flex items-center gap-2.5">
           <Avatar className="size-8.5">
             <AvatarFallback className="bg-[#17191C] text-[12.5px] font-bold text-white">
