@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express"
 
 import type { AssetAttachmentKind } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import { capitaliseAsset, disposeAsset, payForAsset } from "./asset.capitalise"
 import {
   acknowledgeAssignment,
   assignAsset,
@@ -37,6 +38,8 @@ import {
   updateAsset,
   updateCategory,
 } from "./asset.service"
+import { assetValueReport } from "./asset.value"
+import { disposeSchema, payAssetSchema, valueReportQuerySchema } from "../depreciation/depreciation.validators"
 import {
   approveRequestSchema,
   assignSchema,
@@ -397,6 +400,46 @@ export async function deleteAttachmentHandler(
   try {
     await deleteAttachment(req.params.id, req.user!)
     res.status(204).send()
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── the ledger actions ──
+// Capitalise, pay and dispose move the balance sheet; the value report reads
+// it. All four are asset routes but they exist only because the asset module
+// now talks to the ledger.
+
+export async function capitaliseHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    res.status(201).json(await capitaliseAsset(req.params.id, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function payAssetHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = payAssetSchema.parse(req.body)
+    res.status(201).json(await payForAsset(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function disposeHandler(req: RequestWithId, res: Response, next: NextFunction) {
+  try {
+    const body = disposeSchema.parse(req.body)
+    res.status(201).json(await disposeAsset(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function assetValueReportHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = valueReportQuerySchema.parse(req.query)
+    res.json(await assetValueReport(query))
   } catch (err) {
     next(err)
   }

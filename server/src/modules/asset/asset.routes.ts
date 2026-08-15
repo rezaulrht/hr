@@ -7,12 +7,15 @@ import { assetUpload, spreadsheetUpload } from "../media/media.upload"
 import {
   acknowledgeHandler,
   approveRequestHandler,
+  assetValueReportHandler,
   assignHandler,
   cancelRequestHandler,
+  capitaliseHandler,
   createAssetHandler,
   createCategoryHandler,
   deleteAttachmentHandler,
   deleteCategoryHandler,
+  disposeHandler,
   fulfilRequestHandler,
   getAssetHandler,
   getAttachmentUrlHandler,
@@ -25,6 +28,7 @@ import {
   listUnacknowledgedHandler,
   markLostHandler,
   myHoldingsHandler,
+  payAssetHandler,
   receiveRepairHandler,
   rejectRequestHandler,
   retireHandler,
@@ -45,12 +49,29 @@ const HR_ROLES = [Role.HR_ADMIN, Role.SUPER_ADMIN] as const
 /** Finance joins HR for disposal, the one asset action with an accounting
  *  consequence — but not for custody. */
 const DISPOSAL_ROLES = [Role.HR_ADMIN, Role.FINANCE_OFFICER, Role.SUPER_ADMIN] as const
+/** The ledger actions: only people authorised to move the ledger. */
+const LEDGER_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN] as const
 
 // Literal paths before /:id, or Express matches "me" and "categories" as ids.
 router.get("/categories", requireAuth, listCategoriesHandler)
 router.post("/categories", requireAuth, requireRole(...HR_ROLES), createCategoryHandler)
 router.patch("/categories/:id", requireAuth, requireRole(...HR_ROLES), updateCategoryHandler)
 router.delete("/categories/:id", requireAuth, requireRole(...HR_ROLES), deleteCategoryHandler)
+
+// The book-value report is read-only and finance + HR both need it — HR
+// prices a lost laptop from it, Finance files it. Nobody below that sees it.
+router.get(
+  "/value",
+  requireAuth,
+  requireRole(Role.FINANCE_OFFICER, Role.HR_ADMIN, Role.SUPER_ADMIN),
+  assetValueReportHandler
+)
+
+// Ledger actions: capitalise (move cost onto the balance sheet), pay (clear
+// the payable), dispose (book the gain or loss). Finance and admin only.
+router.post("/:id/capitalise", requireAuth, requireRole(...LEDGER_ROLES), capitaliseHandler)
+router.post("/:id/pay", requireAuth, requireRole(...LEDGER_ROLES), payAssetHandler)
+router.post("/:id/dispose", requireAuth, requireRole(...LEDGER_ROLES), disposeHandler)
 
 router.get("/me", requireAuth, requireRole(...STAFF_ROLES), myHoldingsHandler)
 router.get("/unacknowledged", requireAuth, requireRole(...HR_ROLES), listUnacknowledgedHandler)

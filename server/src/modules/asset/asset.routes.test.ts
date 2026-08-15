@@ -25,6 +25,16 @@ vi.mock("./asset.assignments", () => ({
   openAssignmentsFor: vi.fn(async () => []),
 }))
 
+vi.mock("./asset.capitalise", () => ({
+  capitaliseAsset: vi.fn(async () => ({ id: "ast-1", capitalisedAt: new Date() })),
+  payForAsset: vi.fn(async () => ({ id: "ast-1" })),
+  disposeAsset: vi.fn(async () => ({ id: "ast-1", lifecycle: "RETIRED" })),
+}))
+
+vi.mock("./asset.value", () => ({
+  assetValueReport: vi.fn(async () => ({ rows: [], totals: [], asOf: "2026-08-15" })),
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import { listAssets } from "./asset.service"
@@ -146,5 +156,59 @@ describe("DELETE /api/assets/categories/:id", () => {
     const res = await request(app).delete("/api/assets/categories/c1").set(authHeader("HR_ADMIN"))
 
     expect(res.status).toBe(204)
+  })
+})
+
+describe("the ledger actions", () => {
+  it("lets FINANCE_OFFICER capitalise and refuses HR_ADMIN", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/capitalise")
+      .set(authHeader("FINANCE_OFFICER"))
+    expect(fin.status).toBe(201)
+
+    const hr = await request(app)
+      .post("/api/assets/ast-1/capitalise")
+      .set(authHeader("HR_ADMIN"))
+    expect(hr.status).toBe(403)
+  })
+
+  it("lets FINANCE_OFFICER pay and refuses EMPLOYEE", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/pay")
+      .set(authHeader("FINANCE_OFFICER"))
+      .send({ paidAt: "2026-08-10" })
+    expect(fin.status).toBe(201)
+
+    const emp = await request(app)
+      .post("/api/assets/ast-1/pay")
+      .set(authHeader("EMPLOYEE"))
+      .send({})
+    expect(emp.status).toBe(403)
+  })
+
+  it("lets FINANCE_OFFICER dispose and refuses REPORTING_MANAGER", async () => {
+    const fin = await request(app)
+      .post("/api/assets/ast-1/dispose")
+      .set(authHeader("FINANCE_OFFICER"))
+      .send({ proceeds: "10000" })
+    expect(fin.status).toBe(201)
+
+    const mgr = await request(app)
+      .post("/api/assets/ast-1/dispose")
+      .set(authHeader("REPORTING_MANAGER"))
+      .send({})
+    expect(mgr.status).toBe(403)
+  })
+
+  it("lets HR_ADMIN read the value report — HR prices a lost laptop from it", async () => {
+    const res = await request(app).get("/api/assets/value").set(authHeader("HR_ADMIN"))
+
+    expect(res.status).toBe(200)
+  })
+
+  it("refuses EMPLOYEE the value report", async () => {
+    const res = await request(app).get("/api/assets/value").set(authHeader("EMPLOYEE"))
+
+    expect(res.status).toBe(403)
   })
 })
