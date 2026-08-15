@@ -4,6 +4,7 @@ import * as React from "react"
 import { usePathname } from "next/navigation"
 
 import { HELP, helpKeyFor } from "@/lib/help/accounting-help"
+import { HelpLangProvider } from "@/lib/help/lang-context"
 import { HelpSheet } from "@/components/help/help-sheet"
 
 interface HelpContextValue {
@@ -89,11 +90,14 @@ export function HelpProvider({ children }: { children: React.ReactNode }) {
   )
 
   // The panel is rendered once here, above every page, not per page. The
-  // trigger lives in the header and opens it through the context.
+  // trigger lives in the header and opens it through the context. The
+  // language provider sits inside, so the choice survives navigation.
   return (
     <HelpContext.Provider value={value}>
-      {children}
-      <HelpSheet />
+      <HelpLangProvider>
+        {children}
+        <HelpSheet />
+      </HelpLangProvider>
     </HelpContext.Provider>
   )
 }
