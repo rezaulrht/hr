@@ -169,6 +169,10 @@ for (const s of stale) {
 }
 for (const o of orphaned) console.log(`ORPHANED ${o}`)
 
+// The expected fingerprint for each missing string, so a translator can copy
+// it in rather than computing by hand (plan Task 7 Step 3).
+for (const m of missing) console.log(`  of "${fingerprint(m.text)}" // ${m.key}`)
+
 const total = missing.length + stale.length + translated
 console.log(`${translated} of ${total} strings translated${missing.length ? `, ${missing.length} missing` : ""}`)
 
