@@ -208,8 +208,48 @@ export function HelpSheet() {
                 <FlowRail current={entry.step} />
               </section>
 
+              {entry.connects ? (
+                <section className="mt-8 border-t border-[#EEF1F5] pt-6">
+                  <SectionHeading>What connects to this</SectionHeading>
+                  <dl className="text-[12.5px] leading-[1.65]">
+                    {entry.connects.fedBy && entry.connects.fedBy.length > 0 ? (
+                      <div className="mb-3 last:mb-0">
+                        <dt className="text-[12px] font-bold text-[#55657A]">Fed by</dt>
+                        <dd className="mt-0.5 text-[#5F6B7C]">
+                          {entry.connects.fedBy.join(" · ")}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {entry.connects.feeds && entry.connects.feeds.length > 0 ? (
+                      <div>
+                        <dt className="text-[12px] font-bold text-[#55657A]">Feeds</dt>
+                        <dd className="mt-0.5 text-[#5F6B7C]">
+                          {entry.connects.feeds.join(" · ")}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </section>
+              ) : null}
+
+              {entry.reading && entry.reading.length > 0 ? (
+                <section className="mt-8 border-t border-[#EEF1F5] pt-6">
+                  <SectionHeading>Reading what is on screen</SectionHeading>
+                  <dl>
+                    {entry.reading.map((fn) => (
+                      <div key={fn.name} className="mb-4 last:mb-0">
+                        <dt className="text-[13px] font-bold text-[#1C2733]">{fn.name}</dt>
+                        <dd className="mt-1 text-[12.5px] leading-[1.65] text-[#5F6B7C]">
+                          {mark(fn.body)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ) : null}
+
               <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                <SectionHeading>On this page</SectionHeading>
+                <SectionHeading>What you can do here</SectionHeading>
                 <dl>
                   {entry.does.map((fn) => (
                     <div key={fn.name} className="mb-4 last:mb-0">
@@ -226,19 +266,25 @@ export function HelpSheet() {
               </section>
 
               <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                <SectionHeading>Worked example</SectionHeading>
-                <p className="text-[13px] font-bold text-[#1C2733]">{entry.scenario.title}</p>
-                <ol className="mt-2.5 border-l border-[#E4E9EF] pl-4">
-                  {entry.scenario.steps.map((line, i) => (
-                    <li
-                      key={line}
-                      className="mb-2.5 text-[12.5px] leading-[1.65] text-[#5F6B7C] last:mb-0"
-                    >
-                      <span className="mr-1.5 font-bold text-[#55657A]">{i + 1}.</span>
-                      {mark(line)}
-                    </li>
-                  ))}
-                </ol>
+                <SectionHeading>
+                  {entry.scenarios.length > 1 ? "Worked examples" : "Worked example"}
+                </SectionHeading>
+                {entry.scenarios.map((scenario) => (
+                  <div key={scenario.title} className="mb-6 last:mb-0">
+                    <p className="text-[13px] font-bold text-[#1C2733]">{scenario.title}</p>
+                    <ol className="mt-2.5 border-l border-[#E4E9EF] pl-4">
+                      {scenario.steps.map((line, i) => (
+                        <li
+                          key={line}
+                          className="mb-2.5 text-[12.5px] leading-[1.65] text-[#5F6B7C] last:mb-0"
+                        >
+                          <span className="mr-1.5 font-bold text-[#55657A]">{i + 1}.</span>
+                          {mark(line)}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ))}
               </section>
 
               {entry.watchFor && entry.watchFor.length > 0 ? (
