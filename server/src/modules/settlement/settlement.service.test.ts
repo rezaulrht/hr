@@ -4,6 +4,7 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     settlement: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     expenseClaim: { updateMany: vi.fn(), findMany: vi.fn(async () => []) },
+    assetRecovery: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     // The event log, written in the same transaction. Distinct from
@@ -93,6 +94,7 @@ beforeEach(() => {
   vi.mocked(prisma.employee.findUnique).mockResolvedValue(employeeRow() as never)
   vi.mocked(prisma.settlement.findFirst).mockResolvedValue(null)
   vi.mocked(prisma.expenseClaim.findMany).mockResolvedValue([])
+  ;(tx.assetRecovery.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([])
   vi.mocked(getMonthlySummary).mockResolvedValue([summaryFor()])
   tx.idCounter.upsert.mockImplementation(async () => ({ id: "STL", value: ++counter }))
   // `employee` and `settlementNo` ride along because every write is followed
@@ -248,6 +250,20 @@ describe("paySettlement", () => {
     expect(tx.expenseClaim.updateMany).toHaveBeenCalledWith({
       where: { settlementId: "stl-1", status: "APPROVED" },
       data: { status: "REIMBURSED" },
+    })
+  })
+
+  it("sweeps the recoveries it folded into its assetRecoveries head", async () => {
+    vi.mocked(prisma.settlement.findUnique).mockResolvedValue({ id: "stl-1", status: "APPROVED" } as never)
+    tx.assetRecovery.findMany.mockResolvedValue([
+      { id: "rec-1", employeeId: "emp-1", assetId: "a-1", amount: dec("45000"), currency: "BDT", asset: { assetTag: "BS-AST-00001" } },
+    ] as never)
+
+    await paySettlement("stl-1", "fin-1")
+
+    expect(tx.assetRecovery.updateMany).toHaveBeenCalledWith({
+      where: { settlementId: "stl-1", status: "PENDING" },
+      data: { status: "RECOVERED" },
     })
   })
 

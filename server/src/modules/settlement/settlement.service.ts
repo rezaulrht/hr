@@ -15,6 +15,7 @@ import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
 import { emitEvent } from "../event/event.emit"
 import { sweepClaimsReimbursed } from "../expense/expense.sweep"
+import { sweepRecoveriesCollected } from "../asset/asset.sweep"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import { bdtTotal, dec, type Money, REPORTING_CURRENCY, toMoneyString } from "../payroll/payroll.money"
 import { toComponentInputs } from "../payroll/payroll.preflight"
@@ -406,6 +407,8 @@ export async function paySettlement(id: string, actorUserId: string) {
       include: SETTLEMENT_INCLUDE,
     })
     await sweepClaimsReimbursed(tx, { settlementId: id, status: "APPROVED" }, actorUserId)
+    // The recoveries this settlement folded into its assetRecoveries head.
+    await sweepRecoveriesCollected(tx, { settlementId: id, status: "PENDING" }, actorUserId)
     await postSettlementPayment(tx, id, actorUserId, updated.paidAt ?? new Date())
     await writeAudit(tx, {
       entity: "SETTLEMENT",
