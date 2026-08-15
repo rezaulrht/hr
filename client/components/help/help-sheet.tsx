@@ -11,9 +11,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { FLOW, HELP, type FlowStepId } from "@/lib/help/accounting-help"
+import { HELP, type FlowStepId, type FlowStep } from "@/lib/help/accounting-help"
+import { resolveEntry, resolveFlow } from "@/lib/help/resolve"
 import { splitOnTerms } from "@/lib/help/glossary"
+import { useHelpLang } from "@/lib/help/lang-context"
+import type { Lang } from "@/lib/help/types"
 import { Term } from "@/components/help/term"
+import { InlineEn } from "@/components/help/inline-en"
 import { useHelp } from "@/components/help/help-provider"
 
 /**
@@ -27,6 +31,9 @@ import { useHelp } from "@/components/help/help-provider"
  * Controlled by the HelpProvider: the trigger in the header opens it, and so
  * do the empty states, the keyboard shortcut and the `?help=` URL — all
  * through the same context, so the open state lives in exactly one place.
+ *
+ * English and Bangla are read from the same resolved entry; the overlay
+ * falls back to English per string when a translation is missing.
  */
 
 /**
@@ -52,15 +59,15 @@ const TYPE = {
   },
 } as const
 
-/** Renders one string with glossary terms marked. `alreadyMarked` is shared
- *  across every paragraph in the entry, so a term is underlined on its first
- *  use in the whole entry and not again. */
-function Marked({
+/** Renders one English string with glossary terms marked on first use. */
+function English({
   text,
   alreadyMarked,
+  lang,
 }: {
   text: string
   alreadyMarked: Set<string>
+  lang: Lang
 }) {
   const parts = splitOnTerms(text, alreadyMarked)
   return (
@@ -69,19 +76,38 @@ function Marked({
         typeof part === "string" ? (
           <React.Fragment key={i}>{part}</React.Fragment>
         ) : (
-          <Term key={i} term={part.term} definition={part.definition} />
+          <Term key={i} term={part.term} definition={part.definition} lang={lang === "bn" ? "en" : undefined} />
         )
       )}
     </>
   )
 }
 
-function FlowRail({ current }: { current: FlowStepId }) {
-  const currentIndex = FLOW.findIndex((s) => s.id === current)
+/** One entry's text, in the reader's language. Bangla prose marks the
+ *  on-screen names with `**`; English prose uses the glossary scanner. */
+function EntryText({ text, lang, alreadyMarked }: { text: string; lang: Lang; alreadyMarked: Set<string> }) {
+  return lang === "bn" ? (
+    <InlineEn text={text} />
+  ) : (
+    <English text={text} lang={lang} alreadyMarked={alreadyMarked} />
+  )
+}
+
+function FlowRail({
+  steps,
+  current,
+  lang,
+}: {
+  steps: FlowStep[]
+  current: FlowStepId
+  lang: Lang
+}) {
+  const currentIndex = steps.findIndex((s) => s.id === current)
+  const t = TYPE[lang]
 
   return (
     <ol className="relative">
-      {FLOW.map((step, i) => {
+      {steps.map((step, i) => {
         const isCurrent = step.id === current
         const isPast = i < currentIndex
 
@@ -89,7 +115,7 @@ function FlowRail({ current }: { current: FlowStepId }) {
           <li key={step.id} className="relative pb-5 pl-7 last:pb-0">
             {/* The rail, drawn per item so the last one does not trail off
                 below the final marker. */}
-            {i < FLOW.length - 1 ? (
+            {i < steps.length - 1 ? (
               <span
                 aria-hidden
                 className="absolute top-4.5 bottom-0 left-[7px] w-px bg-[#E4E9EF]"
@@ -111,34 +137,40 @@ function FlowRail({ current }: { current: FlowStepId }) {
 
             <div className="flex items-baseline gap-2">
               <span
+                lang={lang}
                 className={
                   isCurrent
-                    ? "text-[13px] font-bold text-[#17191C]"
-                    : "text-[13px] font-semibold text-[#55657A]"
+                    ? `${t.step} font-bold text-[#17191C]`
+                    : `${t.step} font-semibold text-[#55657A]`
                 }
               >
                 {i + 1}. {step.title}
               </span>
               {isCurrent ? (
-                <span className="rounded-sm bg-[#17191C] px-1.5 py-px text-[10px] font-bold tracking-wide whitespace-nowrap text-white uppercase">
-                  You are here
+                <span
+                  lang={lang}
+                  className="rounded-sm bg-[#17191C] px-1.5 py-px text-[10px] font-bold tracking-wide whitespace-nowrap text-white uppercase"
+                >
+                  {lang === "bn" ? "আপনি এখানে আছেন" : "You are here"}
                 </span>
               ) : null}
             </div>
 
             <p
+              lang={lang}
               className={
                 isCurrent
-                  ? "mt-1 text-[12.5px] leading-[1.6] text-[#3B4757]"
-                  : "mt-1 text-[12.5px] leading-[1.6] text-[#6B7787]"
+                  ? `mt-1 ${t.body} text-[#3B4757]`
+                  : `mt-1 ${t.body} text-[#6B7787]`
               }
             >
-              {step.body}
+              <EntryText text={step.body} lang={lang} alreadyMarked={new Set()} />
             </p>
 
-            {/* Suggestion 1: the pages that belong to this step, as text. */}
+            {/* Suggestion 1: the pages that belong to this step, as text.
+                Decision 3 keeps them English in both languages. */}
             {isCurrent && step.pages.length > 0 ? (
-              <p className="mt-1.5 text-[12px] leading-[1.6] text-[#6B7787]">
+              <p lang="en" className="mt-1.5 font-sans text-[12px] leading-[1.6] text-[#6B7787]">
                 {step.pages.join(" · ")}
               </p>
             ) : null}
@@ -149,9 +181,9 @@ function FlowRail({ current }: { current: FlowStepId }) {
   )
 }
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
+function SectionHeading({ children, lang }: { children: React.ReactNode; lang: Lang }) {
   return (
-    <h3 className="mb-3 text-[11px] font-bold tracking-[0.08em] text-[#8792A3] uppercase">
+    <h3 lang={lang} className={`mb-3 ${TYPE[lang].heading} text-[#8792A3]`}>
       {children}
     </h3>
   )
@@ -166,13 +198,16 @@ const ROLE_LABEL: Record<string, string> = {
 }
 
 /** A one-line marker for a function the reader may not be able to perform. */
-function RoleMarker({ roles }: { roles: string[] }) {
+function RoleMarker({ roles, lang }: { roles: string[]; lang: Lang }) {
   const label = roles
     .map((r) => ROLE_LABEL[r])
     .filter(Boolean)
     .join(", ")
   return (
-    <span className="ml-2 inline-block rounded-sm bg-[#F1F4F8] px-1.5 py-px text-[10px] font-semibold whitespace-nowrap text-[#55657A]">
+    <span
+      lang={lang}
+      className={`ml-2 inline-block rounded-sm bg-[#F1F4F8] px-1.5 py-px text-[10px] font-semibold whitespace-nowrap text-[#55657A] ${lang === "bn" ? "font-bengali" : ""}`}
+    >
       {label || roles.join(", ")}
     </span>
   )
@@ -200,16 +235,49 @@ export function HelpTrigger() {
   )
 }
 
+/** EN / বাংলা in the panel header. Selected carries the same `bg-[#17191C]
+ *  text-white` treatment the "You are here" chip uses — one idiom for "this
+ *  one". */
+function LangToggle() {
+  const { lang, setLang } = useHelpLang()
+  const base =
+    "rounded-sm px-2 py-0.5 text-[11px] font-bold transition-colors"
+  const on = "bg-[#17191C] text-white"
+  const off = "text-[#55657A] hover:bg-[#F4F6F9]"
+
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border border-[#E4E9EF] p-0.5" role="group" aria-label="Language">
+      <button
+        type="button"
+        aria-pressed={lang === "en"}
+        onClick={() => setLang("en")}
+        className={`${base} ${lang === "en" ? on : off}`}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        aria-pressed={lang === "bn"}
+        onClick={() => setLang("bn")}
+        className={`${base} font-bengali ${lang === "bn" ? on : off}`}
+      >
+        বাংলা
+      </button>
+    </div>
+  )
+}
+
 export function HelpSheet() {
   const { isOpen, close, openKey } = useHelp()
-  const entry = openKey ? HELP[openKey] : null
+  const { lang } = useHelpLang()
+  const entry = openKey ? resolveEntry(openKey, lang) : null
+  const flow = resolveFlow(lang)
+  const t = TYPE[lang]
 
-  // One set per entry render, shared across every section below, so a term is
-  // marked on its first use in the whole entry and not again. Keyed by
-  // openKey by re-creating it on each render — a fresh entry remounts this
-  // section anyway, and the Set carries no state worth memoising.
+  // One set per entry render, shared across every English section, so a term
+  // is marked on its first use in the whole entry and not again.
   const markedTerms = new Set<string>()
-  const mark = (text: string) => <Marked text={text} alreadyMarked={markedTerms} />
+  const text = (s: string) => <EntryText text={s} lang={lang} alreadyMarked={markedTerms} />
 
   return (
     <Sheet open={isOpen} onOpenChange={(next) => !next && close()}>
@@ -217,37 +285,62 @@ export function HelpSheet() {
         {entry ? (
           <>
             <SheetHeader className="border-b border-[#EEF1F5]">
-              <SheetTitle className="text-[15px] font-bold text-[#17191C]">
-                How this works
-              </SheetTitle>
-              <SheetDescription className="text-[12.5px] text-[#5F6B7C]">
-                {entry.title} — {mark(entry.lede)}
-              </SheetDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <SheetTitle lang={lang} className="text-[15px] font-bold text-[#17191C]">
+                    {lang === "bn" ? "এটা কীভাবে কাজ করে" : "How this works"}
+                  </SheetTitle>
+                  <SheetDescription lang={lang} className={`mt-0.5 ${t.body} text-[#5F6B7C]`}>
+                    {entry.title} — {text(entry.lede)}
+                  </SheetDescription>
+                </div>
+                <LangToggle />
+              </div>
             </SheetHeader>
 
-            <div className="px-4 pt-5 pb-8">
+            {/* lang on the subtree, not the document — the sidebar beside the
+                panel stays English (Decision 8). */}
+            <div lang={lang} className="px-4 pt-5 pb-8">
               <section>
-                <SectionHeading>The accounting flow</SectionHeading>
-                <FlowRail current={entry.step} />
+                <SectionHeading lang={lang}>
+                  {lang === "bn" ? "হিসাবের প্রবাহ" : "The accounting flow"}
+                </SectionHeading>
+                <FlowRail steps={flow} current={entry.step} lang={lang} />
               </section>
 
               {entry.connects ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                  <SectionHeading>What connects to this</SectionHeading>
-                  <dl className="text-[12.5px] leading-[1.65]">
+                  <SectionHeading lang={lang}>
+                    {lang === "bn" ? "এটার সাথে কী যুক্ত" : "What connects to this"}
+                  </SectionHeading>
+                  <dl className={`${t.body} text-[#5F6B7C]`}>
                     {entry.connects.fedBy && entry.connects.fedBy.length > 0 ? (
                       <div className="mb-3 last:mb-0">
-                        <dt className="text-[12px] font-bold text-[#55657A]">Fed by</dt>
-                        <dd className="mt-0.5 text-[#5F6B7C]">
-                          {entry.connects.fedBy.join(" · ")}
+                        <dt lang={lang} className="text-[12px] font-bold text-[#55657A]">
+                          {lang === "bn" ? "যা থেকে আসে" : "Fed by"}
+                        </dt>
+                        <dd className="mt-0.5">
+                          {entry.connects.fedBy.map((s, i) => (
+                            <React.Fragment key={i}>
+                              {i > 0 ? " · " : null}
+                              {text(s)}
+                            </React.Fragment>
+                          ))}
                         </dd>
                       </div>
                     ) : null}
                     {entry.connects.feeds && entry.connects.feeds.length > 0 ? (
                       <div>
-                        <dt className="text-[12px] font-bold text-[#55657A]">Feeds</dt>
-                        <dd className="mt-0.5 text-[#5F6B7C]">
-                          {entry.connects.feeds.join(" · ")}
+                        <dt lang={lang} className="text-[12px] font-bold text-[#55657A]">
+                          {lang === "bn" ? "যা এটা থেকে যায়" : "Feeds"}
+                        </dt>
+                        <dd className="mt-0.5">
+                          {entry.connects.feeds.map((s, i) => (
+                            <React.Fragment key={i}>
+                              {i > 0 ? " · " : null}
+                              {text(s)}
+                            </React.Fragment>
+                          ))}
                         </dd>
                       </div>
                     ) : null}
@@ -257,13 +350,17 @@ export function HelpSheet() {
 
               {entry.reading && entry.reading.length > 0 ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                  <SectionHeading>Reading what is on screen</SectionHeading>
+                  <SectionHeading lang={lang}>
+                    {lang === "bn" ? "পর্দায় যা দেখছেন" : "Reading what is on screen"}
+                  </SectionHeading>
                   <dl>
                     {entry.reading.map((fn) => (
                       <div key={fn.name} className="mb-4 last:mb-0">
-                        <dt className="text-[13px] font-bold text-[#1C2733]">{fn.name}</dt>
-                        <dd className="mt-1 text-[12.5px] leading-[1.65] text-[#5F6B7C]">
-                          {mark(fn.body)}
+                        <dt lang={lang} className={`${t.name} text-[#1C2733]`}>
+                          {fn.name}
+                        </dt>
+                        <dd lang={lang} className={`mt-1 ${t.body} text-[#5F6B7C]`}>
+                          {text(fn.body)}
                         </dd>
                       </div>
                     ))}
@@ -272,16 +369,18 @@ export function HelpSheet() {
               ) : null}
 
               <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                <SectionHeading>What you can do here</SectionHeading>
+                <SectionHeading lang={lang}>
+                  {lang === "bn" ? "এখানে কী করতে পারেন" : "What you can do here"}
+                </SectionHeading>
                 <dl>
                   {entry.does.map((fn) => (
                     <div key={fn.name} className="mb-4 last:mb-0">
-                      <dt className="text-[13px] font-bold text-[#1C2733]">
+                      <dt lang={lang} className={`${t.name} text-[#1C2733]`}>
                         {fn.name}
-                        {fn.roles ? <RoleMarker roles={fn.roles} /> : null}
+                        {fn.roles ? <RoleMarker roles={fn.roles} lang={lang} /> : null}
                       </dt>
-                      <dd className="mt-1 text-[12.5px] leading-[1.65] text-[#5F6B7C]">
-                        {mark(fn.body)}
+                      <dd lang={lang} className={`mt-1 ${t.body} text-[#5F6B7C]`}>
+                        {text(fn.body)}
                       </dd>
                     </div>
                   ))}
@@ -289,20 +388,29 @@ export function HelpSheet() {
               </section>
 
               <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                <SectionHeading>
-                  {entry.scenarios.length > 1 ? "Worked examples" : "Worked example"}
+                <SectionHeading lang={lang}>
+                  {entry.scenarios.length > 1
+                    ? lang === "bn"
+                      ? "কাজের উদাহরণ"
+                      : "Worked examples"
+                    : lang === "bn"
+                      ? "কাজের উদাহরণ"
+                      : "Worked example"}
                 </SectionHeading>
                 {entry.scenarios.map((scenario) => (
                   <div key={scenario.title} className="mb-6 last:mb-0">
-                    <p className="text-[13px] font-bold text-[#1C2733]">{scenario.title}</p>
+                    <p lang={lang} className={`${t.name} text-[#1C2733]`}>
+                      {scenario.title}
+                    </p>
                     <ol className="mt-2.5 border-l border-[#E4E9EF] pl-4">
                       {scenario.steps.map((line, i) => (
                         <li
                           key={line}
-                          className="mb-2.5 text-[12.5px] leading-[1.65] text-[#5F6B7C] last:mb-0"
+                          lang={lang}
+                          className={`mb-2.5 ${t.body} text-[#5F6B7C] last:mb-0`}
                         >
                           <span className="mr-1.5 font-bold text-[#55657A]">{i + 1}.</span>
-                          {mark(line)}
+                          {text(line)}
                         </li>
                       ))}
                     </ol>
@@ -312,20 +420,21 @@ export function HelpSheet() {
 
               {entry.watchFor && entry.watchFor.length > 0 ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
-                  <SectionHeading>Worth knowing</SectionHeading>
+                  <SectionHeading lang={lang}>
+                    {lang === "bn" ? "জেনে রাখা ভালো" : "Worth knowing"}
+                  </SectionHeading>
                   <ul>
                     {entry.watchFor.map((line) => (
                       <li
                         key={line}
-                        className="mb-3 flex gap-2.5 text-[12.5px] leading-[1.65] text-[#5F6B7C] last:mb-0"
+                        lang={lang}
+                        className={`mb-3 flex gap-2.5 ${t.body} text-[#5F6B7C] last:mb-0`}
                       >
                         <span
                           aria-hidden
                           className="mt-[7px] size-1 shrink-0 rounded-full bg-[#C98A15]"
                         />
-                        <span>
-                          {mark(line)}
-                        </span>
+                        <span>{text(line)}</span>
                       </li>
                     ))}
                   </ul>
