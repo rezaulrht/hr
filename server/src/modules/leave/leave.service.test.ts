@@ -437,6 +437,19 @@ describe("applyForLeave validation", () => {
     return d.toISOString().slice(0, 10)
   }
 
+  /**
+   * The next Friday, never today's.
+   *
+   * Two tests below need a weekly off to fall inside the range. Written out in
+   * full, the date passes until the day it slips into the past and the service
+   * rejects it for being backdated instead — which is exactly how it broke.
+   */
+  function nextFriday() {
+    const d = new Date()
+    d.setUTCDate(d.getUTCDate() + ((5 - d.getUTCDay() + 7) % 7 || 7))
+    return d.toISOString().slice(0, 10)
+  }
+
   beforeEach(() => {
     vi.mocked(prisma.employee.findUnique).mockResolvedValue(employee as any)
     vi.mocked(prisma.leaveType.findUnique).mockResolvedValue(casual as any)
@@ -514,12 +527,12 @@ describe("applyForLeave validation", () => {
   })
 
   it("rejects a range with nothing chargeable in it", async () => {
-    // 2026-08-14 is a Friday.
+    // A single Friday: the weekly off, so casual leave has nothing to charge.
     await expect(
       applyForLeave("user-1", {
         leaveTypeId: "lt-1",
-        startDate: "2026-08-14",
-        endDate: "2026-08-14",
+        startDate: nextFriday(),
+        endDate: nextFriday(),
       })
     ).rejects.toThrow(/nothing to charge/i)
   })
@@ -550,8 +563,8 @@ describe("applyForLeave validation", () => {
 
     const created = await applyForLeave("user-1", {
       leaveTypeId: "lt-1",
-      startDate: "2026-08-14",
-      endDate: "2026-08-14",
+      startDate: nextFriday(),
+      endDate: nextFriday(),
     })
     expect(created.days).toBe(1)
   })
