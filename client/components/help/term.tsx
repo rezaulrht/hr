@@ -28,6 +28,7 @@ export function Term({
     <Tooltip>
       <Popover>
         <PopoverTrigger
+          nativeButton={false}
           render={
             <TooltipTrigger
               render={
