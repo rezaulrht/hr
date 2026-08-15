@@ -73,13 +73,14 @@ router.get(
   assetValueReportHandler
 )
 
-// Recoveries: HR creates, corrects and waives; Finance reads. The split
-// mirrors payroll.routes.ts — recovery from payroll is an explicit act, and
-// Finance cannot move money alone (Decision 3).
+// Recoveries: HR creates, corrects and waives; Finance reads; an employee
+// sees their own. The split mirrors payroll.routes.ts — recovery from payroll
+// is an explicit act, and Finance cannot move money alone (Decision 3). The
+// service scopes an EMPLOYEE/manager read to their own recoveries.
 router.get(
   "/recoveries",
   requireAuth,
-  requireRole(Role.HR_ADMIN, Role.FINANCE_OFFICER, Role.SUPER_ADMIN),
+  requireRole(Role.EMPLOYEE, Role.REPORTING_MANAGER, Role.HR_ADMIN, Role.FINANCE_OFFICER, Role.SUPER_ADMIN),
   listRecoveriesHandler
 )
 router.post("/recoveries", requireAuth, requireRole(...HR_ROLES), createRecoveryHandler)

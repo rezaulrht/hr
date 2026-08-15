@@ -467,7 +467,7 @@ export async function assetValueReportHandler(req: Request, res: Response, next:
 export async function listRecoveriesHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const query = recoveryQuerySchema.parse(req.query)
-    res.json(await listRecoveries(query))
+    res.json(await listRecoveries(query, req.user))
   } catch (err) {
     next(err)
   }

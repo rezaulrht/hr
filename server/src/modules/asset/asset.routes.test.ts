@@ -47,6 +47,12 @@ vi.mock("./asset.exit", () => ({
   exitChecklistFor: vi.fn(async () => ({ employeeId: "emp-1", openAssignments: [], pendingRecoveries: [], hasOutstanding: false })),
 }))
 
+vi.mock("../../config/prisma", () => ({
+  default: {
+    employee: { findUnique: vi.fn(async () => ({ id: "emp-1" })) },
+  },
+}))
+
 import app from "../../app"
 import { signAccessToken } from "../auth/auth.utils"
 import { listAssets } from "./asset.service"
@@ -284,6 +290,17 @@ describe("recoveries", () => {
     // If /:id were declared first, Express would call getAsset with id
     // "recoveries" and this would 404.
     expect(res.body).toEqual([])
+  })
+
+  it("lets an employee read their own recoveries — scoped by the service", async () => {
+    const res = await request(app).get("/api/assets/recoveries").set(authHeader("EMPLOYEE"))
+    expect(res.status).toBe(200)
+    // The scope is applied in the service (own employee id), not the route.
+    const { listRecoveries } = await import("./asset.recoveries")
+    expect(listRecoveries).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ role: "EMPLOYEE" })
+    )
   })
 })
 

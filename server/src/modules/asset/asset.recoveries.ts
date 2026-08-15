@@ -228,20 +228,36 @@ export function waiveRecovery(
 }
 
 export function listRecoveries(
-  query: { employeeId?: string; status?: AssetRecoveryStatus; assetId?: string } = {}
+  query: { employeeId?: string; status?: AssetRecoveryStatus; assetId?: string } = {},
+  viewer?: AccessTokenPayload
 ): Promise<AssetRecovery[]> {
-  return prisma.assetRecovery.findMany({
-    where: {
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.assetId ? { assetId: query.assetId } : {}),
-    },
-    include: {
-      asset: { select: { assetTag: true, name: true, category: { select: { name: true } } } },
-      adjustment: { include: { payslip: { select: { payslipNo: true } } } },
-      settlement: { select: { settlementNo: true } },
-    },
-    orderBy: { createdAt: "desc" },
+  return prisma.$transaction(async (tx) => {
+    // An employee sees their own recoveries and nobody else's — a deduction
+    // someone can see coming is a deduction disputed before it is paid, not
+    // after (spec Backend → Routes).
+    let scoped = { ...query }
+    if (viewer?.role === "EMPLOYEE" || viewer?.role === "REPORTING_MANAGER") {
+      const me = await tx.employee.findUnique({
+        where: { userId: viewer.sub },
+        select: { id: true },
+      })
+      if (!me) return []
+      scoped = { ...scoped, employeeId: me.id }
+    }
+
+    return tx.assetRecovery.findMany({
+      where: {
+        ...(scoped.employeeId ? { employeeId: scoped.employeeId } : {}),
+        ...(scoped.status ? { status: scoped.status } : {}),
+        ...(scoped.assetId ? { assetId: scoped.assetId } : {}),
+      },
+      include: {
+        asset: { select: { assetTag: true, name: true, category: { select: { name: true } } } },
+        adjustment: { include: { payslip: { select: { payslipNo: true } } } },
+        settlement: { select: { settlementNo: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    })
   })
 }
 

@@ -198,10 +198,21 @@ describe("waiveRecovery", () => {
 
 describe("listRecoveries", () => {
   it("passes the filters straight through to the query", async () => {
-    const top = prisma as unknown as { assetRecovery: { findMany: ReturnType<typeof vi.fn> } }
-    top.assetRecovery.findMany.mockResolvedValue([])
-    await listRecoveries({ employeeId: "emp-1", status: "PENDING" })
-    expect(top.assetRecovery.findMany).toHaveBeenCalled()
+    tx.assetRecovery.findMany.mockResolvedValue([])
+    await listRecoveries({ employeeId: "emp-1", status: "PENDING" }, hr as never)
+    expect(tx.assetRecovery.findMany).toHaveBeenCalled()
+  })
+
+  it("scopes an employee read to their own recoveries", async () => {
+    const staff = { sub: "user-1", role: "EMPLOYEE", email: "e@demo.com", mustChangePassword: false } as never
+    tx.employee.findUnique.mockResolvedValue({ id: "emp-9" })
+    tx.assetRecovery.findMany.mockResolvedValue([])
+
+    await listRecoveries({}, staff)
+
+    expect(tx.assetRecovery.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ employeeId: "emp-9" }) })
+    )
   })
 })
 
