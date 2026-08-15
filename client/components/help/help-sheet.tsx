@@ -97,7 +97,7 @@ function FlowRail({ current }: { current: FlowStepId }) {
                 {i + 1}. {step.title}
               </span>
               {isCurrent ? (
-                <span className="rounded-sm bg-[#17191C] px-1.5 py-px text-[10px] font-bold tracking-wide text-white uppercase">
+                <span className="rounded-sm bg-[#17191C] px-1.5 py-px text-[10px] font-bold tracking-wide whitespace-nowrap text-white uppercase">
                   You are here
                 </span>
               ) : null}
@@ -115,7 +115,7 @@ function FlowRail({ current }: { current: FlowStepId }) {
 
             {/* Suggestion 1: the pages that belong to this step, as text. */}
             {isCurrent && step.pages.length > 0 ? (
-              <p className="mt-1.5 text-[12px] leading-[1.6] text-[#8792A3]">
+              <p className="mt-1.5 text-[12px] leading-[1.6] text-[#6B7787]">
                 {step.pages.join(" · ")}
               </p>
             ) : null}
