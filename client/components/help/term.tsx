@@ -9,8 +9,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
  * Click opens a popover with the one-line definition; hover shows it as a
  * tooltip. The two are composed on the same trigger so both paths exist — a
  * mouse gets the quick answer, a deliberate read gets the stable one.
+ *
+ * `lang` typesets and pronounces the term as English (Decision 3): a term like
+ * **Trial balance** inside Bangla prose keeps the Latin face and the English
+ * voice while its definition — here, the Bangla one — stays Bangla. Defaults
+ * to undefined so the all-English panel is unchanged.
  */
-export function Term({ term, definition }: { term: string; definition: string }) {
+export function Term({
+  term,
+  definition,
+  lang,
+}: {
+  term: string
+  definition: string
+  lang?: "en"
+}) {
   return (
     <Tooltip>
       <Popover>
@@ -18,7 +31,10 @@ export function Term({ term, definition }: { term: string; definition: string })
           render={
             <TooltipTrigger
               render={
-                <span className="cursor-help border-b border-dotted border-[#8792A3]">
+                <span
+                  lang={lang}
+                  className={`cursor-help border-b border-dotted border-[#8792A3] ${lang ? "font-sans" : ""}`}
+                >
                   {term}
                 </span>
               }
@@ -26,11 +42,15 @@ export function Term({ term, definition }: { term: string; definition: string })
           }
         />
         <PopoverContent className="w-64">
-          <p className="text-[12.5px] leading-[1.6] text-[#3B4757]">{definition}</p>
+          <p lang={lang} className="text-[12.5px] leading-[1.6] text-[#3B4757]">
+            {definition}
+          </p>
         </PopoverContent>
       </Popover>
       <TooltipContent>
-        <span className="text-[11.5px]">{definition}</span>
+        <span lang={lang} className="text-[11.5px]">
+          {definition}
+        </span>
       </TooltipContent>
     </Tooltip>
   )
