@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("./statements.balances", async () => ({ ...(await vi.importActual<typeof import("./statements.balances")>("./statements.balances")), balancesFor: vi.fn(), loadChart: vi.fn() }))
 import { Prisma } from "../../generated/prisma/client"
 import { balancesFor, loadChart } from "./statements.balances"
-import { annexureA } from "./statements.annexure"
+import { annexureA, assertAnnexureTiesToPosition, positionPpe } from "./statements.annexure"
 import { utcDate } from "../accounting/accounting.utils"
 const D = (v: string | number) => new Prisma.Decimal(v); const range = { from: utcDate(2024, 7, 1), to: utcDate(2025, 6, 30) }
 const rows = [
@@ -22,5 +22,50 @@ describe("annexureA", () => {
     const broken = { ...chart, all: brokenRows, byId: new Map(brokenRows.map((r) => [r.id, r])), childrenOf: (id: string) => brokenRows.filter((r) => r.parentId === id) }
     ;(loadChart as any).mockResolvedValue(broken)
     await expect(annexureA(range)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("1114") })
+  })
+
+  it("totals cost at 156,000, where the filed copy reads 60,500", async () => {
+    // 2b Decision 12. The filed Annexure-A's "Balance as at 30.06.2025" cost
+    // total omits Computer/Laptop's 95,500. Everything else in that statement
+    // ties — accumulated depreciation of 29,650 is right per class and the
+    // WDV of 126,350 agrees with the balance sheet — so it reads as a
+    // one-cell slip. Asserted here at the correct figure deliberately, so
+    // nobody "fixes" it back to match the paper.
+    expect((await annexureA(range)).total.costClosing).toBe("156000.00")
+  })
+})
+
+describe("positionPpe", () => {
+  const position = {
+    assets: [{ heading: "Non-Current Assets", lines: [{ key: "ppe", code: "1110", current: "126350.00" }] }],
+  } as any
+
+  it("finds the PP&E line by role, not by a hard-coded code", () => {
+    expect(positionPpe(chart as any, position).toFixed(2)).toBe("126350.00")
+  })
+
+  it("is nil when the chart carries no PPE_COST role at all", () => {
+    expect(positionPpe({ byRole: new Map() } as any, { assets: [] } as any).toFixed(2)).toBe("0.00")
+  })
+
+  it("still finds the line when PP&E is renumbered away from 1110", () => {
+    const renumbered = { ...chart, byRole: new Map([["PPE_COST", { ...rows[0], code: "1150" }]]) }
+    const renamedPosition = {
+      assets: [{ heading: "Non-Current Assets", lines: [{ key: "ppe", code: "1150", current: "126350.00" }] }],
+    } as any
+    expect(positionPpe(renumbered as any, renamedPosition).toFixed(2)).toBe("126350.00")
+  })
+})
+
+describe("assertAnnexureTiesToPosition", () => {
+  const withWdv = (wdv: string) => ({ total: { writtenDownValue: wdv } }) as any
+
+  it("passes when the schedule agrees with the balance sheet", () => {
+    expect(() => assertAnnexureTiesToPosition(withWdv("126350.00"), D("126350"))).not.toThrow()
+  })
+
+  it("refuses and reports both figures when it does not", () => {
+    expect(() => assertAnnexureTiesToPosition(withWdv("60500.00"), D("156000"))).toThrow(/60500\.00/)
+    expect(() => assertAnnexureTiesToPosition(withWdv("60500.00"), D("156000"))).toThrow(/156000\.00/)
   })
 })

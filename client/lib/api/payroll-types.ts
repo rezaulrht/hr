@@ -174,7 +174,10 @@ export interface PayrollRun {
   netPayableBdt?: string
   payslips?: Payslip[]
   preflight?: PreflightReport
+  accounting?: { accrual: AccountingPeriodCheck; payment: AccountingPeriodCheck }
 }
+
+export interface AccountingPeriodCheck { date: string; label: string; status: "OPEN" | "CLOSED" | "LOCKED" | "MISSING"; ok: boolean }
 
 export type PreflightBlockerCode =
   | "MONTH_NOT_OVER"
@@ -263,7 +266,8 @@ export interface ExpenseClaim {
   id: string
   employeeId: string
   amount: string
-  category: string
+  categoryId: string
+  category: { code: string; name: string }
   description: string | null
   receiptUrl: string | null
   status: ExpenseStatus
@@ -280,9 +284,11 @@ export interface ExpenseClaim {
   payslip?: { id: string; payslipNo: string; payrollRunId: string } | null
 }
 
+export interface ExpenseCategory { id: string; code: string; name: string }
+
 export interface ExpenseClaimInput {
   amount: number
-  category: string
+  categoryId: string
   currency: Currency
   expenseDate: string
   description?: string

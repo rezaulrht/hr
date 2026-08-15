@@ -18,7 +18,7 @@ type TestRole = "EMPLOYEE" | "REPORTING_MANAGER" | "HR_ADMIN" | "SUPER_ADMIN" | 
 const auth = (role: TestRole) =>
   `Bearer ${signAccessToken({ sub: "user-1", role: role as never, email: "a@demo.com", mustChangePassword: false })}`
 
-const validBody = { amount: 1200, category: "Travel", currency: "BDT", expenseDate: "2026-08-03" }
+const validBody = { amount: 1200, categoryId: "11111111-1111-4111-8111-111111111111", currency: "BDT", expenseDate: "2026-08-03" }
 
 beforeEach(() => {
   vi.mocked(service.createClaim).mockResolvedValue({ id: "claim-1" } as never)
@@ -61,6 +61,13 @@ describe("GET /api/expenses/me", () => {
     await request(app).get("/api/expenses/me").set("Authorization", auth("EMPLOYEE"))
     expect(service.getMyClaims).toHaveBeenCalled()
     expect(service.getClaim).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /api/expenses/categories", () => {
+  it("allows staff to load categories for claim submission", async () => {
+    const res = await request(app).get("/api/expenses/categories").set("Authorization", auth("EMPLOYEE"))
+    expect(res.status).not.toBe(403)
   })
 })
 

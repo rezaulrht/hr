@@ -1,0 +1,3 @@
+export type PostingEvent = "PAYROLL_ACCRUAL" | "PAYROLL_PAYMENT" | "EXPENSE_ACCRUAL" | "COST_ACCRUAL" | "COST_PAYMENT" | "SETTLEMENT_ACCRUAL" | "SETTLEMENT_PAYMENT"
+export const POSTING_EVENTS: PostingEvent[] = ["PAYROLL_ACCRUAL", "PAYROLL_PAYMENT", "EXPENSE_ACCRUAL", "COST_ACCRUAL", "COST_PAYMENT", "SETTLEMENT_ACCRUAL", "SETTLEMENT_PAYMENT"]
+export interface ResolvedRules { event: PostingEvent; byKey: Map<string, string> }

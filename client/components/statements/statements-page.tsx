@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { RiErrorWarningLine } from "@remixicon/react"
+import { toast } from "sonner"
+import { RiDownloadLine, RiErrorWarningLine } from "@remixicon/react"
 
 import { listFinancialYears } from "@/lib/api/accounting"
 import {
+  downloadStatementsPdf,
   getChangesInEquity,
   getFinancialPosition,
   getProfitOrLoss,
@@ -128,12 +130,44 @@ export function StatementsPage() {
   const currentLabel = pnl.data?.period.label ?? position.data?.period.label ?? "Current"
   const comparativeLabel = pnl.data?.comparative.label ?? position.data?.comparative.label ?? ""
 
+  const [downloading, setDownloading] = useState(false)
+
+  async function download() {
+    setDownloading(true)
+    try {
+      const blob = await downloadStatementsPdf(accessToken!, range)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `financial-statements-${range.to}.pdf`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error("Could not generate the PDF")
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         kicker="Accounting"
         title="Financial statements"
         sub="Profit or loss, financial position and changes in equity, against the same period a year earlier."
+        aside={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={download}
+            // An unbalanced trial balance already refuses the PDF server-side,
+            // so offering it here would only be offering an error.
+            disabled={!ready || downloading || block !== null}
+          >
+            <RiDownloadLine className="size-4" />
+            {downloading ? "Preparing…" : "Download PDF"}
+          </Button>
+        }
       />
 
       <PeriodControl

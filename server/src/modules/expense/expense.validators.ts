@@ -4,7 +4,7 @@ const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD 
 
 export const createClaimBody = z.object({
   amount: z.coerce.number().positive("amount must be greater than 0"),
-  category: z.string().min(1).max(100),
+  categoryId: z.string().uuid(),
   currency: z.enum(["BDT", "USD"]).default("BDT"),
   // When the money was spent — distinct from when it was claimed. You submit
   // a July taxi fare in August, and it must be judged on the July date.

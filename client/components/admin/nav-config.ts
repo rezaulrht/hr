@@ -19,6 +19,7 @@ export const navGroups: NavGroup[] = [
       { label: "Expenses", href: "/admin/expenses", icon: "RiReceiptLine" },
       { label: "Settlements", href: "/admin/settlements", icon: "RiHandCoinLine" },
       { label: "Operating costs", href: "/admin/costs", icon: "RiBillLine" },
+      { label: "Posting rules", href: "/admin/posting-rules", icon: "RiSettingsLine" },
     ],
   },
   {

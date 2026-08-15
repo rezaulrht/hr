@@ -27,10 +27,11 @@ async function loadSide(range: DateRange, chart: ChartIndex): Promise<Side> {
 const of = (chart: ChartIndex, kind: string): ChartAccount[] => chart.all.filter((a) => !a.isGroup && a.cashFlowKind === kind).sort((a, b) => a.code.localeCompare(b.code))
 const cashIn = (chart: ChartIndex, balances: BalanceMap) => of(chart, "CASH").reduce((t, a) => t.plus(movementOf(balances, a.id)), ZERO)
 
-export function assertCashReconciles(computed: Prisma.Decimal, fromCashAccounts: Prisma.Decimal): void {
+export function assertCashReconciles(computed: Prisma.Decimal, fromCashAccounts: Prisma.Decimal, column: "current" | "comparative" = "current"): void {
   if (computed.equals(fromCashAccounts)) return
   const difference = computed.minus(fromCashAccounts).abs()
-  throw new AppError(409, `The Statement of Cash Flows does not reconcile: the sections total ${formatBdt(computed)} against a movement of ${formatBdt(fromCashAccounts)} on the cash and bank accounts, a difference of ${formatBdt(difference)}. An account is classified into the wrong cash-flow section, or on the wrong side.`, { computed: two(computed), fromCashAccounts: two(fromCashAccounts), difference: two(difference) })
+  const which = column === "current" ? "" : " in the comparative column"
+  throw new AppError(409, `The Statement of Cash Flows does not reconcile${which}: the sections total ${formatBdt(computed)} against a movement of ${formatBdt(fromCashAccounts)} on the cash and bank accounts, a difference of ${formatBdt(difference)}. An account is classified into the wrong cash-flow section, or on the wrong side.`, { column, computed: two(computed), fromCashAccounts: two(fromCashAccounts), difference: two(difference) })
 }
 
 export async function cashFlowStatement(range: DateRange): Promise<CashFlowResult> {
@@ -60,7 +61,11 @@ export async function cashFlowStatement(range: DateRange): Promise<CashFlowResul
   const netChange = (s: Side) => netOperating(s).plus(netInvesting(s)).plus(netFinancing(s))
   const openingCash = (s: Side) => cashIn(chart, s.opening)
   const closingCash = (s: Side) => openingCash(s).plus(netChange(s))
-  assertCashReconciles(netChange(current), cashIn(chart, current.movement))
+  // Both columns. The comparative's closing cash is derived as opening plus
+  // net change and never read back, so leaving it unchecked prints a figure
+  // nothing has agreed against — in the column an auditor reads first.
+  assertCashReconciles(netChange(current), cashIn(chart, current.movement), "current")
+  assertCashReconciles(netChange(comparative), cashIn(chart, comparative.movement), "comparative")
   const summary = [row("NET_CHANGE", "Net increase/(decrease) in cash and cash equivalents", netChange, true), row("OPENING_CASH", "Cash and cash equivalents at the beginning of the year", openingCash), row("CLOSING_CASH", "Cash and cash equivalents at the end of the year", closingCash, true)]
   return { period: { from: range.from.toISOString(), to: range.to.toISOString(), label: describeRange(range) }, comparativePeriod: { from: comparativeRange.from.toISOString(), to: comparativeRange.to.toISOString(), label: describeRange(comparativeRange) }, operating, investing, financing, summary }
 }

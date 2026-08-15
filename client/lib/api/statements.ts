@@ -36,6 +36,15 @@ export function getChangesInEquity(
 export function getCashFlow(accessToken: string, range: StatementRange): Promise<CashFlowResult> { return apiFetch<CashFlowResult>(`/api/statements/cash-flow${qs(range)}`, { accessToken }) }
 export function getNotes(accessToken: string, range: StatementRange): Promise<NotesResult> { return apiFetch<NotesResult>(`/api/statements/notes${qs(range)}`, { accessToken }) }
 export function getAnnexureA(accessToken: string, range: StatementRange): Promise<AnnexureResult> { return apiFetch<AnnexureResult>(`/api/statements/annexure-a${qs(range)}`, { accessToken }) }
+export interface PolicyNoteInput {
+  ref: string
+  title: string
+  body: string
+  sortOrder?: number
+}
+
 export function listPolicyNotes(accessToken: string): Promise<PolicyNote[]> { return apiFetch<PolicyNote[]>("/api/statements/policy-notes", { accessToken }) }
-export function updatePolicyNote(accessToken: string, id: string, input: Partial<{ ref: string; title: string; body: string }>): Promise<PolicyNote> { return apiFetch<PolicyNote>(`/api/statements/policy-notes/${id}`, { method: "PATCH", accessToken, body: JSON.stringify(input) }) }
+export function createPolicyNote(accessToken: string, input: PolicyNoteInput): Promise<PolicyNote> { return apiFetch<PolicyNote>("/api/statements/policy-notes", { method: "POST", accessToken, body: JSON.stringify(input) }) }
+export function updatePolicyNote(accessToken: string, id: string, input: Partial<PolicyNoteInput>): Promise<PolicyNote> { return apiFetch<PolicyNote>(`/api/statements/policy-notes/${id}`, { method: "PATCH", accessToken, body: JSON.stringify(input) }) }
+export function deletePolicyNote(accessToken: string, id: string): Promise<void> { return apiFetch<void>(`/api/statements/policy-notes/${id}`, { method: "DELETE", accessToken }) }
 export async function downloadStatementsPdf(accessToken: string, range: StatementRange): Promise<Blob> { const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/statements/pdf${qs(range)}`, { credentials: "include", headers: { Authorization: `Bearer ${accessToken}` } }); if (!res.ok) throw new Error("Could not download PDF"); return res.blob() }

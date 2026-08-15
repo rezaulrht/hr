@@ -4,7 +4,7 @@
  * computed row, not a table row.
  */
 
-import type { AccountCashKind, AccountType } from "../../generated/prisma/client"
+import type { AccountCashKind, AccountType, Currency } from "../../generated/prisma/client"
 
 /** A node in the chart-of-accounts tree, as the COA endpoint returns it. */
 export interface AccountNode {
@@ -93,6 +93,15 @@ export interface SystemJournalInput {
     departmentId?: string
     employeeId?: string
     narration?: string
+    /**
+     * Provenance of a converted figure, memo only — the `JournalLine` columns
+     * of the same names. Omitted when the transaction was already BDT.
+     * Nothing computes from these; they exist so a line reading 61,25,000 can
+     * answer "why?" with "USD 50,000 at 122.50".
+     */
+    sourceCurrency?: Currency
+    sourceAmount?: string
+    fxRateToBdt?: string
   }>
   createdBy: string
 }

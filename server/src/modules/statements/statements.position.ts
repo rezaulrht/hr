@@ -24,6 +24,7 @@
 
 import { Prisma } from "../../generated/prisma/client"
 import {
+  assertChartCoversLedger,
   assertLedgerBalanced,
   balancesFor,
   isVisible,
@@ -159,6 +160,12 @@ export async function buildPosition(range: DateRange): Promise<PositionResult> {
     balancesFor({ to: range.to, excludeClosing: false }),
     balancesFor({ to: comparativeRange.to, excludeClosing: false }),
   ])
+
+  // The second guard, and the one the trial balance structurally cannot give:
+  // an account no section reaches is absent from this document while the
+  // trial balance it was checked against still ties. `current` is already the
+  // cumulative set the guard wants, so this costs nothing.
+  assertChartCoversLedger(chart, current)
 
   const assets = ASSET_SECTIONS.map((s) => buildSection(s, chart, current, comparative))
   const equityAndLiabilities = EQUITY_AND_LIABILITY_SECTIONS.map((s) =>

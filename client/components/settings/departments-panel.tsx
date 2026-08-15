@@ -54,10 +54,10 @@ export function DepartmentsPanel({ accessToken }: { accessToken: string }) {
   }
 
   const saveMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string | null; name: string }) =>
+      mutationFn: ({ id, name, costNature }: { id: string | null; name: string; costNature: Department["costNature"] }) =>
       id === null
-        ? createDepartment(accessToken, { name })
-        : updateDepartment(accessToken, id, { name }),
+        ? createDepartment(accessToken, { name, costNature })
+        : updateDepartment(accessToken, id, { name, costNature }),
     onSuccess: done,
     onError: (err) => setError(toMessage(err)),
   })
@@ -133,8 +133,8 @@ export function DepartmentsPanel({ accessToken }: { accessToken: string }) {
           pending={saveMutation.isPending}
           error={error}
           onClose={() => setEditing(null)}
-          onSave={(name) =>
-            saveMutation.mutate({ id: editing === "new" ? null : editing.id, name })
+           onSave={(name, costNature) =>
+             saveMutation.mutate({ id: editing === "new" ? null : editing.id, name, costNature })
           }
         />
       ) : null}
@@ -161,9 +161,10 @@ function DepartmentDialog({
   pending: boolean
   error: string | null
   onClose: () => void
-  onSave: (name: string) => void
+  onSave: (name: string, costNature: Department["costNature"]) => void
 }) {
   const [name, setName] = useState(department?.name ?? "")
+  const [costNature, setCostNature] = useState<Department["costNature"]>(department?.costNature ?? "ADMINISTRATIVE")
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -184,6 +185,13 @@ function DepartmentDialog({
               autoFocus
             />
           </Field>
+          <Field label="Cost nature" htmlFor="department-nature">
+            <select id="department-nature" className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={costNature} onChange={(e) => setCostNature(e.target.value as Department["costNature"])}>
+              <option value="DIRECT">Direct (cost of sales)</option>
+              <option value="ADMINISTRATIVE">Administrative (overhead)</option>
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">Departments that build what the company sells are a direct cost and appear in Cost of Goods Sold. Everything else is overhead.</p>
+          </Field>
 
           {error ? <FormError>{error}</FormError> : null}
 
@@ -193,7 +201,7 @@ function DepartmentDialog({
               disabled={name.trim().length === 0}
               submitLabel={department ? "Save" : "Add department"}
               onCancel={onClose}
-              onSubmit={() => onSave(name.trim())}
+              onSubmit={() => onSave(name.trim(), costNature)}
             />
           </DialogFooter>
         </div>

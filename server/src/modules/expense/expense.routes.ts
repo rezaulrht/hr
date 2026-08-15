@@ -10,6 +10,7 @@ import {
   getMyClaimsHandler,
   listClaimsHandler,
   rejectClaimHandler,
+  listExpenseCategoriesHandler, createExpenseCategoryHandler, updateExpenseCategoryHandler, deleteExpenseCategoryHandler,
 } from "./expense.controller"
 
 const router = Router()
@@ -20,6 +21,10 @@ const FINANCE_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN] as const
 const READ_ROLES = [Role.FINANCE_OFFICER, Role.SUPER_ADMIN, Role.HR_ADMIN] as const
 
 router.post("/", requireAuth, requireRole(...STAFF_ROLES), createClaimHandler)
+router.get("/categories", requireAuth, requireRole(...STAFF_ROLES, ...READ_ROLES), listExpenseCategoriesHandler)
+router.post("/categories", requireAuth, requireRole(...FINANCE_ROLES), createExpenseCategoryHandler)
+router.patch("/categories/:id", requireAuth, requireRole(...FINANCE_ROLES), updateExpenseCategoryHandler)
+router.delete("/categories/:id", requireAuth, requireRole(...FINANCE_ROLES), deleteExpenseCategoryHandler)
 // Before /:id, or Express would match "me" as a claim id.
 router.get("/me", requireAuth, requireRole(...STAFF_ROLES), getMyClaimsHandler)
 router.get("/", requireAuth, requireRole(...READ_ROLES), listClaimsHandler)

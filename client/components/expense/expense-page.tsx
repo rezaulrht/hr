@@ -9,6 +9,7 @@ import {
   createExpenseClaim,
   getMyExpenseClaims,
   listExpenseClaims,
+  listExpenseCategories,
   rejectExpenseClaim,
 } from "@/lib/api/expenses"
 import { useSession } from "@/lib/auth/session-context"
@@ -31,7 +32,7 @@ import {
 
 function claimRow(claim: ExpenseClaim, extra: TableCell[]): TableCell[] {
   return [
-    { text: claim.category, sub: claim.description ?? undefined, weight: 600 },
+    { text: claim.category.name, sub: claim.description ?? undefined, weight: 600 },
     { text: claim.expenseDate },
     { text: formatMoney(claim.amount, claim.currency) },
     { tag: EXPENSE_STATUS_LABEL[claim.status], tone: EXPENSE_STATUS_TONE[claim.status] },
@@ -62,6 +63,7 @@ export function ExpensePage() {
     queryFn: () => listExpenseClaims(accessToken!),
     enabled: isAuthed && isAdmin,
   })
+  const categoriesQuery = useQuery({ queryKey: ["expense-categories"], queryFn: () => listExpenseCategories(accessToken!), enabled: isAuthed })
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["expenses"] })
@@ -216,6 +218,7 @@ export function ExpensePage() {
           pending={createMutation.isPending}
           error={error}
           onSubmit={(input) => createMutation.mutate(input)}
+          categories={categoriesQuery.data ?? []}
         />
       ) : null}
 

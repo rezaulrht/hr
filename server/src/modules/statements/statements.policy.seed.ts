@@ -16,6 +16,9 @@ export const POLICY_NOTES: PolicyNoteSeed[] = [
   { ref: "2.09", title: "Revenue Recognition", body: "Revenue is recognised when control of the promised goods or services is transferred to the customer." },
   { ref: "2.10", title: "Inventories", body: "Inventories are stated at the lower of cost and net realisable value." },
   { ref: "2.11", title: "Property, Plant and Equipment", body: "Property, plant and equipment are stated at cost less accumulated depreciation.\n\nDepreciation is charged on the reducing balance method at the rates disclosed in Annexure-A, from the month of acquisition.\n\nThe rates applied are: Furniture & Fixture 10%, Office Equipments 10%, Software / Domain 25%, and Computer / Laptop 20%." },
+  // Closes the narrative section. 3.00 puts it after the policies and before
+  // the generated breakdowns, which start at 4.00.
+  { ref: "3.00", title: "Notes to the Policy", body: "These financial statements have been prepared for the purposes of the Company and its shareholders.\n\nFigures relating to the previous year have been rearranged wherever necessary to conform to the current year's presentation.\n\nFigures have been rounded off to the nearest Taka." },
 ]
 
 export async function seedPolicyNotes(): Promise<void> {

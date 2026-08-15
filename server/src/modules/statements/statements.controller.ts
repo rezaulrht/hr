@@ -1,12 +1,12 @@
 import type { NextFunction, Request, Response } from "express"
-import { Prisma } from "../../generated/prisma/client"
 
+import { loadChart } from "./statements.balances"
 import { buildEquity } from "./statements.equity"
 import { buildPnl } from "./statements.pnl"
 import { buildPosition } from "./statements.position"
 import { cashFlowStatement } from "./statements.cashflow"
 import { statementNotes } from "./statements.notes"
-import { annexureA, assertAnnexureTiesToPosition } from "./statements.annexure"
+import { annexureA, assertAnnexureTiesToPosition, positionPpe } from "./statements.annexure"
 import { listPolicyNotes, createPolicyNote, updatePolicyNote, deletePolicyNote } from "./statements.policy.service"
 import { renderStatementsPdf } from "./statements.pdf"
 import { rangeQuerySchema, createPolicyNoteSchema, updatePolicyNoteSchema } from "./statements.validators"
@@ -39,9 +39,8 @@ export const cashFlowHandler = wrap(async (req, res) => res.json(await cashFlowS
 export const notesHandler = wrap(async (req, res) => res.json(await statementNotes(rangeQuerySchema.parse(req.query))))
 export const annexureHandler = wrap(async (req, res) => {
   const range = rangeQuerySchema.parse(req.query)
-  const [annexure, position] = await Promise.all([annexureA(range), buildPosition(range)])
-  const ppe = position.assets.flatMap((s) => s.lines).find((line) => line.code === "1110")
-  assertAnnexureTiesToPosition(annexure, new Prisma.Decimal(ppe?.current ?? "0"))
+  const [chart, annexure, position] = await Promise.all([loadChart(), annexureA(range), buildPosition(range)])
+  assertAnnexureTiesToPosition(annexure, positionPpe(chart, position))
   res.json(annexure)
 })
 export const listPolicyNotesHandler = wrap(async (_req, res) => res.json(await listPolicyNotes()))

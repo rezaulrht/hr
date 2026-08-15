@@ -8,7 +8,9 @@ import type { CreatePolicyNoteInput, UpdatePolicyNoteInput } from "./statements.
 
 export async function listPolicyNotes(): Promise<StatementNote[]> {
   const notes = await prisma.statementNote.findMany()
-  return notes.sort((a, b) => compareRefs(a.ref, b.ref))
+  // Numerically per segment, so 9.01 sorts before 10.00. `sortOrder` breaks a
+  // genuine tie — "2", "2.0" and "2.00" all compare equal.
+  return notes.sort((a, b) => compareRefs(a.ref, b.ref) || a.sortOrder - b.sortOrder)
 }
 
 export function createPolicyNote(input: CreatePolicyNoteInput, actor: AccessTokenPayload): Promise<StatementNote> {

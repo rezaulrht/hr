@@ -30,6 +30,7 @@
 
 import { Prisma } from "../../generated/prisma/client"
 import {
+  assertChartCoversLedger,
   assertLedgerBalanced,
   balancesFor,
   loadChart,
@@ -78,14 +79,21 @@ export async function buildEquity(range: DateRange): Promise<EquityResult> {
     ? chart.childrenOf(equityRoot.id).map((a) => ({ accountId: a.id, code: a.code, name: a.name }))
     : []
 
-  // Three reads, in this order. The middle one is the reason this ties.
-  const [opening, movement, profitBalances] = await Promise.all([
+  // Two reads that the statement is built from — the second, excluding
+  // CLOSING, is the reason this ties — plus a cumulative one the chart guard
+  // needs, since a movement-shaped check would miss an account whose activity
+  // is all in prior periods.
+  const [opening, movement, cumulative] = await Promise.all([
     balancesFor({ to: dayBefore(range.from), excludeClosing: false }),
     balancesFor({ from: range.from, to: range.to, excludeClosing: true }),
-    balancesFor({ from: range.from, to: range.to, excludeClosing: true }),
+    balancesFor({ to: range.to, excludeClosing: false }),
   ])
 
-  const profit = pnlNetProfit(chart, profitBalances)
+  assertChartCoversLedger(chart, cumulative)
+
+  // The profit row reads the same balances the movement rows do: both must
+  // exclude CLOSING, or the year-end entry is counted on both sides.
+  const profit = pnlNetProfit(chart, movement)
   const retained = chart.byRole.get("RETAINED_EARNINGS")
 
   const valueIn = (balances: BalanceMap) => (column: EquityColumn) =>

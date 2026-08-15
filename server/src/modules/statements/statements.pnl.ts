@@ -13,6 +13,7 @@
 
 import { Prisma } from "../../generated/prisma/client"
 import {
+  assertChartCoversLedger,
   assertLedgerBalanced,
   balancesFor,
   isVisible,
@@ -111,14 +112,21 @@ export async function buildPnl(range: DateRange): Promise<PnlResult> {
   const comparativeRange = shiftBackOneYear(range)
   const chart = await loadChart()
 
-  const [current, comparative] = await Promise.all([
+  // The third read exists only for the guard. The two above are period
+  // movements, and an account whose activity is all in prior periods would
+  // slip past a movement-shaped check while still being missing from every
+  // statement — which is precisely the failure being guarded against.
+  const [current, comparative, cumulative] = await Promise.all([
     balancesFor({ from: range.from, to: range.to, excludeClosing: true }),
     balancesFor({
       from: comparativeRange.from,
       to: comparativeRange.to,
       excludeClosing: true,
     }),
+    balancesFor({ to: range.to, excludeClosing: false }),
   ])
+
+  assertChartCoversLedger(chart, cumulative)
 
   let runningCurrent = ZERO
   let runningComparative = ZERO

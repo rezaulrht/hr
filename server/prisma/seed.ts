@@ -10,6 +10,7 @@ import { hashPassword } from "../src/modules/auth/auth.utils"
 import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
 import { seedChartOfAccounts } from "../src/modules/accounting/accounting.seed"
 import { seedPolicyNotes } from "../src/modules/statements/statements.policy.seed"
+import { seedPostingRules } from "../src/modules/posting/posting.rules.seed"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -199,6 +200,7 @@ async function main() {
   await seedCostCategories()
   await seedChartOfAccounts()
   await seedPolicyNotes()
+  await seedPostingRules()
 
   // The standing shift every employee falls back to when shiftId is null.
   // 09:00-18:00 with the 1h lunch/break inside the span, so a full day is

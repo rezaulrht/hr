@@ -30,7 +30,7 @@ export async function sweepClaimsReimbursed(
     select: {
       id: true,
       employeeId: true,
-      category: true,
+       category: { select: { code: true } },
       amount: true,
       currency: true,
     },
@@ -45,7 +45,7 @@ export async function sweepClaimsReimbursed(
         stage: "reimbursed",
         claimId: claim.id,
         employeeId: claim.employeeId,
-        category: claim.category,
+        category: claim.category.code,
         amount: toMoneyString(claim.amount),
         currency: claim.currency,
         actorUserId,

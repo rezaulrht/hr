@@ -105,6 +105,7 @@ export const CHART: ChartEntry[] = [
   a("2132", "Salary Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2133", "Bonus Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2134", "Overtime Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
+  a("2135", "Employee Reimbursements Payable", "LIABILITY", "2130", { cashFlow: "OPERATING_WC" }),
   a("2140", "Tax Deducted at Source Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
   a("2150", "VAT Payable", "LIABILITY", "2100", { cashFlow: "OPERATING_WC" }),
   g("2200", "Non-Current Liabilities", "LIABILITY", { parent: "2000", systemRole: "NON_CURRENT_LIABILITIES" }),
@@ -159,6 +160,8 @@ export const CHART: ChartEntry[] = [
   a("5215", "Depreciation — Admin", "EXPENSE", "5200", { cashFlow: "NON_CASH_ADDBACK" }),
   a("5216", "Training Expense", "EXPENSE", "5200"),
   a("5217", "Miscellaneous Expenses", "EXPENSE", "5200"),
+  a("5220", "Gratuity Expense", "EXPENSE", "5200"),
+  a("5221", "Notice Pay", "EXPENSE", "5200"),
 
   g("5300", "Financial Expenses", "EXPENSE", { parent: "5000", systemRole: "FINANCIAL_EXPENSE", note: "18.00", noteRef: "18.00" }),
   a("5310", "Bank Interest & Charges", "EXPENSE", "5300"),
@@ -172,20 +175,35 @@ export async function seedChartOfAccounts(): Promise<void> {
   // parent just created, and CHART is ordered parents-first for exactly
   // this reason.
   const idByCode = new Map<string, string>()
+  /** What each account's contra was before this run, so an edit survives. */
+  const linkedContra = new Map<string, string | null>()
 
   for (const entry of CHART) {
     const parentId = entry.parent ? idByCode.get(entry.parent) : undefined
 
+    // Read before writing, so the update below can repair a *missing*
+    // classification without overwriting a deliberate one.
+    const existing = await prisma.account.findUnique({
+      where: { code: entry.code },
+      select: { noteRef: true, cashFlowKind: true, depreciationRate: true, contraAccountId: true },
+    })
+
     const account = await prisma.account.upsert({
       where: { code: entry.code },
-      // Nothing is overwritten on re-run. A name somebody edited in the UI
-      // must survive the next seed; only the structural fields are worth
-      // repairing, and even those are left alone rather than fighting a
-      // deliberate change.
+      // A re-run fills in what is missing and changes nothing else. A name or
+      // a description somebody edited survives, and so does a cash-flow
+      // section Finance moved on purpose — which matters because
+      // `assertEveryAccountClassified` tells people to fix classification in
+      // the chart of accounts, and for a seeded code a blanket overwrite here
+      // would quietly undo them on the next deploy.
       update: {
-        noteRef: entry.noteRef ?? null,
-        cashFlowKind: entry.cashFlow ?? "NONE",
-        depreciationRate: entry.rate ? new Prisma.Decimal(entry.rate) : null,
+        ...(existing?.noteRef ? {} : { noteRef: entry.noteRef ?? null }),
+        ...(existing && existing.cashFlowKind !== "NONE"
+          ? {}
+          : { cashFlowKind: entry.cashFlow ?? "NONE" }),
+        ...(existing?.depreciationRate
+          ? {}
+          : { depreciationRate: entry.rate ? new Prisma.Decimal(entry.rate) : null }),
       },
       create: {
         code: entry.code,
@@ -203,10 +221,17 @@ export async function seedChartOfAccounts(): Promise<void> {
     })
 
     idByCode.set(entry.code, account.id)
+    linkedContra.set(entry.code, existing?.contraAccountId ?? null)
   }
 
+  // A second pass, because a contra link points at an account that may not
+  // have existed when its cost account was created.
   for (const entry of CHART) {
     if (!entry.contra) continue
+    // Left alone if something is already linked — the pairing is structural
+    // (2b Decision 11) and re-pointing one is a deliberate act.
+    if (linkedContra.get(entry.code)) continue
+
     const id = idByCode.get(entry.code)
     const contraId = idByCode.get(entry.contra)
     if (!id || !contraId) continue

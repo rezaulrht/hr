@@ -1,5 +1,9 @@
 import { apiFetch } from "./client"
-import type { ExpenseClaim, ExpenseClaimInput, ExpenseStatus } from "./types"
+import type { ExpenseCategory, ExpenseClaim, ExpenseClaimInput, ExpenseStatus } from "./types"
+
+export function listExpenseCategories(accessToken: string): Promise<ExpenseCategory[]> {
+  return apiFetch<ExpenseCategory[]>("/api/expenses/categories", { accessToken })
+}
 
 export function createExpenseClaim(
   accessToken: string,
