@@ -26,6 +26,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { JournalDocument } from "@/components/accounting/journal-document"
 import { JournalAttachments } from "@/components/accounting/journal-attachments"
 import {
+  ApprovalNotice,
+  JournalApprovalActions,
+} from "@/components/accounting/journal-approval"
+import {
   computeBalance,
   initialLines,
   JournalLinesEditor,
@@ -93,6 +97,19 @@ function JournalForm({
   const problem = useMemo(() => validationMessage(lines), [lines])
   const balance = useMemo(() => computeBalance(lines), [lines])
   const isDraft = !journal || journal.status === "DRAFT"
+
+  // Whether what is on screen still matches what the server holds. It matters
+  // only to an approver: Approve posts the saved journal, so approving with
+  // edits on screen would post something the approver did not read.
+  const dirty = useMemo(() => {
+    if (!journal) return false
+    const same =
+      date === toDateInput(journal.date) &&
+      narration === journal.narration &&
+      reference === (journal.reference ?? "") &&
+      JSON.stringify(toApiLines(lines)) === JSON.stringify(toApiLines(toDraftLines(journal)))
+    return !same
+  }, [journal, date, narration, reference, lines])
 
   const save = useMutation({
     mutationFn: async (): Promise<Journal> => {
@@ -181,6 +198,14 @@ function JournalForm({
               {submit.isPending ? "Submitting…" : "Submit for approval"}
             </Button>
           )}
+          {/*
+            A typed journal stays a form while it awaits approval, so the
+            approver meets it here rather than in the read-only document. Both
+            surfaces render the same two actions; without this one, a Super
+            Admin opening a journal the Finance Officer submitted found no way
+            to approve it at all.
+          */}
+          {journal && <JournalApprovalActions journal={journal} blocked={dirty} />}
         </div>
       </div>
 
@@ -190,6 +215,8 @@ function JournalForm({
           stand.
         </p>
       )}
+
+      {journal && <ApprovalNotice journal={journal} dirty={dirty} />}
 
       {journal?.rejectionNote && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
