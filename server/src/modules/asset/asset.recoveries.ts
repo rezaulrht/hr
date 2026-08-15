@@ -247,4 +247,78 @@ export function pendingRecoveriesFor(
   })
 }
 
+/**
+ * The mid-employment collection path (spec Decision 3). Creating a recovery
+ * does nothing to money; turning it into a deduction is this separate act.
+ * It creates a PayrollAdjustment and stops — the next run consumes it through
+ * machinery that is not modified here.
+ *
+ * The `@unique` on `adjustmentId` is the idempotency guard: a second call
+ * collides at the database, never at a service check that two rapid clicks
+ * could race.
+ */
+export function recoverFromPayroll(id: string, actor: AccessTokenPayload): Promise<AssetRecovery> {
+  return prisma.$transaction(async (tx) => {
+    const recovery = await loadRecovery(tx, id)
+    if (!recovery) throw new AppError(404, "Recovery not found")
+    if (recovery.status === "WAIVED") {
+      throw new AppError(409, "A waived recovery cannot be deducted from payroll.")
+    }
+    if (recovery.status === "RECOVERED") {
+      const collected = collectedBy(recovery)
+      throw new AppError(
+        409,
+        `This recovery was already collected${collected ? ` by ${collected}` : ""}.`,
+        { recoveryId: id }
+      )
+    }
+    if (recovery.adjustmentId) {
+      throw new AppError(409, "This recovery is already being collected through payroll.")
+    }
+
+    const now = new Date()
+    let adjustment: { id: string }
+    try {
+      adjustment = await tx.payrollAdjustment.create({
+        data: {
+          employeeId: recovery.employeeId,
+          // The current month — the next run in progress picks the adjustment
+          // up. The run itself refuses a closed or already-disbursed month.
+          month: now.getUTCMonth() + 1,
+          year: now.getUTCFullYear(),
+          kind: "DEDUCTION",
+          code: "ASSET_RECOVERY",
+          label: `Asset recovery — ${recovery.asset?.assetTag ?? "asset"} ${recovery.asset?.name ?? ""}`,
+          currency: recovery.currency,
+          amount: recovery.amount,
+          reason: recovery.reason,
+          createdBy: actor.sub,
+        },
+      })
+    } catch (err) {
+      // The @unique on AssetRecovery.adjustmentId. Naming the constraint so a
+      // second click reads as the guard, not as a server hiccup.
+      if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
+        throw new AppError(409, "This recovery is already being collected through payroll.")
+      }
+      throw err
+    }
+
+    const updated = await tx.assetRecovery.update({
+      where: { id },
+      data: { adjustmentId: adjustment.id },
+    })
+
+    await writeAudit(tx, {
+      entity: "ASSET_RECOVERY",
+      entityId: id,
+      action: "PROCESS",
+      changedBy: actor.sub,
+      after: { adjustmentId: adjustment.id, status: "PENDING" },
+    })
+
+    return updated
+  })
+}
+
 export { RECOVERY }
