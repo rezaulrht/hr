@@ -44,6 +44,9 @@ import { RequestDialog } from "@/components/asset/request-dialog"
 import { ReturnDialog } from "@/components/asset/return-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
 import { ConfirmDialog } from "@/components/dashboard/record-kit"
+import { RecoveriesTab } from "@/components/asset/recoveries-tab"
+import { MyRecoveries } from "@/components/asset/my-recoveries"
+import { LifecycleRecoveryDialog } from "@/components/asset/lifecycle-recovery-dialog"
 import {
   canDispose,
   canManageAssets,
@@ -725,7 +728,19 @@ export function AssetPage() {
   })
 
   const markLostMutation = useMutation({
-    mutationFn: ({ id, note }: { id: string; note: string }) => markAssetLost(accessToken!, id, { note }),
+    mutationFn: ({
+      id,
+      note,
+      recovery,
+    }: {
+      id: string
+      note: string
+      recovery?: { amount: string; reason: string }
+    }) =>
+      markAssetLost(accessToken!, id, {
+        note,
+        recovery,
+      }),
     onSuccess: () => {
       setDisposal(null)
       invalidateAssets()
@@ -849,6 +864,7 @@ export function AssetPage() {
           <Tabs defaultValue="register">
             <TabsList>
               <TabsTrigger value="register">Register</TabsTrigger>
+              <TabsTrigger value="recoveries">Recoveries</TabsTrigger>
               <TabsTrigger value="unacknowledged">
                 Unacknowledged
                 {unacknowledgedQuery.data?.length ? ` (${unacknowledgedQuery.data.length})` : ""}
@@ -859,6 +875,10 @@ export function AssetPage() {
               <TabsTrigger value="requests">Requests</TabsTrigger>
               <TabsTrigger value="import">Import</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="recoveries" className="pt-3">
+              <RecoveriesTab />
+            </TabsContent>
 
             <TabsContent value="register" className="pt-3">
               <AssetTable
@@ -1058,6 +1078,11 @@ export function AssetPage() {
               emptyBody="Use Request an asset above, and the decision appears here."
             />
           </section>
+
+          <section>
+            <SectionTitle>Asset recoveries</SectionTitle>
+            <MyRecoveries />
+          </section>
         </div>
       ) : null}
 
@@ -1179,21 +1204,20 @@ export function AssetPage() {
       />
 
       {dispose ? (
-        <DecisionDialog
-          // Remounts per target so the note field never carries over from the
-          // last asset. The idle key is namespaced because the reject dialog
-          // below is a sibling — HR sees both, and a shared "none" collides.
+        <LifecycleRecoveryDialog
+          // Remounts per target so the fields never carry over from the last
+          // asset. The idle key is namespaced because the reject dialog below
+          // is a sibling — HR sees both, and a shared "none" collides.
           key={disposal ? `${disposal.kind}-${disposal.assetId}` : "disposal-idle"}
           open={!!disposal}
           onOpenChange={(next) => !next && setDisposal(null)}
-          title={disposal?.kind === "retire" ? "Retire this asset" : "Mark this asset lost"}
-          confirmLabel={disposal?.kind === "retire" ? "Retire asset" : "Mark lost"}
+          kind={disposal?.kind === "lost" ? "lost" : "retire"}
           pending={retireMutation.isPending || markLostMutation.isPending}
           error={error}
-          onConfirm={(note) => {
+          onConfirm={({ note, recovery }) => {
             if (!disposal) return
             if (disposal.kind === "retire") retireMutation.mutate({ id: disposal.assetId, note })
-            else markLostMutation.mutate({ id: disposal.assetId, note })
+            else markLostMutation.mutate({ id: disposal.assetId, note, recovery })
           }}
         />
       ) : null}

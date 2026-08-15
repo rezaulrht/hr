@@ -934,6 +934,8 @@ export type UpdateAssetInput = Partial<CreateAssetInput>
  */
 export interface AssetLifecycleInput {
   note: string
+  /** Decision 4: optional recovery priced where the facts are fresh. */
+  recovery?: { amount: string; currency?: Currency; reason: string; kind?: AssetRecoveryKind }
 }
 
 export interface CreateAssetCategoryInput {
@@ -955,6 +957,8 @@ export interface AssignAssetInput {
 export interface ReturnAssetInput {
   conditionIn: AssetCondition
   returnNote?: string
+  /** Decision 4: optional recovery offered on a damaged return. */
+  recovery?: { amount: string; currency?: Currency; reason: string; kind?: AssetRecoveryKind }
 }
 
 export interface SendAssetRepairInput {
@@ -1665,4 +1669,68 @@ export interface AssetValueReport {
   rows: AssetValueRow[]
   totals: AssetValueTotal[]
   asOf: string
+}
+
+// ── ASSET RECOVERIES & EXIT CHECKLIST ─────────
+// Hand-mirrored from server/src/modules/asset/asset.recoveries.ts and
+// server/src/modules/asset/asset.exit.ts.
+
+export type AssetRecoveryKind = "NOT_RETURNED" | "DAMAGED" | "LOST"
+export type AssetRecoveryStatus = "PENDING" | "RECOVERED" | "WAIVED"
+
+export interface AssetRecovery {
+  id: string
+  assetId: string
+  employeeId: string
+  assignmentId: string | null
+  kind: AssetRecoveryKind
+  amount: string
+  currency: Currency
+  reason: string
+  status: AssetRecoveryStatus
+  waivedBy: string | null
+  waivedAt: string | null
+  waiverReason: string | null
+  adjustmentId: string | null
+  settlementId: string | null
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  asset?: { assetTag: string; name: string; category?: { name: string } }
+  adjustment?: { payslip?: { payslipNo: string } | null } | null
+  settlement?: { settlementNo: string } | null
+}
+
+export interface CreateRecoveryInput {
+  assetId: string
+  employeeId: string
+  assignmentId?: string
+  kind?: AssetRecoveryKind
+  amount: string
+  currency?: Currency
+  reason: string
+}
+
+export interface UpdateRecoveryInput {
+  amount?: string
+  currency?: Currency
+  reason?: string
+}
+
+export interface ExitChecklistOpenAssignment {
+  assignmentId: string
+  assetId: string
+  assetTag: string
+  assetName: string
+  categoryName: string
+  assignedAt: string
+  conditionOut: string
+  acknowledgedAt: string | null
+}
+
+export interface ExitChecklist {
+  employeeId: string
+  openAssignments: ExitChecklistOpenAssignment[]
+  pendingRecoveries: AssetRecovery[]
+  hasOutstanding: boolean
 }

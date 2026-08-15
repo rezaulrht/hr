@@ -8,12 +8,15 @@ import type {
   AssetDetail,
   AssetImportCommitResult,
   AssetImportPreview,
+  AssetRecovery,
   AssetRepair,
   AssetRequest,
   AssignAssetInput,
   ApproveAssetRequestInput,
   CreateAssetCategoryInput,
   CreateAssetInput,
+  CreateRecoveryInput,
+  ExitChecklist,
   AssetLifecycleInput,
   FulfilAssetRequestInput,
   ReceiveAssetRepairInput,
@@ -24,6 +27,7 @@ import type {
   SubmitAssetRequestInput,
   UpdateAssetCategoryInput,
   UpdateAssetInput,
+  UpdateRecoveryInput,
 } from "./types"
 
 export function listAssets(
@@ -364,4 +368,62 @@ export function getAssetValueReport(
   return apiFetch<import("./types").AssetValueReport>(`/api/assets/value${qs ? `?${qs}` : ""}`, {
     accessToken,
   })
+}
+
+export function listRecoveries(
+  accessToken: string,
+  query: { employeeId?: string; assetId?: string; status?: string } = {}
+): Promise<AssetRecovery[]> {
+  const params = new URLSearchParams()
+  if (query.employeeId) params.set("employeeId", query.employeeId)
+  if (query.assetId) params.set("assetId", query.assetId)
+  if (query.status) params.set("status", query.status)
+  const qs = params.toString()
+  return apiFetch<AssetRecovery[]>(`/api/assets/recoveries${qs ? `?${qs}` : ""}`, { accessToken })
+}
+
+export function createRecovery(
+  accessToken: string,
+  input: CreateRecoveryInput
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>("/api/assets/recoveries", {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateRecovery(
+  accessToken: string,
+  id: string,
+  input: UpdateRecoveryInput
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function waiveRecovery(
+  accessToken: string,
+  id: string,
+  waiverReason: string
+): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}/waive`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify({ waiverReason }),
+  })
+}
+
+export function recoverFromPayroll(accessToken: string, id: string): Promise<AssetRecovery> {
+  return apiFetch<AssetRecovery>(`/api/assets/recoveries/${id}/recover-from-payroll`, {
+    method: "POST",
+    accessToken,
+  })
+}
+
+export function getExitChecklist(accessToken: string, employeeId: string): Promise<ExitChecklist> {
+  return apiFetch<ExitChecklist>(`/api/assets/exit-checklist/${employeeId}`, { accessToken })
 }

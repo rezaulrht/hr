@@ -1,6 +1,8 @@
 import type {
   AssetComputedStatus,
   AssetCondition,
+  AssetRecoveryKind,
+  AssetRecoveryStatus,
   AssetRequestStatus,
   Role,
 } from "@/lib/api/types"
@@ -52,6 +54,24 @@ export const canManageAssets = (role: Role) => role === "HR_ADMIN" || role === "
 export const canDispose = (role: Role) =>
   role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "FINANCE_OFFICER"
 export const isStaff = (role: Role) => role === "EMPLOYEE" || role === "REPORTING_MANAGER"
+
+export const RECOVERY_KIND_LABEL: Record<AssetRecoveryKind, string> = {
+  NOT_RETURNED: "Not returned",
+  DAMAGED: "Damaged",
+  LOST: "Lost",
+}
+
+export const RECOVERY_STATUS_LABEL: Record<AssetRecoveryStatus, string> = {
+  PENDING: "Pending",
+  RECOVERED: "Recovered",
+  WAIVED: "Waived",
+}
+
+export const RECOVERY_STATUS_TONE: Record<AssetRecoveryStatus, string> = {
+  PENDING: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  RECOVERED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  WAIVED: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
+}
 
 /** "Aug 10, 2026". A table cell needs the year; leave's SHORT_DATE does not. */
 export function formatAssetDate(iso: string | null): string {

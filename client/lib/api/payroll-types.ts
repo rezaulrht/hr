@@ -346,6 +346,7 @@ export interface Settlement {
   expenseReimbursement: string
   leaveEncashment: string
   outstandingDeductions: string
+  assetRecoveries: string
   finalAmount: string
   finalAmountBdt: string
   breakdown: SettlementBreakdown
@@ -373,5 +374,6 @@ export interface SettlementOverrideInput {
   noticePay?: number
   expenseReimbursement?: number
   outstandingDeductions?: number
+  assetRecoveries?: number
   reason: string
 }

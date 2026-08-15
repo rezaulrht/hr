@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { AVATAR_ACCEPT, AVATAR_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,9 +25,10 @@ import { CONDITION_LABEL } from "@/components/asset/asset-shared"
 const CONDITIONS: AssetCondition[] = ["NEW", "GOOD", "FAIR", "DAMAGED"]
 
 /**
- * Closes the open assignment. Recording DAMAGED here creates nothing else —
- * pricing the damage is a separate, later decision, so the dialog only says
- * so rather than pretending a recovery record exists.
+ * Closes the open assignment. Decision 4: a damaged return is one of the two
+ * moments the facts are fresh, so the dialog offers — collapsed by default —
+ * to price a recovery. Opening it makes amount and reason required; leaving
+ * it closed sends none.
  *
  * No optimistic update: the row stays ASSIGNED until the write succeeds.
  */
@@ -47,12 +49,18 @@ export function ReturnDialog({
   const [returnNote, setReturnNote] = useState("")
   const [photos, setPhotos] = useState<File[]>([])
   const [formError, setFormError] = useState<string | null>(null)
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
+  const [recoveryAmount, setRecoveryAmount] = useState("")
+  const [recoveryReason, setRecoveryReason] = useState("")
 
   function resetForm() {
     setConditionIn("GOOD")
     setReturnNote("")
     setPhotos([])
     setFormError(null)
+    setRecoveryOpen(false)
+    setRecoveryAmount("")
+    setRecoveryReason("")
   }
 
   function handleOpenChange(next: boolean) {
@@ -62,9 +70,14 @@ export function ReturnDialog({
 
   const returnMutation = useMutation({
     mutationFn: async () => {
+      const recovery =
+        conditionIn === "DAMAGED" && recoveryOpen
+          ? { amount: recoveryAmount.trim(), reason: recoveryReason.trim() }
+          : undefined
       const assignment = await returnAsset(accessToken!, assetId!, {
         conditionIn,
         returnNote: returnNote.trim() || undefined,
+        recovery,
       })
       for (const file of photos) {
         try {
@@ -111,13 +124,48 @@ export function ReturnDialog({
                 ))}
               </SelectContent>
             </Select>
-            {conditionIn === "DAMAGED" ? (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Pricing this damage is a separate decision — recording it here does not create a
-                recovery of any kind.
-              </p>
-            ) : null}
           </div>
+
+          {conditionIn === "DAMAGED" ? (
+            <div className="rounded-md border border-[#E4E9EF] bg-[#F4F6F9] p-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-[12.5px] font-semibold"
+                onClick={() => setRecoveryOpen((v) => !v)}
+              >
+                <span>Price a recovery for the damage</span>
+                <span>{recoveryOpen ? "−" : "+"}</span>
+              </button>
+              {recoveryOpen ? (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <Label htmlFor="recovery-amount" className="mb-1.5 text-xs font-bold">
+                      Amount
+                    </Label>
+                    <Input
+                      id="recovery-amount"
+                      inputMode="decimal"
+                      value={recoveryAmount}
+                      onChange={(e) => setRecoveryAmount(e.target.value)}
+                      placeholder="Your call — never prefilled"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="recovery-reason" className="mb-1.5 text-xs font-bold">
+                      Reason
+                    </Label>
+                    <Textarea
+                      id="recovery-reason"
+                      value={recoveryReason}
+                      maxLength={1000}
+                      onChange={(e) => setRecoveryReason(e.target.value)}
+                      placeholder="Cracked screen, water damage, missing keys…"
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div>
             <Label htmlFor="return-note" className="mb-1.5 text-xs font-bold">
@@ -167,7 +215,14 @@ export function ReturnDialog({
           <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={returnMutation.isPending}>
             Cancel
           </Button>
-          <Button disabled={!assetId || returnMutation.isPending} onClick={() => returnMutation.mutate()}>
+          <Button
+            disabled={
+              !assetId ||
+              returnMutation.isPending ||
+              (conditionIn === "DAMAGED" && recoveryOpen && (recoveryAmount.trim() === "" || recoveryReason.trim() === ""))
+            }
+            onClick={() => returnMutation.mutate()}
+          >
             {returnMutation.isPending ? "Returning…" : "Return asset"}
           </Button>
         </DialogFooter>
