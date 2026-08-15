@@ -11,6 +11,7 @@ import { useSession } from "@/lib/auth/session-context"
 import type { JournalAttachment } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import { formatLedgerDate } from "@/components/accounting/accounting-shared"
+import { HelpLink } from "@/components/help/help-link"
 
 function humanBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -92,7 +93,8 @@ export function JournalAttachments({
 
       {attachments.length === 0 ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-          Nothing attached yet.
+          Nothing attached yet.{" "}
+          <HelpLink>How does this work?</HelpLink>
         </p>
       ) : (
         <ul className="divide-y">

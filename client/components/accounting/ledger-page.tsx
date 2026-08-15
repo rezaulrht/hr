@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AccountPicker } from "@/components/accounting/account-picker"
+import { HelpLink } from "@/components/help/help-link"
 import {
   currentMonthRange,
   formatAmount,
@@ -172,7 +173,8 @@ function LedgerPageInner({ mode }: { mode: Mode }) {
               {ledger.data!.rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                    No movement in this period.
+                    No movement in this period.{" "}
+                    <HelpLink>How does this work?</HelpLink>
                   </TableCell>
                 </TableRow>
               ) : (

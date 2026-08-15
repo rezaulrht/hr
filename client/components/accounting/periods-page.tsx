@@ -20,6 +20,7 @@ import type { AccountingPeriod, FinancialYear } from "@/lib/api/types"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { HelpLink } from "@/components/help/help-link"
 import {
   Dialog,
   DialogContent,
@@ -136,7 +137,8 @@ export function PeriodsPage() {
       ) : (years.data ?? []).length === 0 ? (
         <p className="rounded-lg border p-10 text-center text-sm text-muted-foreground">
           No financial year yet. Create one before posting anything — a journal cannot exist
-          without a period to fall into.
+          without a period to fall into.{" "}
+          <HelpLink>How does this work?</HelpLink>
         </p>
       ) : (
         <div className="space-y-6">
