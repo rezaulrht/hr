@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { Prisma } from "../../generated/prisma/client"
+import { dec } from "../payroll/payroll.money"
 import { assertBalanced } from "../accounting/accounting.utils"
 import type { ResolvedRules } from "../posting/posting.types"
 import {
@@ -17,7 +18,7 @@ const accrualRules: ResolvedRules = {
     ["ADMINISTRATIVE:BASIC", "5201"], ["DIRECT:BASIC", "5122"],
     ["ADMINISTRATIVE:LEAVE_ENCASHMENT", "5201"], ["DIRECT:LEAVE_ENCASHMENT", "5122"],
     ["GRATUITY", "5220"], ["NOTICE_PAY", "5221"], ["REIMBURSEMENT", "2135"],
-    ["ADVANCE_RECOVERY", "1250"], ["NET_PAY", "2132"],
+    ["ADVANCE_RECOVERY", "1250"], ["ASSET_RECOVERY", "4290"], ["NET_PAY", "2132"],
   ]),
 }
 const paymentRules: ResolvedRules = {
@@ -32,7 +33,8 @@ function settlement(over: Partial<SettlementForPosting> = {}): SettlementForPost
     currency: "BDT", fxRateToBdt: D("1"),
     pendingSalary: D("1000.00"), gratuity: D("500.00"), noticePay: D("200.00"),
     expenseReimbursement: D("100.00"), leaveEncashment: D("0"),
-    outstandingDeductions: D("300.00"), finalAmountBdt: D("1500.00"),
+    outstandingDeductions: D("300.00"), assetRecoveries: D("0"),
+    finalAmountBdt: D("1500.00"),
     ...over,
   }
 }
@@ -136,6 +138,31 @@ describe("buildSettlementAccrualLines", () => {
   it("splits a direct employee's final salary to cost of sales", () => {
     const lines = buildSettlementAccrualLines(settlement({ costNature: "DIRECT" }), accrualRules)
     expect(lines[0].accountCode).toBe("5122")
+  })
+
+  it("credits asset recoveries to ASSET_RECOVERY, not ADVANCE_RECOVERY", () => {
+    const lines = buildSettlementAccrualLines(settlement({ assetRecoveries: dec(45000) }), accrualRules)
+    expect(lines.find((l) => l.credit === "45000.00")?.accountCode).toBe("4290")
+  })
+
+  it("balances with both recovery heads non-zero", () => {
+    const lines = buildSettlementAccrualLines(
+      settlement({ outstandingDeductions: dec(10000), assetRecoveries: dec(45000) }), accrualRules
+    )
+    const d = lines.reduce((t, l) => t.plus(l.debit ?? 0), dec(0))
+    const c = lines.reduce((t, l) => t.plus(l.credit ?? 0), dec(0))
+    expect(d.toFixed(2)).toBe(c.toFixed(2))
+  })
+
+  /** The bug slice 3 shipped once. The head is denominated in the settlement's
+   *  currency and the ledger is BDT only. */
+  it("balances a USD settlement carrying an asset recovery", () => {
+    const lines = buildSettlementAccrualLines(
+      settlement({ currency: "USD", fxRateToBdt: dec("122.500000"), assetRecoveries: dec(400) }), accrualRules
+    )
+    const d = lines.reduce((t, l) => t.plus(l.debit ?? 0), dec(0))
+    const c = lines.reduce((t, l) => t.plus(l.credit ?? 0), dec(0))
+    expect(d.toFixed(2)).toBe(c.toFixed(2))
   })
 })
 

@@ -336,6 +336,7 @@ describe("overrideSettlement", () => {
     expenseReimbursement: dec(0),
     leaveEncashment: dec(0),
     outstandingDeductions: dec(0),
+    assetRecoveries: dec(0),
     finalAmount: dec("506709.68"),
     fxRateToBdt: dec(1),
   }

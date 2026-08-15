@@ -76,6 +76,10 @@ export async function overrideSettlement(
       body.outstandingDeductions !== undefined
         ? dec(body.outstandingDeductions)
         : existing.outstandingDeductions,
+    assetRecoveries:
+      body.assetRecoveries !== undefined
+        ? dec(body.assetRecoveries)
+        : existing.assetRecoveries,
   }
   const total = finalAmount(next)
 
@@ -99,6 +103,7 @@ export async function overrideSettlement(
         gratuity: toMoneyString(existing.gratuity),
         noticePay: toMoneyString(existing.noticePay),
         outstandingDeductions: toMoneyString(existing.outstandingDeductions),
+        assetRecoveries: toMoneyString(existing.assetRecoveries),
         finalAmount: toMoneyString(existing.finalAmount),
       },
       after: {
@@ -106,6 +111,7 @@ export async function overrideSettlement(
         gratuity: toMoneyString(next.gratuity),
         noticePay: toMoneyString(next.noticePay),
         outstandingDeductions: toMoneyString(next.outstandingDeductions),
+        assetRecoveries: toMoneyString(next.assetRecoveries),
         finalAmount: toMoneyString(total),
       },
       note: body.reason,
@@ -211,6 +217,7 @@ export async function calculateSettlement(employeeId: string, actorUserId: strin
     // rule for freezing it at exit, which is out of scope.
     leaveEncashment: dec(0),
     outstandingDeductions: dec(0),
+    assetRecoveries: dec(0),
   }
   const total = finalAmount(heads)
 
