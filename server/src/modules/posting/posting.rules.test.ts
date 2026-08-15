@@ -47,5 +47,8 @@ describe("asset posting rules", () => {
     const disposal = POSTING_RULES.filter((r) => r.event === "ASSET_DISPOSAL")
     expect(disposal.find((r) => r.key === "GAIN")?.account).toBe("4290")
     expect(disposal.find((r) => r.key === "LOSS")?.account).toBe("5217")
+    // Introduced in Task 5, where the need becomes visible: a disposal with
+    // proceeds throws at runtime without BANK.
+    expect(disposal.find((r) => r.key === "BANK")?.account).toBe("1242")
   })
 })

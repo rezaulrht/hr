@@ -40,6 +40,7 @@ export const POSTING_RULES: PostingRuleSeed[] = [
   // wants them separable — the same posture leave encashment took.
   { event: "ASSET_DISPOSAL", key: "GAIN", account: "4290", note: "Shared with miscellaneous income; re-point if disposal gains need separating" },
   { event: "ASSET_DISPOSAL", key: "LOSS", account: "5217", note: "Shared with miscellaneous expenses; re-point if disposal losses need separating" },
+  { event: "ASSET_DISPOSAL", key: "BANK", account: "1242" },
 ]
 export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   PAYROLL_ACCRUAL: ["NET_PAY", "DEDUCTION:*", "DIRECT:*", "ADMINISTRATIVE:*"],
@@ -51,6 +52,6 @@ export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   ASSET_ACQUISITION: ["PAYABLE"],
   ASSET_PAYMENT: ["PAYABLE", "BANK"],
   ASSET_DEPRECIATION: ["DIRECT", "ADMINISTRATIVE"],
-  ASSET_DISPOSAL: ["GAIN", "LOSS"],
+  ASSET_DISPOSAL: ["GAIN", "LOSS", "BANK"],
 }
 export async function seedPostingRules(): Promise<void> { const accounts = await prisma.account.findMany({ where: { code: { in: [...new Set(POSTING_RULES.map((r) => r.account))] } }, select: { id: true, code: true } }); const ids = new Map(accounts.map((a) => [a.code, a.id])); for (const r of POSTING_RULES) { const accountId = ids.get(r.account); if (!accountId) continue; await prisma.postingRule.upsert({ where: { event_key: { event: r.event, key: r.key } }, update: { accountId, note: r.note ?? null }, create: { event: r.event, key: r.key, accountId, note: r.note ?? null } }) } }

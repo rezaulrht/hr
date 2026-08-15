@@ -25,10 +25,13 @@ import { resolveRateOrThrow } from "../payroll/payroll.fx"
 import type { ResolvedRules } from "../posting/posting.types"
 import {
   buildAcquisitionLines,
+  buildDisposalLines,
   buildPaymentLines,
   capitaliseAsset,
+  disposeAsset,
   payForAsset,
   type AssetForPosting,
+  type DisposalInput,
 } from "./asset.capitalise"
 
 const D = (v: string) => new Prisma.Decimal(v)
@@ -256,5 +259,162 @@ describe("payForAsset", () => {
 
     await expect(payForAsset("a-1", {}, finance)).rejects.toMatchObject({ statusCode: 409 })
     expect(postSystemJournal).not.toHaveBeenCalled()
+  })
+})
+
+const disposalRules: ResolvedRules = {
+  event: "ASSET_DISPOSAL",
+  byKey: new Map([
+    ["LAPTOP", "1114"], ["FURNITURE", "1111"],
+    ["GAIN", "4290"], ["LOSS", "5217"], ["BANK", "1242"],
+  ]),
+}
+
+const disposalInput = (over: Partial<DisposalInput> = {}): DisposalInput => ({
+  asset: asset({ purchaseCostBdt: D("85000.00") }),
+  accumulated: D("51000.00"),
+  proceeds: D("10000.00"),
+  contraAccountCode: "1124",
+  ...over,
+})
+
+describe("buildDisposalLines", () => {
+  it("books a loss when proceeds fall short of book value", () => {
+    const lines = buildDisposalLines(
+      { asset: asset({ purchaseCostBdt: D("85000.00") }), accumulated: D("51000.00"), proceeds: D("10000.00"), contraAccountCode: "1124" },
+      disposalRules
+    )
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountCode: "1124", debit: "51000.00" }),
+      expect.objectContaining({ accountCode: "1242", debit: "10000.00" }),
+      expect.objectContaining({ accountCode: "5217", debit: "24000.00" }),
+      expect.objectContaining({ accountCode: "1114", credit: "85000.00" }),
+    ]))
+  })
+
+  it("books a gain when proceeds exceed book value", () => {
+    const lines = buildDisposalLines(
+      { asset: asset({ purchaseCostBdt: D("85000.00") }), accumulated: D("80000.00"), proceeds: D("9000.00"), contraAccountCode: "1124" },
+      disposalRules
+    )
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountCode: "4290", credit: "4000.00" }),
+    ]))
+  })
+
+  it("omits the proceeds line when nothing was received", () => {
+    const lines = buildDisposalLines(
+      { asset: asset(), accumulated: D("0.00"), proceeds: D("0.00"), contraAccountCode: "1124" },
+      disposalRules
+    )
+    expect(lines.some((l) => l.accountCode === "1242")).toBe(false)
+  })
+
+  it("balances by construction — the gain or loss is whatever is left", () => {
+    const shapes = [
+      disposalInput({ accumulated: D("51000.00"), proceeds: D("10000.00") }),
+      disposalInput({ accumulated: D("80000.00"), proceeds: D("9000.00") }),
+      disposalInput({ accumulated: D("0.00"), proceeds: D("0.00") }),
+      disposalInput({ asset: asset({ purchaseCostBdt: D("1200.00") }), accumulated: D("500.00"), proceeds: D("100.00") }),
+    ]
+    for (const input of shapes) {
+      const lines = buildDisposalLines(input, disposalRules)
+      const debits = lines.reduce((t, l) => t.plus(l.debit ?? "0"), D("0.00"))
+      const credits = lines.reduce((t, l) => t.plus(l.credit ?? "0"), D("0.00"))
+      expect(debits.toFixed(2)).toBe(credits.toFixed(2))
+    }
+  })
+})
+
+describe("disposeAsset", () => {
+  const disposalTx = () => {
+    const t = txFor({
+      id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad T14",
+      purchaseCost: D("85000.00"), purchaseCostBdt: D("85000.00"), fxRateToBdt: D("1.000000"),
+      purchaseDate: new Date("2026-07-01T00:00:00.000Z"),
+      currency: "BDT", departmentId: null, capitalisedAt: new Date("2026-07-05T00:00:00.000Z"),
+      lifecycle: "IN_SERVICE", retiredAt: null,
+      category: { code: "LAPTOP", isConsumable: false },
+    }, "ASSET_DISPOSAL")
+    t.postingRule.findMany.mockResolvedValue([
+      ...ruleRows("ASSET_ACQUISITION"),
+      { key: "GAIN", account: { code: "4290" } },
+      { key: "LOSS", account: { code: "5217" } },
+    ])
+    t.assetDepreciation = { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: D("51000.00") } }) }
+    t.assetAssignment = { count: vi.fn().mockResolvedValue(0), findFirst: vi.fn().mockResolvedValue(null) }
+    t.account = {
+      findUnique: vi.fn(({ where }: { where: { code?: string; id?: string } }) =>
+        Promise.resolve(
+          where.code === "1114"
+            ? { contraAccountId: "contra-1124", code: "1114" }
+            : { id: "contra-1124", code: "1124" }
+        )
+      ),
+    }
+    t.asset.update.mockResolvedValue({})
+    return t
+  }
+
+  it("refuses an asset with an open assignment, naming the holder", async () => {
+    // Hard block, unlike the settlement checklist: disposing of a laptop
+    // somebody is still holding is a data error, not a debt.
+    const t = disposalTx()
+    t.assetAssignment.findFirst.mockResolvedValue({
+      id: "asg-1",
+      employee: { fullName: "Rahim Uddin", employeeCode: "BS-EMP-00001" },
+    })
+
+    await expect(disposeAsset("a-1", {}, finance)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("Rahim Uddin"),
+    })
+    expect(postSystemJournal).not.toHaveBeenCalled()
+  })
+
+  it("refuses an asset that was never capitalised", async () => {
+    const t = disposalTx()
+    t.asset.findUnique.mockResolvedValue({
+      id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad T14",
+      purchaseCost: D("85000.00"), purchaseCostBdt: null, fxRateToBdt: null,
+      purchaseDate: new Date("2026-07-01T00:00:00.000Z"),
+      currency: "BDT", departmentId: null, capitalisedAt: null,
+      lifecycle: "IN_SERVICE", retiredAt: null,
+      category: { code: "LAPTOP", isConsumable: false },
+    })
+
+    await expect(disposeAsset("a-1", {}, finance)).rejects.toMatchObject({ statusCode: 409 })
+    expect(postSystemJournal).not.toHaveBeenCalled()
+  })
+
+  it("refuses a second disposal", async () => {
+    const t = disposalTx()
+    t.asset.findUnique.mockResolvedValue({
+      id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad T14",
+      purchaseCost: D("85000.00"), purchaseCostBdt: D("85000.00"), fxRateToBdt: D("1.000000"),
+      purchaseDate: new Date("2026-07-01T00:00:00.000Z"),
+      currency: "BDT", departmentId: null, capitalisedAt: new Date("2026-07-05T00:00:00.000Z"),
+      lifecycle: "RETIRED", retiredAt: new Date("2027-01-15T00:00:00.000Z"),
+      category: { code: "LAPTOP", isConsumable: false },
+    })
+
+    await expect(disposeAsset("a-1", {}, finance)).rejects.toMatchObject({ statusCode: 409 })
+    expect(postSystemJournal).not.toHaveBeenCalled()
+  })
+
+  it("sets lifecycle RETIRED, retiredAt and retiredBy", async () => {
+    const t = disposalTx()
+
+    await disposeAsset("a-1", { note: "Sold on auction" }, finance)
+
+    expect(t.asset.update).toHaveBeenCalledWith({
+      where: { id: "a-1" },
+      data: expect.objectContaining({
+        lifecycle: "RETIRED",
+        retiredAt: expect.any(Date),
+        retiredBy: "user-fin",
+        retirementNote: "Sold on auction",
+      }),
+    })
   })
 })

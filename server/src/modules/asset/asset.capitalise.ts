@@ -18,7 +18,7 @@ import type { ResolvedRules } from "../posting/posting.types"
 import { writeAudit } from "../../utils/audit"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { resolveRateOrThrow } from "../payroll/payroll.fx"
-import { dec, round2 } from "../payroll/payroll.money"
+import { dec, round2, ZERO } from "../payroll/payroll.money"
 import prisma from "../../config/prisma"
 
 type Line = SystemJournalInput["lines"][number]
@@ -251,5 +251,176 @@ export async function payForAsset(
     })
 
     return tx.asset.findUnique({ where: { id: assetId } })
+  })
+}
+
+export interface DisposalInput {
+  asset: AssetForPosting
+  /** Everything charged to date, summed from AssetDepreciation. */
+  accumulated: Prisma.Decimal
+  proceeds: Prisma.Decimal
+  /** The contra account for the class, from Account.contraAccountId. */
+  contraAccountCode: string
+}
+
+/**
+ * The cost leaves, the accumulated depreciation leaves, and whatever is left
+ * is the gain or loss — by construction, the entry cannot be unbalanced.
+ *
+ * The class cost account resolves through the same ASSET_ACQUISITION rules as
+ * capitalisation, so the disposal can never disagree with the acquisition.
+ */
+export function buildDisposalLines(input: DisposalInput, rules: ResolvedRules): Line[] {
+  const { asset: a, accumulated, proceeds, contraAccountCode } = input
+  const narration = `Disposal — ${a.assetTag} ${a.name}`
+  const lines: Line[] = []
+
+  if (accumulated.greaterThan(ZERO)) {
+    lines.push({ accountCode: contraAccountCode, debit: accumulated.toFixed(2), narration })
+  }
+  if (proceeds.greaterThan(ZERO)) {
+    lines.push({ accountCode: resolveAccountCode(rules, "BANK"), debit: proceeds.toFixed(2), narration })
+  }
+
+  // Whatever is left. The gain or loss is defined as the balancing figure,
+  // so the entry cannot be unbalanced by construction.
+  const balance = a.purchaseCostBdt.minus(accumulated).minus(proceeds)
+  if (!balance.isZero()) {
+    lines.push(
+      balance.greaterThan(ZERO)
+        ? { accountCode: resolveAccountCode(rules, "LOSS"), debit: balance.toFixed(2), narration }
+        : { accountCode: resolveAccountCode(rules, "GAIN"), credit: balance.negated().toFixed(2), narration }
+    )
+  }
+
+  lines.push({
+    accountCode: resolveAccountCode(rules, a.categoryCode),
+    credit: a.purchaseCostBdt.toFixed(2),
+    narration,
+  })
+  return lines
+}
+
+/**
+ * Retiring an asset without telling the ledger leaves cost and accumulated
+ * depreciation on the balance sheet forever. Posts the disposal and flips the
+ * asset to RETIRED.
+ *
+ * Refused on an asset that was never capitalised, on one already disposed of,
+ * and on one with an open assignment — the last is a hard block, unlike the
+ * settlement checklist: disposing of a laptop somebody is still holding is a
+ * data error, not a debt (spec Decision 8).
+ */
+export async function disposeAsset(
+  assetId: string,
+  body: { proceeds?: string; note?: string },
+  actor: AccessTokenPayload
+) {
+  return prisma.$transaction(async (tx) => {
+    const asset = await tx.asset.findUnique({
+      where: { id: assetId },
+      select: {
+        id: true, assetTag: true, name: true, purchaseCost: true, purchaseCostBdt: true,
+        fxRateToBdt: true, purchaseDate: true, currency: true, departmentId: true,
+        capitalisedAt: true, capitalisedBy: true, lifecycle: true, retiredAt: true,
+        category: { select: { code: true, isConsumable: true } },
+      },
+    })
+    if (!asset) throw new AppError(404, "Asset not found")
+    if (!asset.capitalisedAt) {
+      throw new AppError(409, `${asset.assetTag} was never capitalised, so there is nothing to dispose of.`, { assetId })
+    }
+    if (asset.lifecycle === "RETIRED" || asset.retiredAt) {
+      throw new AppError(409, `${asset.assetTag} has already been disposed of.`, { assetId })
+    }
+
+    const openAssignment = await tx.assetAssignment.findFirst({
+      where: { assetId, returnedAt: null },
+      include: { employee: { select: { fullName: true, employeeCode: true } } },
+    })
+    if (openAssignment) {
+      const holder = openAssignment.employee
+        ? `${openAssignment.employee.fullName} (${openAssignment.employee.employeeCode})`
+        : "somebody"
+      throw new AppError(409, `Take the asset back from ${holder} before disposing of it.`, { assetId })
+    }
+
+    if (asset.purchaseCostBdt === null) {
+      throw new AppError(409, `${asset.assetTag} has no frozen BDT cost, so it cannot be disposed of.`, { assetId })
+    }
+
+    const [disposalRules, acquisitionRules] = await Promise.all([
+      loadRules(tx, "ASSET_DISPOSAL"),
+      loadRules(tx, "ASSET_ACQUISITION"),
+    ])
+    // The disposal needs the category → PPE mapping that lives in the
+    // acquisition rules. Merge, with disposal keys winning any overlap.
+    const rules: ResolvedRules = {
+      event: "ASSET_DISPOSAL",
+      byKey: new Map([...acquisitionRules.byKey, ...disposalRules.byKey]),
+    }
+
+    const classAccountCode = resolveAccountCode(acquisitionRules, asset.category.code)
+    const classAccount = await tx.account.findUnique({ where: { code: classAccountCode } })
+    if (!classAccount?.contraAccountId) {
+      throw new AppError(409, `Account ${classAccountCode} has no accumulated-depreciation contra linked, so it cannot be disposed of.`, { assetId })
+    }
+    const contra = await tx.account.findUnique({ where: { id: classAccount.contraAccountId } })
+    if (!contra) {
+      throw new AppError(409, `The contra for ${classAccountCode} no longer exists.`, { assetId })
+    }
+
+    const { _sum } = await tx.assetDepreciation.aggregate({
+      where: { assetId },
+      _sum: { amount: true },
+    })
+    const accumulated = _sum.amount ?? ZERO
+    const proceeds = body.proceeds !== undefined ? dec(body.proceeds) : ZERO
+
+    const posting: AssetForPosting = {
+      id: asset.id,
+      assetTag: asset.assetTag,
+      name: asset.name,
+      categoryCode: asset.category.code,
+      isConsumable: asset.category.isConsumable,
+      purchaseCostBdt: asset.purchaseCostBdt,
+      currency: asset.currency,
+      fxRateToBdt: asset.fxRateToBdt ?? dec(1),
+      purchaseCost: asset.purchaseCost ?? ZERO,
+      departmentId: asset.departmentId,
+    }
+
+    const journal = await postSystemJournal(tx, {
+      date: toLedgerDate(new Date()),
+      narration: `Disposal — ${posting.assetTag} ${posting.name}`,
+      source: { module: "ASSET", refId: assetId, event: "DISPOSAL" },
+      lines: buildDisposalLines(
+        { asset: posting, accumulated, proceeds, contraAccountCode: contra.code },
+        rules
+      ),
+      createdBy: actor.sub,
+    })
+
+    const updated = await tx.asset.update({
+      where: { id: assetId },
+      data: {
+        lifecycle: "RETIRED",
+        retiredAt: new Date(),
+        retiredBy: actor.sub,
+        retirementNote: body.note ?? null,
+      },
+    })
+
+    await writeAudit(tx, {
+      entity: "ASSET",
+      entityId: assetId,
+      action: "RETIRE",
+      changedBy: actor.sub,
+      before: { lifecycle: asset.lifecycle },
+      after: { lifecycle: "RETIRED", journalNo: journal.journalNo, proceeds: proceeds.toFixed(2) },
+      note: body.note,
+    })
+
+    return updated
   })
 }
