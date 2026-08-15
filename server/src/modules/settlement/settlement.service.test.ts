@@ -273,6 +273,35 @@ describe("paySettlement", () => {
   })
 })
 
+describe("the settlement is not blocked by the exit checklist", () => {
+  /**
+   * Decision 6, asserted rather than assumed, because it is the rule most
+   * likely to be "fixed" by someone who reads a checklist as a gate.
+   * Withholding a statutory settlement as leverage over company property is
+   * contentious in Bangladesh besides.
+   */
+  it("builds a settlement for an employee holding an unreturned laptop", async () => {
+    // The checklist is a read surfaced in the UI; the calculation path never
+    // consults recoveries or assignments, so an outstanding item cannot gate
+    // it. The mock pinning that: a pending recovery exists, and the create
+    // still runs.
+    ;(tx.assetRecovery.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "rec-1", employeeId: "emp-1", assetId: "a-1", amount: dec("45000"), currency: "BDT", asset: { assetTag: "BS-AST-00001" } },
+    ] as never)
+
+    await expect(calculateSettlement("emp-1", "fin-1")).resolves.toBeTruthy()
+  })
+
+  it("pays a settlement while a pending recovery is outstanding", async () => {
+    vi.mocked(prisma.settlement.findUnique).mockResolvedValue({ id: "stl-1", status: "APPROVED" } as never)
+    ;(tx.assetRecovery.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "rec-1", employeeId: "emp-1", assetId: "a-1", amount: dec("45000"), currency: "BDT", asset: { assetTag: "BS-AST-00001" } },
+    ] as never)
+
+    await expect(paySettlement("stl-1", "fin-1")).resolves.toBeTruthy()
+  })
+})
+
 describe("settlement events", () => {
   const emitted = () => tx.event.create.mock.calls.map((c: any) => c[0].data)
 
