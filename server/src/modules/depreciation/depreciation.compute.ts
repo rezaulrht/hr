@@ -17,6 +17,8 @@ import { Prisma } from "../../generated/prisma/client"
 import { dec, round2, ZERO } from "../payroll/payroll.money"
 import type { ComputedCharge, DepreciableAsset, PriorCharge } from "./depreciation.types"
 
+export type { ComputedCharge, DepreciableAsset, PriorCharge }
+
 const HUNDRED = dec(100)
 const TWELVE = dec(12)
 
