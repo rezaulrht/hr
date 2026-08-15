@@ -14,7 +14,7 @@ import { describeUsage } from "../../utils/referenceUsage"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { dec, toMoneyString } from "../payroll/payroll.money"
-import { assetScopeFor, stripCosts } from "./asset.access"
+import { assetScopeFor, canSeeCosts, stripCosts } from "./asset.access"
 import { assetLifecycleEvent } from "./asset.events"
 import { computeAssetStatus } from "./asset.status"
 import type { HeldBy } from "./asset.types"
@@ -270,6 +270,20 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
     orderBy: { assetTag: "asc" },
   })
 
+  // Cost-visible roles need to know whether an asset's payable has been
+  // cleared, which is a fact about the ledger, not the register. One batch
+  // lookup across the page's assets rather than a query per row.
+  const paidIds = canSeeCosts(viewer.role)
+    ? new Set(
+        (
+          await prisma.journal.findMany({
+            where: { sourceModule: "ASSET", sourceEvent: "PAYMENT", sourceRefId: { in: assets.map((a) => a.id) } },
+            select: { sourceRefId: true },
+          })
+        ).map((j) => j.sourceRefId!)
+      )
+    : new Set<string>()
+
   return assets.map(({ assignments, repairs, ...asset }) => {
     const openAssignment = assignments[0] ?? null
     const { status, heldBy } = computeAssetStatus({
@@ -277,7 +291,10 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       openAssignment: openAssignment ? heldByFrom(openAssignment) : null,
       hasOpenRepair: repairs.length > 0,
     })
-    return stripCosts({ ...asset, status, heldBy }, viewer.role)
+    const withCosts = canSeeCosts(viewer.role)
+      ? { ...asset, status, heldBy, paid: paidIds.has(asset.id) }
+      : { ...asset, status, heldBy }
+    return stripCosts(withCosts, viewer.role)
   })
 }
 

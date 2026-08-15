@@ -15,6 +15,7 @@ vi.mock("../../config/prisma", () => {
       asset: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
       assetCategory: { findMany: vi.fn(), findUnique: vi.fn() },
       employee: { findUnique: vi.fn(), findMany: vi.fn() },
+      journal: { findMany: vi.fn(async () => []) },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       __tx: tx,
     },
@@ -22,7 +23,7 @@ vi.mock("../../config/prisma", () => {
 })
 
 import prisma from "../../config/prisma"
-import { createAsset, getAsset, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
+import { createAsset, getAsset, listAssets, markAssetLost, nextAssetTag, retireAsset } from "./asset.service"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
 
@@ -135,6 +136,47 @@ describe("markAssetLost", () => {
 
     expect(tx.asset.update).toHaveBeenCalledOnce()
     expect(tx.assetAssignment.count).not.toHaveBeenCalled()
+  })
+})
+
+describe("listAssets", () => {
+  it("flags cost-visible roles with the paid state derived from the ledger", async () => {
+    vi.mocked(prisma.asset.findMany).mockResolvedValue([
+      {
+        id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad", categoryId: "c-1",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: new Date("2026-07-05T00:00:00.000Z"), capitalisedBy: "u-1",
+        fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-1", code: "LAPTOP", name: "Laptop" },
+        assignments: [], repairs: [],
+      } as never,
+    ])
+    vi.mocked(prisma.journal.findMany).mockResolvedValue([{ sourceRefId: "a-1" }] as never)
+
+    const rows = await listAssets(hr as never)
+
+    expect(rows[0]).toMatchObject({ paid: true })
+  })
+
+  it("omits the paid flag for roles that cannot see costs", async () => {
+    vi.mocked(prisma.asset.findMany).mockResolvedValue([
+      {
+        id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad", categoryId: "c-1",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: new Date("2026-07-05T00:00:00.000Z"), capitalisedBy: "u-1",
+        fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-1", code: "LAPTOP", name: "Laptop" },
+        assignments: [], repairs: [],
+      } as never,
+    ])
+
+    await listAssets(staff as never)
+
+    expect(prisma.journal.findMany).not.toHaveBeenCalled()
   })
 })
 
