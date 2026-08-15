@@ -14,6 +14,8 @@ export const navGroups: NavGroup[] = [
       { label: "Operating costs", href: "/finance/costs", icon: "RiBillLine" },
       { label: "Posting rules", href: "/finance/posting-rules", icon: "RiSettingsLine" },
       { label: "Assets", href: "/finance/assets", icon: "RiComputerLine" },
+      { label: "Depreciation", href: "/finance/depreciation", icon: "RiCalculatorLine" },
+      { label: "Asset value", href: "/finance/assets/value", icon: "RiPieChartLine" },
       // Finance is a publisher server-side, so without this entry the
       // permission would exist and be unreachable from the UI.
       { label: "Announcements", href: "/finance/announcements", icon: "RiMegaphoneLine" },

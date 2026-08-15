@@ -10,6 +10,7 @@ import {
   RiBookOpenLine,
   RiCalendarCheckLine,
   RiCalendarEventLine,
+  RiCalculatorLine,
   RiCashLine,
   RiComputerLine,
   RiContactsBook2Line,
@@ -23,6 +24,7 @@ import {
   RiFileList3Line,
   RiMegaphoneLine,
   RiNodeTree,
+  RiPieChartLine,
   RiPlayCircleLine,
   RiReceiptLine,
   RiScales3Line,
@@ -62,6 +64,8 @@ export const icons = {
   RiScales3Line,
   RiCalendarCheckLine,
   RiPlayCircleLine,
+  RiCalculatorLine,
+  RiPieChartLine,
 } satisfies Record<string, RemixiconComponentType>
 
 export type IconName = keyof typeof icons

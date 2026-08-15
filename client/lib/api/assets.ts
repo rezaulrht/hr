@@ -324,3 +324,44 @@ export function commitAssetImport(
 export function deleteCategory(accessToken: string, id: string): Promise<void> {
   return apiFetch<void>(`/api/assets/categories/${id}`, { method: "DELETE", accessToken })
 }
+
+export function capitaliseAsset(accessToken: string, id: string): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/capitalise`, { method: "POST", accessToken })
+}
+
+export function payForAsset(
+  accessToken: string,
+  id: string,
+  input: { paidAt?: string } = {}
+): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/pay`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function disposeAsset(
+  accessToken: string,
+  id: string,
+  input: { proceeds?: string; note?: string } = {}
+): Promise<Asset> {
+  return apiFetch<Asset>(`/api/assets/${id}/dispose`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function getAssetValueReport(
+  accessToken: string,
+  query: { asOf?: string; categoryId?: string } = {}
+): Promise<import("./types").AssetValueReport> {
+  const params = new URLSearchParams()
+  if (query.asOf) params.set("asOf", query.asOf)
+  if (query.categoryId) params.set("categoryId", query.categoryId)
+  const qs = params.toString()
+  return apiFetch<import("./types").AssetValueReport>(`/api/assets/value${qs ? `?${qs}` : ""}`, {
+    accessToken,
+  })
+}

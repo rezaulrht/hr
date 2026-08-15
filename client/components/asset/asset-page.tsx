@@ -7,6 +7,8 @@ import {
   acknowledgeAssignment,
   approveAssetRequest,
   cancelAssetRequest,
+  capitaliseAsset,
+  disposeAsset,
   getMyHoldings,
   listAssetRequests,
   listAssets,
@@ -14,6 +16,7 @@ import {
   listRepairs,
   listUnacknowledged,
   markAssetLost,
+  payForAsset,
   rejectAssetRequest,
   retireAsset,
 } from "@/lib/api/assets"
@@ -32,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AssetDetail } from "@/components/asset/asset-detail"
 import { AssignDialog } from "@/components/asset/assign-dialog"
 import { CreateAssetDialog } from "@/components/asset/create-asset-dialog"
+import { DisposeDialog } from "@/components/asset/dispose-dialog"
 import { FulfilDialog } from "@/components/asset/fulfil-dialog"
 import { ImportWizard } from "@/components/asset/import-wizard"
 import { ReceiveRepairDialog } from "@/components/asset/receive-repair-dialog"
@@ -172,6 +176,131 @@ function AssetTable({
       ),
     },
   ])
+
+  return (
+    <PanelTable
+      cols={cols}
+      headers={headers}
+      rows={rows}
+      emptyTitle={emptyTitle}
+      emptyBody={emptyBody}
+      emptyAction={emptyAction}
+      onEmptyAction={onEmptyAction}
+      {...state}
+    />
+  )
+}
+
+/** The ledger half of the register, Finance-only. Each row carries its
+ *  capitalisation state — Not capitalised / Capitalised, unpaid / Paid — and
+ *  the two actions, plus disposal. The HR register shows none of this. */
+function FinanceAssetTable({
+  assets,
+  onView,
+  onCapitalise,
+  onPay,
+  onDispose,
+  capitalisingId,
+  payingId,
+  disposingId,
+  emptyTitle,
+  emptyBody,
+  emptyAction,
+  onEmptyAction,
+  ...state
+}: TableState & {
+  assets: Asset[]
+  onView: (id: string) => void
+  onCapitalise: (id: string) => void
+  onPay: (id: string) => void
+  onDispose: (id: string) => void
+  capitalisingId: string | null
+  payingId: string | null
+  disposingId: string | null
+  emptyTitle: string
+  emptyBody: string
+  emptyAction: string
+  onEmptyAction: () => void
+}) {
+  const headers = [
+    "Tag",
+    "Name",
+    "Category",
+    "Status",
+    "Cost",
+    "Ledger",
+    "",
+  ]
+  const cols = "0.9fr 1.3fr 0.9fr 1fr 0.9fr 1.1fr 1.4fr"
+
+  const rows: TableCell[][] = assets.map((asset) => {
+    const capitalised = asset.capitalisedAt !== undefined
+    const paid = capitalised && asset.paid === true
+
+    const stateLabel = !capitalised
+      ? { label: "Not capitalised", cls: "bg-[#F1F4F8] text-[#5F6B7C]" }
+      : paid
+        ? { label: "Paid", cls: "bg-emerald-50 text-emerald-700" }
+        : { label: "Capitalised, unpaid", cls: "bg-amber-50 text-amber-700" }
+
+    return [
+      { text: asset.assetTag, weight: 600 },
+      { text: asset.name },
+      { text: asset.category.name },
+      badgeCell(
+        STATUS_TONE[asset.status],
+        STATUS_LABEL[asset.status],
+        asset.heldBy ? `Held by ${asset.heldBy.fullName}` : undefined
+      ),
+      {
+        text:
+          "purchaseCost" in asset && asset.purchaseCost
+            ? formatMoney(asset.purchaseCost, asset.currency)
+            : "",
+      },
+      badgeCell(stateLabel.cls, stateLabel.label),
+      {
+        node: (
+          <div className="flex justify-end gap-2 whitespace-nowrap">
+            {!capitalised ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={capitalisingId === asset.id}
+                onClick={() => onCapitalise(asset.id)}
+              >
+                {capitalisingId === asset.id ? "Capitalising…" : "Capitalise"}
+              </Button>
+            ) : null}
+            {capitalised && !paid ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={payingId === asset.id}
+                onClick={() => onPay(asset.id)}
+              >
+                {payingId === asset.id ? "Paying…" : "Pay"}
+              </Button>
+            ) : null}
+            {asset.status !== "RETIRED" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disposingId === asset.id}
+                onClick={() => onDispose(asset.id)}
+              >
+                Dispose
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="outline" onClick={() => onView(asset.id)}>
+              View
+            </Button>
+          </div>
+        ),
+      },
+    ]
+  })
 
   return (
     <PanelTable
@@ -604,6 +733,47 @@ export function AssetPage() {
     onError: handleError,
   })
 
+  // ── the ledger actions (Finance only) ──
+  const [capitalisingId, setCapitalisingId] = useState<string | null>(null)
+  const [payingId, setPayingId] = useState<string | null>(null)
+  const [disposingId, setDisposingId] = useState<string | null>(null)
+  const [disposeTarget, setDisposeTarget] = useState<Asset | null>(null)
+
+  const capitaliseMutation = useMutation({
+    mutationFn: (id: string) => capitaliseAsset(accessToken!, id),
+    onMutate: (id) => setCapitalisingId(id),
+    onSettled: () => setCapitalisingId(null),
+    onSuccess: () => {
+      setError(null)
+      invalidateAssets()
+    },
+    onError: handleError,
+  })
+
+  const payMutation = useMutation({
+    mutationFn: (id: string) => payForAsset(accessToken!, id),
+    onMutate: (id) => setPayingId(id),
+    onSettled: () => setPayingId(null),
+    onSuccess: () => {
+      setError(null)
+      invalidateAssets()
+    },
+    onError: handleError,
+  })
+
+  const disposeMutation = useMutation({
+    mutationFn: ({ id, proceeds, note }: { id: string; proceeds?: string; note?: string }) =>
+      disposeAsset(accessToken!, id, { proceeds, note }),
+    onMutate: () => setDisposingId(disposeTarget?.id ?? null),
+    onSettled: () => setDisposingId(null),
+    onSuccess: () => {
+      setError(null)
+      setDisposeTarget(null)
+      invalidateAssets()
+    },
+    onError: handleError,
+  })
+
   const approveRequestMutation = useMutation({
     mutationFn: (id: string) => approveAssetRequest(accessToken!, id),
     onSuccess: () => {
@@ -764,12 +934,21 @@ export function AssetPage() {
             categories={categories}
             shown={registerQuery.data?.length ?? 0}
           />
-          <AssetTable
+          <FinanceAssetTable
             assets={registerQuery.data ?? []}
             isLoading={registerQuery.isPending}
             isError={registerQuery.isError}
             onRetry={() => registerQuery.refetch()}
             onView={setSelectedAssetId}
+            onCapitalise={(id) => capitaliseMutation.mutate(id)}
+            onPay={(id) => payMutation.mutate(id)}
+            onDispose={(id) => {
+              const asset = registerQuery.data?.find((a) => a.id === id)
+              if (asset) setDisposeTarget(asset)
+            }}
+            capitalisingId={capitalisingId}
+            payingId={payingId}
+            disposingId={disposingId}
             emptyTitle={filtersActive ? "No assets match" : "The register is empty"}
             emptyBody={
               filtersActive
@@ -972,6 +1151,17 @@ export function AssetPage() {
         repair={receiving}
         onOpenChange={(next) => !next && setReceiving(null)}
         onSuccess={invalidateAssets}
+      />
+
+      <DisposeDialog
+        open={!!disposeTarget}
+        onOpenChange={(next) => !next && setDisposeTarget(null)}
+        asset={disposeTarget}
+        pending={disposeMutation.isPending}
+        error={disposeMutation.isError ? error : null}
+        onConfirm={({ proceeds, note }) => {
+          if (disposeTarget) disposeMutation.mutate({ id: disposeTarget.id, proceeds, note })
+        }}
       />
 
       <ConfirmDialog

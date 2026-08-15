@@ -770,6 +770,15 @@ export interface Asset {
   vendor?: string
   currency: Currency
   warrantyExpiry: string | null
+  /** Set once Finance capitalises it — the ledger half of the register. */
+  capitalisedAt?: string
+  capitalisedBy?: string
+  /** Frozen at capitalisation; 1.000000 for a BDT asset. */
+  fxRateToBdt?: string
+  purchaseCostBdt?: string
+  /** True once the payable raised at capitalisation has been cleared. Only
+   *  present for roles that can see costs — the server omits it otherwise. */
+  paid?: boolean
 }
 
 export interface AssetCategory {
@@ -1575,3 +1584,85 @@ export interface NotesResult { period: StatementPeriod; comparativePeriod: State
 export interface AnnexureRow { accountId: string; particulars: string; rate: string | null; costOpening: string; costAddition: string; costClosing: string; depOpening: string; depCharged: string; depClosing: string; writtenDownValue: string }
 export interface AnnexureResult { period: StatementPeriod; rows: AnnexureRow[]; total: Omit<AnnexureRow, "accountId" | "particulars" | "rate"> }
 export interface PolicyNote { id: string; ref: string; title: string; body: string; sortOrder: number; updatedBy: string | null; updatedAt: string; createdAt: string }
+
+// ── DEPRECIATION & ASSET VALUE ─────────────────
+// Hand-mirrored from server/src/modules/depreciation/* and
+// server/src/modules/asset/asset.value.ts.
+
+export type DepreciationRunStatus = "DRAFT" | "POSTED" | "REVERSED"
+
+export interface DepreciationRunCharge {
+  id: string
+  assetId: string
+  amount: string
+  openingBookValue: string
+  rate: string
+  months: number
+  asset?: { assetTag: string; name: string; categoryName?: string }
+}
+
+export interface DepreciationRunDetail {
+  id: string
+  runNo: string
+  year: number
+  month: number
+  status: DepreciationRunStatus
+  journalId: string | null
+  journal?: { journalNo: string } | null
+  createdBy: string
+  createdAt: string
+  postedBy: string | null
+  postedAt: string | null
+  reversedBy: string | null
+  reversedAt: string | null
+  charges: DepreciationRunCharge[]
+}
+
+export interface DepreciationRunSummary {
+  id: string
+  runNo: string
+  year: number
+  month: number
+  status: DepreciationRunStatus
+  journalId: string | null
+  chargeCount: number
+  total: string
+}
+
+export interface DepreciationPreflightItem {
+  code: string
+  message: string
+}
+
+export interface DepreciationPreflight {
+  blockers: DepreciationPreflightItem[]
+  warnings: DepreciationPreflightItem[]
+  ok: boolean
+}
+
+export type AssetValueRowStatus = "VALUED" | "UNKNOWN" | "NOT_CAPITALISED"
+
+export interface AssetValueRow {
+  assetId: string
+  assetTag: string
+  name: string
+  categoryName: string
+  currency: Currency
+  purchaseCost: string | null
+  accumulated: string | null
+  bookValue: string | null
+  status: AssetValueRowStatus
+}
+
+export interface AssetValueTotal {
+  currency: Currency
+  purchaseCost: string
+  accumulated: string
+  bookValue: string
+}
+
+export interface AssetValueReport {
+  rows: AssetValueRow[]
+  totals: AssetValueTotal[]
+  asOf: string
+}
