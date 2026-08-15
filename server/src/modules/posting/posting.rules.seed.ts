@@ -19,6 +19,27 @@ export const POSTING_RULES: PostingRuleSeed[] = [
   { event: "SETTLEMENT_ACCRUAL", key: "DIRECT:LEAVE_ENCASHMENT", account: "5122", note: "Leave encashment is nil this phase; re-point when it is not" },
   { event: "SETTLEMENT_ACCRUAL", key: "ADMINISTRATIVE:LEAVE_ENCASHMENT", account: "5201", note: "Leave encashment is nil this phase; re-point when it is not" },
   { event: "SETTLEMENT_PAYMENT", key: "NET_PAY", account: "2132" }, { event: "SETTLEMENT_PAYMENT", key: "BANK", account: "1242" }, { event: "SETTLEMENT_PAYMENT", key: "REIMBURSEMENT", account: "2135" },
+  // Asset acquisition: the key is AssetCategory.code. No bare "*" — an
+  // unmapped category must stop, not land on whichever PPE account happened
+  // to be the default. VEHICLE is deliberately absent: it exists as a
+  // category and has no account in the filed chart, so it is the case that
+  // proves the error path.
+  { event: "ASSET_ACQUISITION", key: "LAPTOP", account: "1114" },
+  { event: "ASSET_ACQUISITION", key: "MONITOR", account: "1112" },
+  { event: "ASSET_ACQUISITION", key: "PHONE", account: "1112" },
+  { event: "ASSET_ACQUISITION", key: "FURNITURE", account: "1111" },
+  { event: "ASSET_ACQUISITION", key: "LICENCE", account: "1113" },
+  { event: "ASSET_ACQUISITION", key: "PAYABLE", account: "2110" },
+  { event: "ASSET_PAYMENT", key: "PAYABLE", account: "2110" },
+  { event: "ASSET_PAYMENT", key: "BANK", account: "1242" },
+  { event: "ASSET_DEPRECIATION", key: "DIRECT", account: "5128" },
+  { event: "ASSET_DEPRECIATION", key: "ADMINISTRATIVE", account: "5215" },
+  // 4200 and 5200 are groups; postSystemJournal refuses groups, so these
+  // point at the miscellaneous leaves. A dedicated "Gain on disposal" leaf is
+  // one seed row and one edit on the posting-rules screen if the auditor
+  // wants them separable — the same posture leave encashment took.
+  { event: "ASSET_DISPOSAL", key: "GAIN", account: "4290", note: "Shared with miscellaneous income; re-point if disposal gains need separating" },
+  { event: "ASSET_DISPOSAL", key: "LOSS", account: "5217", note: "Shared with miscellaneous expenses; re-point if disposal losses need separating" },
 ]
 export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   PAYROLL_ACCRUAL: ["NET_PAY", "DEDUCTION:*", "DIRECT:*", "ADMINISTRATIVE:*"],
@@ -27,5 +48,9 @@ export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   COST_ACCRUAL: ["*", "PAYABLE"], COST_PAYMENT: ["PAYABLE", "BANK"],
   SETTLEMENT_ACCRUAL: ["DIRECT:BASIC", "ADMINISTRATIVE:BASIC", "DIRECT:LEAVE_ENCASHMENT", "ADMINISTRATIVE:LEAVE_ENCASHMENT", "GRATUITY", "NOTICE_PAY", "REIMBURSEMENT", "ADVANCE_RECOVERY", "NET_PAY"],
   SETTLEMENT_PAYMENT: ["NET_PAY", "BANK"],
+  ASSET_ACQUISITION: ["PAYABLE"],
+  ASSET_PAYMENT: ["PAYABLE", "BANK"],
+  ASSET_DEPRECIATION: ["DIRECT", "ADMINISTRATIVE"],
+  ASSET_DISPOSAL: ["GAIN", "LOSS"],
 }
 export async function seedPostingRules(): Promise<void> { const accounts = await prisma.account.findMany({ where: { code: { in: [...new Set(POSTING_RULES.map((r) => r.account))] } }, select: { id: true, code: true } }); const ids = new Map(accounts.map((a) => [a.code, a.id])); for (const r of POSTING_RULES) { const accountId = ids.get(r.account); if (!accountId) continue; await prisma.postingRule.upsert({ where: { event_key: { event: r.event, key: r.key } }, update: { accountId, note: r.note ?? null }, create: { event: r.event, key: r.key, accountId, note: r.note ?? null } }) } }
