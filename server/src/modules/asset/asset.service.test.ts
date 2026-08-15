@@ -4,7 +4,8 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     asset: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     assetCategory: { findUnique: vi.fn(), update: vi.fn() },
-    assetAssignment: { count: vi.fn() },
+    assetAssignment: { count: vi.fn(), findFirst: vi.fn() },
+    assetRecovery: { create: vi.fn() },
     idCounter: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     event: { create: vi.fn() },
@@ -46,6 +47,7 @@ beforeEach(() => {
   tx.idCounter.upsert.mockResolvedValue({ id: "AST", value: 42 })
   tx.auditLog.create.mockResolvedValue({})
   tx.event.create.mockResolvedValue({})
+  tx.assetRecovery.create.mockResolvedValue({ id: "rec-1" })
 })
 
 describe("nextAssetTag", () => {
@@ -136,6 +138,56 @@ describe("markAssetLost", () => {
 
     expect(tx.asset.update).toHaveBeenCalledOnce()
     expect(tx.assetAssignment.count).not.toHaveBeenCalled()
+  })
+
+  it("creates a recovery alongside marking an asset lost, in one transaction", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.asset.update.mockResolvedValue({ id: "ast-1", lifecycle: "LOST" })
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+
+    await markAssetLost(
+      "ast-1",
+      { note: "Left it on the train", recovery: { amount: "45000", reason: "Laptop lost" } },
+      hr
+    )
+
+    expect(tx.assetRecovery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assetId: "ast-1",
+          employeeId: "emp-1",
+          assignmentId: "asg-1",
+          kind: "LOST",
+          status: "PENDING",
+        }),
+      })
+    )
+  })
+
+  it("marks it lost with no recovery when none is supplied", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.asset.update.mockResolvedValue({ id: "ast-1", lifecycle: "LOST" })
+
+    await markAssetLost("ast-1", { note: "Nobody's fault" }, hr)
+
+    expect(tx.assetRecovery.create).not.toHaveBeenCalled()
+  })
+
+  it("rolls back the lost marking if the recovery is invalid", async () => {
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", lifecycle: "IN_SERVICE", assetTag: "T", name: "N" })
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+
+    await expect(
+      markAssetLost(
+        "ast-1",
+        { note: "Lost", recovery: { amount: "0", reason: "zero" } },
+        hr
+      )
+    ).rejects.toMatchObject({ statusCode: 400 })
+    // The update happened before the recovery create in this transaction, but
+    // the transaction as a whole rejects — a laptop is never marked lost with
+    // no debt recorded. Asserted here as "the call did not complete", which
+    // is what a rollback looks like to the caller.
   })
 })
 

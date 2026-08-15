@@ -68,51 +68,63 @@ async function assertCustodyLink(
   )
 }
 
-export function createRecovery(body: CreateRecoveryBody, actor: AccessTokenPayload): Promise<AssetRecovery> {
-  return prisma.$transaction(async (tx) => {
-    if (!body.reason.trim()) {
-      throw new AppError(400, "A reason is required", { field: "reason" })
-    }
-    const amount = round2(dec(body.amount))
-    if (amount.lessThanOrEqualTo(0)) {
-      throw new AppError(
-        400,
-        "A recovery amount must be greater than zero. A zero-value recovery is a waiver — waive it instead.",
-        { field: "amount" }
-      )
-    }
+/**
+ * The shared core behind `createRecovery` and the in-transaction call from
+ * `markAssetLost` / `returnAsset` (Decision 4): marking an asset lost and
+ * pricing the recovery commit or roll back together, so a laptop is never
+ * marked lost with no debt recorded.
+ */
+export async function createRecoveryIn(
+  tx: Prisma.TransactionClient,
+  body: CreateRecoveryBody,
+  actor: AccessTokenPayload
+): Promise<AssetRecovery> {
+  if (!body.reason.trim()) {
+    throw new AppError(400, "A reason is required", { field: "reason" })
+  }
+  const amount = round2(dec(body.amount))
+  if (amount.lessThanOrEqualTo(0)) {
+    throw new AppError(
+      400,
+      "A recovery amount must be greater than zero. A zero-value recovery is a waiver — waive it instead.",
+      { field: "amount" }
+    )
+  }
 
-    const assignmentId = await assertCustodyLink(tx, body)
+  const assignmentId = await assertCustodyLink(tx, body)
 
-    const recovery = await tx.assetRecovery.create({
-      data: {
-        assetId: body.assetId,
-        employeeId: body.employeeId,
-        assignmentId,
-        kind: body.kind ?? "NOT_RETURNED",
-        amount,
-        currency: body.currency ?? "BDT",
-        reason: body.reason.trim(),
-        status: "PENDING",
-        createdBy: actor.sub,
-      },
-    })
-
-    await writeAudit(tx, {
-      entity: "ASSET_RECOVERY",
-      entityId: recovery.id,
-      action: "CREATE",
-      changedBy: actor.sub,
-      after: {
-        assetId: body.assetId,
-        employeeId: body.employeeId,
-        amount: amount.toFixed(2),
-        kind: body.kind ?? "NOT_RETURNED",
-      },
-    })
-
-    return recovery
+  const recovery = await tx.assetRecovery.create({
+    data: {
+      assetId: body.assetId,
+      employeeId: body.employeeId,
+      assignmentId,
+      kind: body.kind ?? "NOT_RETURNED",
+      amount,
+      currency: body.currency ?? "BDT",
+      reason: body.reason.trim(),
+      status: "PENDING",
+      createdBy: actor.sub,
+    },
   })
+
+  await writeAudit(tx, {
+    entity: "ASSET_RECOVERY",
+    entityId: recovery.id,
+    action: "CREATE",
+    changedBy: actor.sub,
+    after: {
+      assetId: body.assetId,
+      employeeId: body.employeeId,
+      amount: amount.toFixed(2),
+      kind: body.kind ?? "NOT_RETURNED",
+    },
+  })
+
+  return recovery
+}
+
+export function createRecovery(body: CreateRecoveryBody, actor: AccessTokenPayload): Promise<AssetRecovery> {
+  return prisma.$transaction((tx) => createRecoveryIn(tx, body, actor))
 }
 
 export function updateRecovery(

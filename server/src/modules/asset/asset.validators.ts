@@ -25,6 +25,19 @@ export const updateAssetSchema = createAssetSchema.partial()
 // sentence saying why.
 export const lifecycleSchema = z.object({
   note: z.string().trim().min(1, "A note is required").max(1000),
+  // Decision 4: marking an asset lost is the moment the circumstances are
+  // known, so the same dialog offers to price a recovery. Optional — a
+  // proportion of losses are nobody's fault, and forcing an amount would
+  // produce zero-value recoveries that mean "we did not charge", which is
+  // what WAIVED says better.
+  recovery: z
+    .object({
+      amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "Expected a non-negative amount"),
+      currency: z.enum(["BDT", "USD"]).optional(),
+      reason: z.string().trim().min(1, "A reason is required").max(1000),
+      kind: z.enum(["NOT_RETURNED", "DAMAGED", "LOST"]).optional(),
+    })
+    .optional(),
 })
 
 export const createCategorySchema = z.object({
@@ -53,6 +66,16 @@ export const assignSchema = z.object({
 export const returnSchema = z.object({
   conditionIn: z.enum(["NEW", "GOOD", "FAIR", "DAMAGED"]),
   returnNote: z.string().trim().max(1000).optional(),
+  // Decision 4: same offer as mark-lost, for the other moment the facts are
+  // fresh. Only meaningful when conditionIn is DAMAGED.
+  recovery: z
+    .object({
+      amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "Expected a non-negative amount"),
+      currency: z.enum(["BDT", "USD"]).optional(),
+      reason: z.string().trim().min(1, "A reason is required").max(1000),
+      kind: z.enum(["NOT_RETURNED", "DAMAGED", "LOST"]).optional(),
+    })
+    .optional(),
 })
 
 export const sendRepairSchema = z.object({

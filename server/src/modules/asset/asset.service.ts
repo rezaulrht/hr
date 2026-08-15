@@ -16,6 +16,7 @@ import { emitEvent } from "../event/event.emit"
 import { dec, toMoneyString } from "../payroll/payroll.money"
 import { assetScopeFor, canSeeCosts, stripCosts } from "./asset.access"
 import { assetLifecycleEvent } from "./asset.events"
+import { createRecoveryIn } from "./asset.recoveries"
 import { computeAssetStatus } from "./asset.status"
 import type { HeldBy } from "./asset.types"
 import type {
@@ -178,6 +179,33 @@ export async function markAssetLost(
         retirementNote: body.note,
       },
     })
+
+    // Decision 4: the same dialog offers to price the recovery while the
+    // circumstances are fresh. The debt is raised against whoever holds the
+    // asset — an asset missing from the store room with nobody holding it is
+    // a loss with no employee to recover from, so it is simply not priced.
+    if (body.recovery) {
+      const holder = await tx.assetAssignment.findFirst({
+        where: { assetId: id, returnedAt: null },
+        orderBy: { assignedAt: "desc" },
+        select: { id: true, employeeId: true },
+      })
+      if (holder) {
+        await createRecoveryIn(
+          tx,
+          {
+            assetId: id,
+            employeeId: holder.employeeId,
+            assignmentId: holder.id,
+            amount: body.recovery.amount,
+            currency: body.recovery.currency,
+            reason: body.recovery.reason,
+            kind: body.recovery.kind ?? "LOST",
+          },
+          actor
+        )
+      }
+    }
 
     await writeAudit(tx, {
       entity: "ASSET",

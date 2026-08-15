@@ -21,6 +21,7 @@ import { writeAudit } from "../../utils/audit"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { assetAcknowledgedEvent, assetAssignedEvent, assetReturnedEvent } from "./asset.events"
+import { createRecoveryIn } from "./asset.recoveries"
 
 export interface AssignInput {
   employeeId: string
@@ -107,7 +108,11 @@ export function assignAsset(
 
 export async function returnAsset(
   assetId: string,
-  input: { conditionIn: AssetCondition; returnNote?: string },
+  input: {
+    conditionIn: AssetCondition
+    returnNote?: string
+    recovery?: { amount: string; currency?: "BDT" | "USD"; reason: string; kind?: string }
+  },
   actor: AccessTokenPayload
 ): Promise<AssetAssignment> {
   return prisma.$transaction(async (tx) => {
@@ -130,6 +135,24 @@ export async function returnAsset(
         returnNote: input.returnNote ?? null,
       },
     })
+
+    // Decision 4: a return with conditionIn DAMAGED is the other moment the
+    // facts are fresh, and the same dialog offers to price the damage.
+    if (input.recovery && input.conditionIn === "DAMAGED") {
+      await createRecoveryIn(
+        tx,
+        {
+          assetId,
+          employeeId: open.employeeId,
+          assignmentId: open.id,
+          amount: input.recovery.amount,
+          currency: input.recovery.currency,
+          reason: input.recovery.reason,
+          kind: (input.recovery.kind as "NOT_RETURNED" | "DAMAGED" | "LOST" | undefined) ?? "DAMAGED",
+        },
+        actor
+      )
+    }
 
     await writeAudit(tx, {
       entity: "ASSET_ASSIGNMENT",

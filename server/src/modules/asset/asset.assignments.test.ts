@@ -4,6 +4,7 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     asset: { findUnique: vi.fn() },
     assetAssignment: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
+    assetRecovery: { create: vi.fn() },
     assetRepair: { count: vi.fn() },
     auditLog: { create: vi.fn() },
     event: { create: vi.fn() },
@@ -33,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   tx.auditLog.create.mockResolvedValue({})
   tx.event.create.mockResolvedValue({})
+  tx.assetRecovery.create.mockResolvedValue({ id: "rec-1" })
   tx.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "emp-mgr" })
 })
 
@@ -132,18 +134,71 @@ describe("returnAsset", () => {
     expect(data).not.toHaveProperty("conditionOut")
   })
 
-  it("does NOT create anything when the item comes back damaged", async () => {
+  it("does NOT create anything when the item comes back damaged with no recovery offered", async () => {
     tx.asset.findUnique.mockResolvedValue(inService)
     tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
     tx.assetAssignment.update.mockResolvedValue({ id: "asg-1" })
 
     await returnAsset("ast-1", { conditionIn: "DAMAGED" }, hr)
 
-    // Pricing damage is a judgement a person makes, and recoveries are phase
-    // 2 regardless. A silent auto-charge is exactly the formula this design
-    // rejects.
+    // Pricing damage is a judgement a person makes. Without a recovery block
+    // the return closes silently — the offer is optional (Decision 4).
     expect(tx.asset.findUnique).toHaveBeenCalled()
     expect(tx.assetAssignment.update).toHaveBeenCalledOnce()
+    expect(tx.assetRecovery.create).not.toHaveBeenCalled()
+  })
+
+  it("creates a recovery on a damaged return when one is offered", async () => {
+    tx.asset.findUnique.mockResolvedValue(inService)
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+    tx.assetAssignment.update.mockResolvedValue({ id: "asg-1" })
+
+    await returnAsset(
+      "ast-1",
+      { conditionIn: "DAMAGED", recovery: { amount: "15000", reason: "Cracked screen" } },
+      hr
+    )
+
+    expect(tx.assetRecovery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assetId: "ast-1",
+          employeeId: "emp-1",
+          assignmentId: "asg-1",
+          kind: "DAMAGED",
+          status: "PENDING",
+        }),
+      })
+    )
+  })
+
+  it("defaults the kind to DAMAGED on a damaged return", async () => {
+    tx.asset.findUnique.mockResolvedValue(inService)
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+    tx.assetAssignment.update.mockResolvedValue({ id: "asg-1" })
+
+    await returnAsset(
+      "ast-1",
+      { conditionIn: "DAMAGED", recovery: { amount: "15000", reason: "Cracked screen" } },
+      hr
+    )
+
+    const data = (tx.assetRecovery.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data
+    expect(data.kind).toBe("DAMAGED")
+  })
+
+  it("ignores a recovery block on a non-damaged return", async () => {
+    tx.asset.findUnique.mockResolvedValue(inService)
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", employeeId: "emp-1" })
+    tx.assetAssignment.update.mockResolvedValue({ id: "asg-1" })
+
+    await returnAsset(
+      "ast-1",
+      { conditionIn: "GOOD", recovery: { amount: "15000", reason: "Should not happen" } },
+      hr
+    )
+
+    expect(tx.assetRecovery.create).not.toHaveBeenCalled()
   })
 })
 
