@@ -1381,6 +1381,13 @@ export interface JournalAttachment {
   uploadedAt: string
 }
 
+/** Who did something, resolved to a name. Mirrors server/src/utils/actors.ts. */
+export interface ActorName {
+  id: string
+  email: string
+  fullName: string | null
+}
+
 export interface Journal {
   id: string
   journalNo: string
@@ -1400,6 +1407,15 @@ export interface Journal {
   submittedAt: string | null
   approvedBy: string | null
   approvedAt: string | null
+  /**
+   * The three actor columns above are bare user ids — there is no relation
+   * behind them server-side, so a name has to be resolved separately. Only
+   * the single-journal endpoint sends these; the register does not, and
+   * does not show them.
+   */
+  createdByUser?: ActorName | null
+  submittedByUser?: ActorName | null
+  approvedByUser?: ActorName | null
   postedAt: string | null
   rejectionNote: string | null
   reversesId: string | null

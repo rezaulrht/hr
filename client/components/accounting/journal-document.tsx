@@ -4,22 +4,10 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import {
-  RiArrowGoBackLine,
-  RiArrowLeftLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiDeleteBinLine,
-} from "@remixicon/react"
+import { RiArrowGoBackLine, RiArrowLeftLine, RiDeleteBinLine } from "@remixicon/react"
 import { toast } from "sonner"
 
-import {
-  approveJournal,
-  deleteJournal,
-  rejectJournal,
-  reverseJournal,
-  submitJournal,
-} from "@/lib/api/accounting"
+import { deleteJournal, reverseJournal, submitJournal } from "@/lib/api/accounting"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { Journal } from "@/lib/api/types"
@@ -37,13 +25,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { JournalAttachments } from "@/components/accounting/journal-attachments"
 import {
+  ApprovalNotice,
+  JournalApprovalActions,
+} from "@/components/accounting/journal-approval"
+import {
+  actorLabel,
   formatAmount,
   formatLedgerDate,
   formatTotal,
   fromPaisa,
   JOURNAL_STATUS_LABEL,
   JOURNAL_TYPE_LABEL,
-  canApprove,
   sumPaisa,
 } from "@/components/accounting/accounting-shared"
 
@@ -58,35 +50,14 @@ import {
  * or thrown away, so those two actions live here as well.
  */
 export function JournalDocument({ journal }: { journal: Journal }) {
-  const { accessToken, user } = useSession()
+  const { accessToken } = useSession()
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const [rejectOpen, setRejectOpen] = useState(false)
-  const [rejectNote, setRejectNote] = useState("")
   const [reverseOpen, setReverseOpen] = useState(false)
   const [reverseReason, setReverseReason] = useState("")
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["accounting"] })
-
-  const approve = useMutation({
-    mutationFn: () => approveJournal(accessToken!, journal.id),
-    onSuccess: () => {
-      refresh()
-      toast.success(`${journal.journalNo} posted`)
-    },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not approve it"),
-  })
-
-  const reject = useMutation({
-    mutationFn: () => rejectJournal(accessToken!, journal.id, rejectNote),
-    onSuccess: () => {
-      refresh()
-      setRejectOpen(false)
-      toast.success("Sent back to draft")
-    },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not send it back"),
-  })
 
   const reverse = useMutation({
     mutationFn: () => reverseJournal(accessToken!, journal.id, reverseReason),
@@ -121,10 +92,6 @@ export function JournalDocument({ journal }: { journal: Journal }) {
   const debit = fromPaisa(sumPaisa(journal.lines.map((l) => l.debit)))
   const credit = fromPaisa(sumPaisa(journal.lines.map((l) => l.credit)))
 
-  // Hidden, not disabled: a Finance Officer should never be offered a button
-  // that will 403, and the server enforces this regardless.
-  const showApproval = journal.status === "PENDING_APPROVAL" && canApprove(user?.role)
-  const isOwnJournal = journal.createdBy === user?.id
   const isGeneratedDraft = journal.status === "DRAFT"
 
   return (
@@ -159,17 +126,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
               </Button>
             </>
           )}
-          {showApproval && (
-            <>
-              <Button variant="outline" onClick={() => setRejectOpen(true)}>
-                <RiCloseLine className="size-4" /> Send back
-              </Button>
-              <Button onClick={() => approve.mutate()} disabled={approve.isPending || isOwnJournal}>
-                <RiCheckLine className="size-4" />
-                {approve.isPending ? "Posting…" : "Approve and post"}
-              </Button>
-            </>
-          )}
+          <JournalApprovalActions journal={journal} />
           {journal.status === "POSTED" && (
             <Button variant="outline" onClick={() => setReverseOpen(true)}>
               <RiArrowGoBackLine className="size-4" /> Reverse
@@ -178,11 +135,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
         </div>
       </div>
 
-      {showApproval && isOwnJournal && (
-        <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          You created this journal, so someone else must approve it.
-        </p>
-      )}
+      <ApprovalNotice journal={journal} />
 
       {isGeneratedDraft && (
         <p className="rounded-lg border bg-muted/40 p-3 text-sm">
@@ -237,7 +190,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
       <dl className="grid gap-x-8 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-2">
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Created by</dt>
-          <dd>{journal.createdBy}</dd>
+          <dd>{actorLabel(journal.createdByUser, journal.createdBy)}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Submitted</dt>
@@ -245,7 +198,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Approved by</dt>
-          <dd>{journal.approvedBy ?? "—"}</dd>
+          <dd>{actorLabel(journal.approvedByUser, journal.approvedBy)}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Posted</dt>
@@ -254,29 +207,6 @@ export function JournalDocument({ journal }: { journal: Journal }) {
       </dl>
 
       <JournalAttachments journalId={journal.id} attachments={journal.attachments} />
-
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send {journal.journalNo} back?</DialogTitle>
-            <DialogDescription>
-              It returns to draft with your note attached, so the author knows what to change.
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            rows={3}
-            value={rejectNote}
-            onChange={(e) => setRejectNote(e.target.value)}
-            placeholder="Rent belongs in 5206, not 5207"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
-            <Button onClick={() => reject.mutate()} disabled={!rejectNote.trim() || reject.isPending}>
-              Send back
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={reverseOpen} onOpenChange={setReverseOpen}>
         <DialogContent>

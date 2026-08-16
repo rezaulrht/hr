@@ -14,6 +14,8 @@ import prisma from "../../config/prisma"
 import type { Journal, JournalStatus, JournalType, Prisma } from "../../generated/prisma/client"
 import { Prisma as P } from "../../generated/prisma/client"
 import { AppError } from "../../middleware/errorHandler"
+import type { ActorName } from "../../utils/actors"
+import { resolveActors } from "../../utils/actors"
 import { writeAudit } from "../../utils/audit"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { requirePostableAccounts } from "./accounting.coa.service"
@@ -122,6 +124,13 @@ export function assertGeneratedFiguresUnchanged(
   )
 }
 
+/** A journal as the detail screen needs it: actor ids resolved to people. */
+export type JournalWithActors = Journal & {
+  createdByUser: ActorName | null
+  submittedByUser: ActorName | null
+  approvedByUser: ActorName | null
+}
+
 const journalInclude = {
   lines: {
     orderBy: { sortOrder: "asc" as const },
@@ -177,10 +186,26 @@ export async function listJournals(query: JournalQuery): Promise<{ rows: Journal
   return { rows, total }
 }
 
-export async function getJournal(id: string): Promise<Journal> {
+/**
+ * One journal, with its three actor columns resolved to names.
+ *
+ * `createdBy`, `submittedBy` and `approvedBy` are bare user ids with no
+ * relation behind them (see utils/actors.ts), so the raw row can only say
+ * *that* somebody approved it, never who. On a document whose whole purpose
+ * is to be auditable, a uuid in the "Approved by" field answers the wrong
+ * question.
+ */
+export async function getJournal(id: string): Promise<JournalWithActors> {
   const journal = await prisma.journal.findUnique({ where: { id }, include: journalInclude })
   if (!journal) throw new AppError(404, "Journal not found")
-  return journal
+
+  const actors = await resolveActors([journal.createdBy, journal.submittedBy, journal.approvedBy])
+  return {
+    ...journal,
+    createdByUser: actors[journal.createdBy] ?? null,
+    submittedByUser: journal.submittedBy ? (actors[journal.submittedBy] ?? null) : null,
+    approvedByUser: journal.approvedBy ? (actors[journal.approvedBy] ?? null) : null,
+  }
 }
 
 /**

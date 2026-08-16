@@ -30,6 +30,12 @@ import {
 const PAGE_SIZE = 50
 const ALL = "ALL"
 
+// Base UI's Select renders the raw value on the closed trigger unless the
+// root is given `items`, which showed the enum key — "PENDING_APPROVAL"
+// where the open list read "Awaiting approval".
+const STATUS_ITEMS = { [ALL]: "All statuses", ...JOURNAL_STATUS_LABEL }
+const TYPE_ITEMS = { [ALL]: "All types", ...JOURNAL_TYPE_LABEL }
+
 const TONE_VARIANT = {
   neutral: "secondary",
   warning: "outline",
@@ -109,7 +115,7 @@ export function JournalRegisterPage() {
         </div>
         <div className="grid gap-1">
           <label className="text-xs text-muted-foreground">Status</label>
-          <Select value={status} onValueChange={(v) => reset(setStatus)(v ?? ALL)}>
+          <Select items={STATUS_ITEMS} value={status} onValueChange={(v) => reset(setStatus)(v ?? ALL)}>
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All statuses</SelectItem>
@@ -121,7 +127,7 @@ export function JournalRegisterPage() {
         </div>
         <div className="grid gap-1">
           <label className="text-xs text-muted-foreground">Type</label>
-          <Select value={type} onValueChange={(v) => reset(setType)(v ?? ALL)}>
+          <Select items={TYPE_ITEMS} value={type} onValueChange={(v) => reset(setType)(v ?? ALL)}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All types</SelectItem>

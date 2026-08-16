@@ -18,6 +18,7 @@ vi.mock("../../config/prisma", () => {
   return {
     default: {
       journal: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn() },
+      user: { findMany: vi.fn() },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       __tx: tx,
     },
@@ -31,6 +32,7 @@ import {
   assertGeneratedFiguresUnchanged,
   createJournal,
   deleteJournal,
+  getJournal,
   nextJournalNo,
   submitJournal,
   toLineData,
@@ -515,5 +517,69 @@ describe("submitJournal", () => {
     expect(tx.journal.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ rejectionNote: null }) })
     )
+  })
+})
+
+describe("getJournal", () => {
+  const posted = {
+    ...draft,
+    status: "POSTED",
+    createdBy: "user-finance",
+    submittedBy: "user-finance",
+    approvedBy: "user-admin",
+    lines: [],
+  }
+
+  it("resolves each actor id to a name", async () => {
+    ;(prisma.journal.findUnique as any).mockResolvedValue(posted)
+    ;(prisma.user.findMany as any).mockResolvedValue([
+      { id: "user-finance", email: "f@d.com", employee: { fullName: "Rumana Haque" } },
+      { id: "user-admin", email: "a@d.com", employee: { fullName: "Tanvir Alam" } },
+    ])
+
+    const journal = await getJournal("j-1")
+
+    expect(journal.createdByUser).toEqual({
+      id: "user-finance",
+      email: "f@d.com",
+      fullName: "Rumana Haque",
+    })
+    expect(journal.approvedByUser?.fullName).toBe("Tanvir Alam")
+    // Creator and submitter are the same person here; asking for one id twice
+    // must not cost a second lookup.
+    expect((prisma.user.findMany as any).mock.calls[0][0].where.id.in).toEqual([
+      "user-finance",
+      "user-admin",
+    ])
+  })
+
+  it("leaves an unapproved journal's approver null rather than guessing", async () => {
+    ;(prisma.journal.findUnique as any).mockResolvedValue({
+      ...posted,
+      status: "PENDING_APPROVAL",
+      approvedBy: null,
+    })
+    ;(prisma.user.findMany as any).mockResolvedValue([
+      { id: "user-finance", email: "f@d.com", employee: { fullName: "Rumana Haque" } },
+    ])
+
+    const journal = await getJournal("j-1")
+
+    expect(journal.approvedByUser).toBeNull()
+    expect(journal.submittedByUser?.fullName).toBe("Rumana Haque")
+  })
+
+  it("falls back to the login when an account has no employee record", async () => {
+    ;(prisma.journal.findUnique as any).mockResolvedValue(posted)
+    ;(prisma.user.findMany as any).mockResolvedValue([
+      { id: "user-finance", email: "setup@d.com", employee: null },
+    ])
+
+    const journal = await getJournal("j-1")
+
+    expect(journal.createdByUser?.fullName).toBeNull()
+    // A deleted account is not an error: the row is simply absent, and the
+    // screen falls back rather than the request failing.
+    expect(journal.approvedByUser).toBeNull()
   })
 })

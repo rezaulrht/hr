@@ -1,4 +1,4 @@
-import type { JournalStatus, JournalType, PeriodStatus, Role } from "@/lib/api/types"
+import type { ActorName, JournalStatus, JournalType, PeriodStatus, Role } from "@/lib/api/types"
 
 /**
  * Money arrives from the API as a decimal string and stays one. Formatting
@@ -132,4 +132,14 @@ export function canAccessAccounting(role: Role | undefined): boolean {
 
 export function canApprove(role: Role | undefined): boolean {
   return role === "SUPER_ADMIN"
+}
+
+/**
+ * A person's name if the server could resolve one, their login if not, and
+ * a dash if the field is empty. Never the raw user id: "Approved by
+ * 6b987b9e-dc50-454c-8f2e-e62de4e53209" answers a question nobody asked.
+ */
+export function actorLabel(actor: ActorName | null | undefined, id: string | null): string {
+  if (actor) return actor.fullName ?? actor.email
+  return id ? "Unknown user" : "—"
 }

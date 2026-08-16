@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import type { AdjustmentInput, ComponentKind, Currency } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,15 @@ const COMMON_CODES = [
   { code: "ADVANCE_RECOVERY", label: "Advance recovery", kind: "DEDUCTION" as ComponentKind },
 ]
 
+/**
+ * What the closed trigger shows. Base UI's Select renders the raw value
+ * without this — the code rather than the label, and an employee's uuid
+ * rather than their name.
+ */
+const PRESET_ITEMS = Object.fromEntries(
+  COMMON_CODES.map((c) => [c.code, `${c.label} (${c.kind === "EARNING" ? "adds" : "deducts"})`])
+)
+
 export function AdjustmentDialog({
   open,
   onOpenChange,
@@ -42,6 +51,14 @@ export function AdjustmentDialog({
   error: string | null
   onSubmit: (input: AdjustmentInput) => void
 }) {
+  const employeeItems = useMemo(
+    () => ({
+      "": "Select an employee",
+      ...Object.fromEntries(employees.map((e) => [e.id, `${e.fullName} (${e.employeeCode})`])),
+    }),
+    [employees]
+  )
+
   const [employeeId, setEmployeeId] = useState("")
   const [preset, setPreset] = useState(COMMON_CODES[0].code)
   const [amount, setAmount] = useState("")
@@ -63,7 +80,11 @@ export function AdjustmentDialog({
             <Label htmlFor="adj-employee" className="mb-1.5 text-xs font-bold">
               Employee
             </Label>
-            <Select value={employeeId} onValueChange={(v) => setEmployeeId(v as string)}>
+            <Select
+              items={employeeItems}
+              value={employeeId}
+              onValueChange={(v) => setEmployeeId(v as string)}
+            >
               <SelectTrigger id="adj-employee" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -82,7 +103,7 @@ export function AdjustmentDialog({
             <Label htmlFor="adj-kind" className="mb-1.5 text-xs font-bold">
               Type
             </Label>
-            <Select value={preset} onValueChange={(v) => setPreset(v as string)}>
+            <Select items={PRESET_ITEMS} value={preset} onValueChange={(v) => setPreset(v as string)}>
               <SelectTrigger id="adj-kind" className="w-full">
                 <SelectValue />
               </SelectTrigger>
