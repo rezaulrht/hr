@@ -110,7 +110,13 @@ export function DocumentsCard({
             <Label htmlFor="uploadType" className="mb-1.5 text-xs font-bold">
               Type
             </Label>
-            <Select value={uploadType} onValueChange={(v) => setUploadType(v as DocumentType)}>
+            {/* `items` is what makes the closed trigger read "National ID"
+                rather than the raw NID enum key. */}
+            <Select
+              items={TYPE_LABEL}
+              value={uploadType}
+              onValueChange={(v) => setUploadType(v as DocumentType)}
+            >
               <SelectTrigger id="uploadType">
                 <SelectValue />
               </SelectTrigger>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -40,6 +40,13 @@ const ROLE_LABEL: Record<Role, string> = {
   EMPLOYEE: "Employees",
 }
 
+/**
+ * What the closed trigger shows. Base UI's Select renders the raw value
+ * without these — the enum key for a role, and a uuid for a department.
+ */
+const AUDIENCE_ITEMS = { ALL: "Everyone", DEPARTMENT: "A department", ROLE: "A role" }
+const ROLE_ITEMS = { "": "Choose a role…", ...ROLE_LABEL }
+
 /** `2026-08-05T04:00:00.000Z` → `2026-08-05T10:00`, for a datetime-local input. */
 function toLocalInput(iso: string): string {
   const d = new Date(iso)
@@ -73,6 +80,14 @@ export function ComposeAnnouncementDialog({
   error: string | null
   onSubmit: (input: CreateAnnouncementInput) => void
 }) {
+  const departmentItems = useMemo(
+    () => ({
+      "": "Choose a department…",
+      ...Object.fromEntries(departments.map((d) => [d.id, d.name])),
+    }),
+    [departments]
+  )
+
   const [title, setTitle] = useState(existing?.title ?? "")
   const [body, setBody] = useState(existing?.body ?? "")
   // A manager may only announce to their own department, so that is the only
@@ -157,6 +172,7 @@ export function ComposeAnnouncementDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-audience">Audience</Label>
               <Select
+                items={AUDIENCE_ITEMS}
                 value={audience}
                 onValueChange={(v) => setAudience(v as AnnouncementAudience)}
               >
@@ -175,7 +191,11 @@ export function ComposeAnnouncementDialog({
           {!managerScoped && audience === "DEPARTMENT" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-department">Department</Label>
-              <Select value={departmentId} onValueChange={(v) => setDepartmentId(v as string)}>
+              <Select
+                items={departmentItems}
+                value={departmentId}
+                onValueChange={(v) => setDepartmentId(v as string)}
+              >
                 <SelectTrigger id="ann-department" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -197,7 +217,7 @@ export function ComposeAnnouncementDialog({
           {audience === "ROLE" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ann-role">Role</Label>
-              <Select value={targetRole} onValueChange={(v) => setTargetRole(v as Role)}>
+              <Select items={ROLE_ITEMS} value={targetRole} onValueChange={(v) => setTargetRole(v as Role)}>
                 <SelectTrigger id="ann-role" className="w-full">
                   <SelectValue />
                 </SelectTrigger>

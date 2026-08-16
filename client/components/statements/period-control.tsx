@@ -41,11 +41,18 @@ export function PeriodControl({
   const fy = years.find((y) => y.id === financialYearId)
   const options = fy ? presetOptions(preset, fy) : []
 
+  // Base UI's Select renders the raw value on the closed trigger unless the
+  // root is given `items` — the year's uuid, the preset's enum key, and for
+  // the quarter picker a bare "0" where the list read "Q1 Jul–Sep".
+  const yearItems = Object.fromEntries(years.map((y) => [y.id, y.name]))
+  const presetItems = Object.fromEntries(PRESETS.map((p) => [p.value, p.label]))
+  const optionItems = Object.fromEntries(options.map((o) => [String(o.index), o.label]))
+
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
       <div className="grid gap-1">
         <Label className="text-xs text-muted-foreground">Financial year</Label>
-        <Select value={financialYearId} onValueChange={(v) => v && onFinancialYearChange(v)}>
+        <Select items={yearItems} value={financialYearId} onValueChange={(v) => v && onFinancialYearChange(v)}>
           <SelectTrigger className="w-44"><SelectValue placeholder="Choose" /></SelectTrigger>
           <SelectContent>
             {years.map((y) => (
@@ -57,7 +64,7 @@ export function PeriodControl({
 
       <div className="grid gap-1">
         <Label className="text-xs text-muted-foreground">Period</Label>
-        <Select value={preset} onValueChange={(v) => v && onPresetChange(v as Preset)}>
+        <Select items={presetItems} value={preset} onValueChange={(v) => v && onPresetChange(v as Preset)}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
             {PRESETS.map((p) => (
@@ -70,7 +77,7 @@ export function PeriodControl({
       {options.length > 0 && (
         <div className="grid gap-1">
           <Label className="text-xs text-muted-foreground">&nbsp;</Label>
-          <Select value={String(index)} onValueChange={(v) => v && onIndexChange(Number(v))}>
+          <Select items={optionItems} value={String(index)} onValueChange={(v) => v && onIndexChange(Number(v))}>
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               {options.map((o) => (

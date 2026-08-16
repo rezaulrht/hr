@@ -102,7 +102,11 @@ function ExitForm({
           <Label htmlFor="exitReason" className="mb-1.5 text-xs font-bold">
             Reason
           </Label>
-          <Select value={exitReason} onValueChange={(v) => setExitReason(v as ExitReason)}>
+          <Select
+            items={EXIT_REASON_LABEL}
+            value={exitReason}
+            onValueChange={(v) => setExitReason(v as ExitReason)}
+          >
             <SelectTrigger id="exitReason" className="w-full">
               <SelectValue />
             </SelectTrigger>

@@ -324,6 +324,13 @@ export function OpeningBalancesPage() {
   const effectiveYearId = financialYearId || earliestId
   const year = years.data?.find((y) => y.id === effectiveYearId)
 
+  // Without `items`, Base UI's Select shows the raw value on the trigger —
+  // the year's uuid rather than "FY 2025-26".
+  const yearItems = useMemo(
+    () => Object.fromEntries((years.data ?? []).map((y) => [y.id, y.name])),
+    [years.data]
+  )
+
   const postable = useMemo(
     () => (accounts.data ?? []).filter((a: Account) => !a.isGroup && a.isActive),
     [accounts.data]
@@ -348,7 +355,11 @@ export function OpeningBalancesPage() {
           <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
             <div className="grid gap-1">
               <label className="text-xs text-muted-foreground">Financial year</label>
-              <Select value={effectiveYearId} onValueChange={(v) => setFinancialYearId(v ?? "")}>
+              <Select
+                items={yearItems}
+                value={effectiveYearId}
+                onValueChange={(v) => setFinancialYearId(v ?? "")}
+              >
                 <SelectTrigger className="w-56"><SelectValue placeholder="Choose a year" /></SelectTrigger>
                 <SelectContent>
                   {(years.data ?? []).map((y) => (

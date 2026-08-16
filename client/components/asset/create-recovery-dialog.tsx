@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { ApiError } from "@/lib/api/client"
@@ -55,6 +55,24 @@ export function CreateRecoveryDialog({
     enabled: isAuthed && open,
   })
 
+  // Base UI's Select shows the raw value on the closed trigger without
+  // `items` — a uuid where the open list read the asset tag or the name.
+  const assetItems = useMemo(
+    () =>
+      Object.fromEntries((assetsQuery.data ?? []).map((a) => [a.id, `${a.assetTag} · ${a.name}`])),
+    [assetsQuery.data]
+  )
+  const employeeItems = useMemo(
+    () =>
+      Object.fromEntries(
+        (employeesQuery.data ?? []).map((e: EmployeeView) => [
+          e.id,
+          `${e.work.fullName} · ${e.employment?.employeeCode ?? ""}`,
+        ])
+      ),
+    [employeesQuery.data]
+  )
+
   // Read-only context for the chosen asset. 4a's book-value report exists in
   // this build, so the "book value today" row is present.
   const assetQuery = useQuery({
@@ -107,7 +125,7 @@ export function CreateRecoveryDialog({
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label className="mb-1.5 block text-xs font-bold">Asset</Label>
-                  <Select value={assetId} onValueChange={(v) => v && setAssetId(v)}>
+                  <Select items={assetItems} value={assetId} onValueChange={(v) => v && setAssetId(v)}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Choose an asset" />
                     </SelectTrigger>
@@ -122,7 +140,11 @@ export function CreateRecoveryDialog({
                 </div>
                 <div>
                   <Label className="mb-1.5 block text-xs font-bold">Employee</Label>
-                  <Select value={employeeId} onValueChange={(v) => v && setEmployeeId(v)}>
+                  <Select
+                    items={employeeItems}
+                    value={employeeId}
+                    onValueChange={(v) => v && setEmployeeId(v)}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Choose an employee" />
                     </SelectTrigger>

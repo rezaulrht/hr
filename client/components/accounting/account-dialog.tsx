@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -30,6 +30,21 @@ const TYPES: Array<{ value: AccountType; label: string; digit: string }> = [
   { value: "INCOME", label: "Income", digit: "4" },
   { value: "EXPENSE", label: "Expense", digit: "5" },
 ]
+
+/**
+ * What each value is called, for the closed trigger.
+ *
+ * Base UI's Select renders the raw *value* when its root is not given
+ * `items` — so a trigger showed "PERCENT_OF_BASIC" where the open list said
+ * "% of basic", and a uuid where the list said a person's name.
+ */
+const TYPE_ITEMS = Object.fromEntries(TYPES.map((t) => [t.value, `${t.label} (${t.digit}xxx)`]))
+
+const CASH_KIND_ITEMS = {
+  NONE: "No cash or bank book",
+  CASH: "The Cash Book",
+  BANK: "The Bank Book",
+}
 
 /**
  * The form body. Mounted only while the dialog is open (see AccountDialog
@@ -98,6 +113,16 @@ function AccountForm({
   const eligibleParents = groups.filter((g) => g.type === type && g.id !== account?.id)
   const expectedDigit = TYPES.find((t) => t.value === type)?.digit ?? "?"
 
+  // Base UI's <SelectValue /> renders the raw value unless the root is told
+  // what each value is called, so a parent account read as its uuid.
+  const parentItems = useMemo(
+    () => ({
+      none: "Top level",
+      ...Object.fromEntries(eligibleParents.map((g) => [g.id, `${g.code} ${g.name}`])),
+    }),
+    [eligibleParents]
+  )
+
   return (
     <>
       <DialogHeader>
@@ -114,7 +139,11 @@ function AccountForm({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="account-type">Type</Label>
-              <Select value={type} onValueChange={(v) => setType((v ?? "EXPENSE") as AccountType)}>
+              <Select
+                items={TYPE_ITEMS}
+                value={type}
+                onValueChange={(v) => setType((v ?? "EXPENSE") as AccountType)}
+              >
                 <SelectTrigger id="account-type">
                   <SelectValue />
                 </SelectTrigger>
@@ -150,6 +179,7 @@ function AccountForm({
         <div className="grid gap-2">
           <Label htmlFor="account-parent">Sits under</Label>
           <Select
+            items={parentItems}
             value={parentId || "none"}
             onValueChange={(v) => setParentId(v === "none" ? "" : (v ?? ""))}
           >
@@ -189,7 +219,11 @@ function AccountForm({
         {!isGroup && (
           <div className="grid gap-2">
             <Label htmlFor="account-cash">Appears in</Label>
-            <Select value={cashKind} onValueChange={(v) => setCashKind((v ?? "NONE") as AccountCashKind)}>
+            <Select
+              items={CASH_KIND_ITEMS}
+              value={cashKind}
+              onValueChange={(v) => setCashKind((v ?? "NONE") as AccountCashKind)}
+            >
               <SelectTrigger id="account-cash">
                 <SelectValue />
               </SelectTrigger>

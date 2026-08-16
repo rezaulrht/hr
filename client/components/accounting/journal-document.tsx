@@ -29,6 +29,7 @@ import {
   JournalApprovalActions,
 } from "@/components/accounting/journal-approval"
 import {
+  actorLabel,
   formatAmount,
   formatLedgerDate,
   formatTotal,
@@ -189,7 +190,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
       <dl className="grid gap-x-8 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-2">
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Created by</dt>
-          <dd>{journal.createdBy}</dd>
+          <dd>{actorLabel(journal.createdByUser, journal.createdBy)}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Submitted</dt>
@@ -197,7 +198,7 @@ export function JournalDocument({ journal }: { journal: Journal }) {
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Approved by</dt>
-          <dd>{journal.approvedBy ?? "—"}</dd>
+          <dd>{actorLabel(journal.approvedByUser, journal.approvedBy)}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Posted</dt>

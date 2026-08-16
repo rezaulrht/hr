@@ -47,6 +47,14 @@ interface Draft {
   components: DraftComponent[]
 }
 
+/**
+ * What each value is called, for the closed trigger. Base UI's Select
+ * renders the raw value without these — "PERCENT_OF_BASIC" where the open
+ * list read "% of basic".
+ */
+const KIND_ITEMS = { EARNING: "Earning", DEDUCTION: "Deduction" }
+const CALC_ITEMS = { FIXED: "Fixed", PERCENT_OF_BASIC: "% of basic" }
+
 const BLANK_COMPONENT: DraftComponent = {
   code: "",
   label: "",
@@ -423,6 +431,7 @@ export function SalaryStructuresPage() {
                       placeholder="Label"
                     />
                     <Select
+                      items={KIND_ITEMS}
                       value={c.kind}
                       onValueChange={(v) => patchComponent(i, { kind: v as ComponentKind })}
                     >
@@ -435,6 +444,7 @@ export function SalaryStructuresPage() {
                       </SelectContent>
                     </Select>
                     <Select
+                      items={CALC_ITEMS}
                       value={c.calc}
                       onValueChange={(v) => patchComponent(i, { calc: v as ComponentCalc })}
                     >

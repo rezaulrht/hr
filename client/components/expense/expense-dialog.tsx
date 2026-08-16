@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import type { Currency, ExpenseCategory, ExpenseClaimInput } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
@@ -35,6 +35,13 @@ export function ExpenseDialog({
 }) {
   const [amount, setAmount] = useState("")
   const [currency, setCurrency] = useState<Currency>("BDT")
+  // Without `items`, Base UI's Select shows the category's uuid on the
+  // closed trigger instead of its name.
+  const categoryItems = useMemo(
+    () => Object.fromEntries(categories.map((c) => [c.id, c.name])),
+    [categories]
+  )
+
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "")
   const [expenseDate, setExpenseDate] = useState(today())
   const [description, setDescription] = useState("")
@@ -87,7 +94,11 @@ export function ExpenseDialog({
               <Label htmlFor="exp-category" className="mb-1.5 text-xs font-bold">
                 Category
               </Label>
-               <Select value={categoryId} onValueChange={(value) => value && setCategoryId(value)}>
+               <Select
+                items={categoryItems}
+                value={categoryId}
+                onValueChange={(value) => value && setCategoryId(value)}
+              >
                 <SelectTrigger id="exp-category" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
