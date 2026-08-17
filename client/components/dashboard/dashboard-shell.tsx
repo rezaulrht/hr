@@ -5,25 +5,6 @@ import { Sidebar } from "@/components/dashboard/sidebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { HelpProvider } from "@/components/help/help-provider"
 import type { NavGroup } from "@/components/dashboard/types"
-import { useSession } from "@/lib/auth/session-context"
-import type { Role } from "@/lib/api/types"
-
-const ROLE_LABELS: Record<Role, string> = {
-  SUPER_ADMIN: "Super Admin",
-  HR_ADMIN: "HR Admin",
-  FINANCE_OFFICER: "Finance Officer",
-  REPORTING_MANAGER: "Reporting Manager",
-  EMPLOYEE: "Employee",
-}
-
-function displayNameFromEmail(email: string): string {
-  const local = email.split("@")[0] ?? email
-  return local.charAt(0).toUpperCase() + local.slice(1)
-}
-
-function initialsFromName(name: string): string {
-  return name.slice(0, 2).toUpperCase()
-}
 
 export function DashboardShell({
   navGroups,
@@ -34,12 +15,9 @@ export function DashboardShell({
   rootHref: string
   children: React.ReactNode
 }) {
-  const { user, status } = useSession()
-
-  const email = status === "authenticated" && user ? user.email : ""
-  const userName = email ? displayNameFromEmail(email) : "…"
-  const userInitials = email ? initialsFromName(userName) : "…"
-  const roleLabel = status === "authenticated" && user ? ROLE_LABELS[user.role] : "…"
+  // Every role group has a `/profile` route under its own root, so this is
+  // derivable rather than another prop each layout has to remember to pass.
+  const profileHref = `${rootHref}/profile`
 
   return (
     // The primitive's default width is 16rem; ours is 236px. It sets the
@@ -50,11 +28,11 @@ export function DashboardShell({
       {/* HelpProvider wraps every role dashboard via this shared shell: the
           panel renders once above the page, and the header trigger opens it. */}
       <HelpProvider>
-        <Sidebar navGroups={navGroups} rootHref={rootHref} userName={userName} userInitials={userInitials} roleLabel={roleLabel} />
+        <Sidebar navGroups={navGroups} rootHref={rootHref} profileHref={profileHref} />
         {/* Deliberately not SidebarInset: that renders its own <main>, and the
             content area below already is one. Nested <main> is invalid. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <Header userName={userName} userInitials={userInitials} userEmail={email || "…"} />
+          <Header profileHref={profileHref} />
           <main className="mx-auto flex w-full max-w-[1220px] flex-1 flex-col px-4 pb-8 sm:px-6 lg:px-7 2xl:max-w-[1600px]">
             {children}
           </main>

@@ -137,6 +137,64 @@ export function AuthNotice({
  * signing in, and a default that is right for one caller and a lie for the
  * other three is worse than making each say what it is doing.
  */
+/**
+ * Four levels, cheapest-signal-first: length, then length again at a longer
+ * threshold, then case variety, then a digit or symbol. Not a real entropy
+ * estimate — just enough to tell "temp1234" from "a real passphrase" apart,
+ * which is the whole job here.
+ */
+const STRENGTH_LEVELS = [
+  { label: "Weak", color: "#B03A3A" },
+  { label: "Fair", color: "#9A6B10" },
+  { label: "Good", color: "#3D6FB4" },
+  { label: "Strong", color: "#1E7A3C" },
+] as const
+
+function scorePassword(password: string): number {
+  let score = 0
+  if (password.length >= 8) score += 1
+  if (password.length >= 12) score += 1
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1
+  if (/[0-9]/.test(password) || /[^a-zA-Z0-9]/.test(password)) score += 1
+  return score
+}
+
+/**
+ * Live feedback while choosing a permanent password, not a gate — the
+ * server's own `min(8)` is what actually blocks submission. This exists so
+ * "at least 8 characters" isn't the only signal someone gets before they
+ * commit to a password they'll be typing for months.
+ *
+ * Renders nothing for an empty field: an opinion about a password that has
+ * not been typed yet is noise, not feedback.
+ */
+export function PasswordStrengthMeter({ password }: { password: string }) {
+  if (password.length === 0) return null
+
+  // At least one bar as soon as anything is typed — four grey bars next to
+  // the word "Weak" would read as a contradiction.
+  const filled = Math.max(scorePassword(password), 1)
+  const level = STRENGTH_LEVELS[filled - 1]
+
+  return (
+    <div className="flex items-center gap-2.5 pt-0.5" aria-live="polite">
+      <div className="flex flex-1 gap-1">
+        {STRENGTH_LEVELS.map((_, i) => (
+          <span
+            key={i}
+            aria-hidden
+            className="h-1 flex-1 rounded-full transition-colors duration-200 ease-out-quint motion-reduce:transition-none"
+            style={{ background: i < filled ? level.color : "#E4E9EF" }}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] font-bold" style={{ color: level.color }}>
+        {level.label}
+      </span>
+    </div>
+  )
+}
+
 export function AuthSubmit({
   submitting,
   label,

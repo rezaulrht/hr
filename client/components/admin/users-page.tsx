@@ -2,14 +2,18 @@
 
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { RiCloseLine, RiSearchLine, RiShieldUserLine } from "@remixicon/react"
 
+import { cn } from "@/lib/utils"
 import { createUser, listUsers, setUserRole, setUserStatus } from "@/lib/api/users"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { CreateUserInput, Role, UserAccount } from "@/lib/api/types"
 import { DataTable } from "@/components/dashboard/data-table"
+import { FilterChip } from "@/components/dashboard/filter-chip"
 import { MiniStat } from "@/components/dashboard/page-header"
 import { Tag } from "@/components/dashboard/tag"
+import { UserAvatar } from "@/components/dashboard/user-avatar"
 import type { TableCell } from "@/components/dashboard/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -37,6 +41,45 @@ const ALL_ROLES: Role[] = [
 
 /** Only the three with no Employee row — matches createUserSchema. */
 const CREATABLE_ROLES: CreateUserInput["role"][] = ["HR_ADMIN", "FINANCE_OFFICER", "SUPER_ADMIN"]
+
+type StatusFilter = "all" | "active" | "deactivated"
+
+/**
+ * A row-level control. These were underlined `variant="link"` buttons, which
+ * on a table of thirty rows gave sixty pieces of underlined text and a ~16px
+ * tall hit area each. A bordered chip is a target you can hit on a laptop
+ * trackpad, and it reads as a control rather than as prose.
+ */
+function RowAction({
+  children,
+  onClick,
+  disabled,
+  tone = "default",
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  tone?: "default" | "destructive"
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "rounded border px-2.5 py-1 text-[12px] font-semibold",
+        "transition-[transform,background-color,border-color,color] duration-150 ease-out-quint",
+        "focus-visible:ring-2 focus-visible:ring-[#17191C]/25 focus-visible:outline-none",
+        "active:scale-97 disabled:pointer-events-none disabled:opacity-45 motion-reduce:transition-none",
+        tone === "destructive"
+          ? "border-[#EBD5D5] text-[#9C3232] hover:border-[#D9AFAF] hover:bg-[#FBF3F3]"
+          : "border-[#E4E9EF] text-[#3F4A59] hover:border-[#CFD6E0] hover:bg-[#F7F9FC]"
+      )}
+    >
+      {children}
+    </button>
+  )
+}
 
 function formatCreated(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -86,6 +129,8 @@ export function UsersPage() {
   const [created, setCreated] = useState<{ email: string; temporaryPassword: string } | null>(null)
   const [roleTarget, setRoleTarget] = useState<UserAccount | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
 
   const usersQuery = useQuery({
     queryKey: ["users"],
@@ -137,22 +182,58 @@ export function UsersPage() {
   })
 
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data])
+  // The stats describe the whole estate, not the current filter — "active
+  // super admins: 1" has to stay true while somebody is searching, because it
+  // is the number that says whether the system can still be administered.
   const stats = useMemo(() => computeStats(users), [users])
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return users.filter((u) => {
+      if (statusFilter === "active" && !u.isActive) return false
+      if (statusFilter === "deactivated" && u.isActive) return false
+      if (needle === "") return true
+      return [u.email, u.employee?.fullName ?? "", u.employee?.employeeCode ?? "", ROLE_LABEL[u.role]]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle)
+    })
+  }, [users, search, statusFilter])
+
+  const activeCount = useMemo(() => users.filter((u) => u.isActive).length, [users])
+  const filtering = search.trim() !== "" || statusFilter !== "all"
 
   const statusPending = statusMutation.isPending
 
   const rows: TableCell[][] = useMemo(
     () =>
-      users.map((u) => [
+      visible.map((u) => [
         {
           node: (
-            <div>
-              <div className="font-semibold">{u.email}</div>
-              <div className="text-[12px] text-[#7A8698]">
-                {u.mustChangePassword
-                  ? "Has not set a password yet"
-                  : `Added ${formatCreated(u.createdAt)}`}
+            <div className="flex min-w-0 items-center gap-2.5">
+              {/* The same tinted square the directory uses. A table of thirty
+                  monospaced-looking email addresses is a wall; one identifiable
+                  mark per row is what makes it scannable. */}
+              <UserAvatar
+                name={u.employee?.fullName ?? u.email}
+                className="size-8 rounded-md"
+                textClassName="text-[11.5px]"
+              />
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{u.email}</div>
+                <div className="truncate text-[12px] text-[#6B7789]">
+                  {u.mustChangePassword
+                    ? "Has not set a password yet"
+                    : `Added ${formatCreated(u.createdAt)}`}
+                </div>
               </div>
+              {u.id === user?.id ? (
+                // Knowing which row is yours is what stops someone changing
+                // their own role and locking themselves out of the page.
+                <span className="shrink-0 rounded bg-[#F1F4F8] px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-[#3F4A59] uppercase">
+                  You
+                </span>
+              ) : null}
             </div>
           ),
         },
@@ -169,23 +250,20 @@ export function UsersPage() {
         },
         {
           node: (
-            <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-              <Button
-                variant="link"
-                className="h-auto p-0 text-[12.5px] font-semibold underline"
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+              <RowAction
                 onClick={() => {
                   setError(null)
                   setRoleTarget(u)
                 }}
               >
                 Change role
-              </Button>
+              </RowAction>
               {/* No control on your own row: deactivating yourself revokes
                   your own session, and the server refuses it with a 409. */}
               {u.id === user?.id ? null : (
-                <Button
-                  variant="link"
-                  className="h-auto p-0 text-[12.5px] font-semibold underline"
+                <RowAction
+                  tone={u.isActive ? "destructive" : "default"}
                   disabled={statusPending}
                   onClick={() => {
                     setError(null)
@@ -193,13 +271,13 @@ export function UsersPage() {
                   }}
                 >
                   {u.isActive ? "Deactivate" : "Reactivate"}
-                </Button>
+                </RowAction>
               )}
             </div>
           ),
         },
       ]),
-    [users, user?.id, statusPending, statusMutation]
+    [visible, user?.id, statusPending, statusMutation]
   )
 
   if (sessionStatus === "loading") {
@@ -222,14 +300,16 @@ export function UsersPage() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4 pt-7 pb-5.5">
         <div>
-          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">
+          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#5F6B7C] uppercase">
             Administration
           </div>
           <h1 className="font-heading mb-1 text-[23px] font-bold tracking-tight">Users</h1>
-          <div className="text-[13px] text-[#7A8698]">System accounts, roles and access</div>
+          <div className="text-[13px] text-[#5F6B7C]">
+            System accounts, roles and access — who can sign in, and as what.
+          </div>
         </div>
         <Button
-          className="h-auto rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white hover:bg-[#0E1012]"
+          className="h-auto rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white transition-transform duration-150 ease-out-quint hover:bg-[#0E1012] active:scale-97 motion-reduce:transition-none"
           onClick={() => {
             setError(null)
             setCreateOpen(true)
@@ -240,13 +320,64 @@ export function UsersPage() {
       </div>
 
       <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(215px,1fr))] gap-4">
-        {stats.map((stat) => (
-          <MiniStat key={stat.label} label={stat.label} value={stat.value} sub={stat.sub} />
+        {stats.map((stat, i) => (
+          // Three cards, 40ms apart. Short enough that the row still reads as
+          // one thing arriving rather than three things queuing.
+          <div key={stat.label} className="rise-in" style={{ animationDelay: `${i * 40}ms` }}>
+            <MiniStat label={stat.label} value={stat.value} sub={stat.sub} />
+          </div>
         ))}
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-0 flex-1 sm:max-w-80">
+          <RiSearchLine
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#8A94A3]"
+          />
+          <input
+            type="search"
+            placeholder="Search by email, name or role"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search user accounts"
+            className="h-10 w-full rounded-md border border-[#E4E9EF] bg-white pr-9 pl-9 text-[13px] transition-[border-color,box-shadow] duration-150 ease-out-quint outline-none placeholder:text-[#98A2B1] hover:border-[#CFD6E0] focus:border-[#17191C] focus:shadow-[0_0_0_3px_rgba(23,25,28,0.08)] motion-reduce:transition-none [&::-webkit-search-cancel-button]:hidden"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded text-[#8A94A3] transition-[transform,color,background-color] duration-150 ease-out-quint hover:bg-[#F1F4F8] hover:text-[#17191C] focus-visible:ring-2 focus-visible:ring-[#17191C]/25 focus-visible:outline-none active:scale-90 motion-reduce:transition-none"
+            >
+              <RiCloseLine className="size-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex gap-1.5">
+          <FilterChip
+            label="All"
+            count={users.length}
+            active={statusFilter === "all"}
+            onClick={() => setStatusFilter("all")}
+          />
+          <FilterChip
+            label="Active"
+            count={activeCount}
+            active={statusFilter === "active"}
+            onClick={() => setStatusFilter("active")}
+          />
+          <FilterChip
+            label="Deactivated"
+            count={users.length - activeCount}
+            active={statusFilter === "deactivated"}
+            onClick={() => setStatusFilter("deactivated")}
+          />
+        </div>
+      </div>
+
       {error ? (
-        <div className="mb-4 rounded-md border border-[#E4E9EF] bg-white px-5 py-3 text-[13px] text-[#B03A3A]">
+        <div className="fade-in mb-4 rounded-md border border-[#E4E9EF] bg-white px-5 py-3 text-[13px] text-[#B03A3A]">
           {error}
         </div>
       ) : null}
@@ -268,14 +399,41 @@ export function UsersPage() {
             Retry
           </Button>
         </div>
+      ) : visible.length === 0 ? (
+        <div className="fade-in grid place-items-center rounded-md border border-dashed border-[#D9E0E9] bg-white px-6 py-14 text-center">
+          <RiShieldUserLine aria-hidden="true" className="mb-3 size-7 text-[#B6BFCB]" />
+          <p className="text-[13.5px] font-semibold">No accounts match that</p>
+          <p className="mt-1 max-w-80 text-[12.5px] text-[#5F6B7C]">
+            Try a shorter search, or switch the status filter back to All.
+          </p>
+          {filtering ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSearch("")
+                setStatusFilter("all")
+              }}
+              className="mt-4 transition-transform duration-150 ease-out-quint active:scale-97 motion-reduce:transition-none"
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
       ) : (
-        <DataTable
-          title="User accounts"
-          cols="1.6fr 1fr 1.1fr 0.8fr 1fr"
-          headers={["Account", "Role", "Employee", "Status", ""]}
-          rows={rows}
-          action={`${users.length} account${users.length === 1 ? "" : "s"}`}
-        />
+        <div className="fade-in">
+          <DataTable
+            title="User accounts"
+            cols="1.9fr 1fr 1.1fr 0.8fr 1.1fr"
+            headers={["Account", "Role", "Employee", "Status", ""]}
+            rows={rows}
+            action={
+              filtering
+                ? `${visible.length} of ${users.length} accounts`
+                : `${users.length} account${users.length === 1 ? "" : "s"}`
+            }
+          />
+        </div>
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
