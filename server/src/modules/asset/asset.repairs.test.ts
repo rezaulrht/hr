@@ -4,7 +4,7 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     asset: { findUnique: vi.fn() },
     assetRepair: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    assetRequest: { updateMany: vi.fn() },
+    assetRequest: { findMany: vi.fn(), updateMany: vi.fn() },
     assetAssignment: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   }
@@ -27,6 +27,7 @@ const inService = { id: "ast-1", assetTag: "BS-AST-00042", name: "ThinkPad", lif
 beforeEach(() => {
   vi.clearAllMocks()
   tx.auditLog.create.mockResolvedValue({})
+  tx.assetRequest.findMany.mockResolvedValue([])
 })
 
 describe("sendForRepair", () => {
@@ -101,6 +102,7 @@ describe("receiveFromRepair", () => {
     // approved — and this is the only endpoint that knows it came back.
     tx.assetRepair.findUnique.mockResolvedValue({ id: "rep-1", assetId: "ast-1", returnedAt: null })
     tx.assetRepair.update.mockResolvedValue({ id: "rep-1", returnedAt: new Date() })
+    tx.assetRequest.findMany.mockResolvedValue([{ id: "req-1" }])
     tx.assetRequest.updateMany.mockResolvedValue({ count: 1 })
 
     await receiveFromRepair("rep-1", { conditionAfter: "GOOD" }, hr)
@@ -109,5 +111,16 @@ describe("receiveFromRepair", () => {
       where: { repairId: "rep-1", status: "APPROVED" },
       data: expect.objectContaining({ status: "FULFILLED" }),
     })
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entity: "ASSET_REQUEST",
+          entityId: "req-1",
+          action: "FULFIL",
+          changedBy: "user-hr",
+          after: { status: "FULFILLED" },
+        }),
+      })
+    )
   })
 })
