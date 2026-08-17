@@ -173,7 +173,7 @@ export function ShiftsPanel({ accessToken }: { accessToken: string }) {
       />
 
       {editing !== null ? (
-        <ShiftDialog
+        <ShiftEditDialog
           shift={editing === "new" ? null : editing}
           pending={saveMutation.isPending}
           error={error}
@@ -195,7 +195,14 @@ export function ShiftsPanel({ accessToken }: { accessToken: string }) {
   )
 }
 
-function ShiftDialog({
+/**
+ * Edits a shift *definition* — its name, hours and weekly off.
+ *
+ * Named apart from `components/employees/shift-dialog.tsx`, which assigns a
+ * shift *to an employee*. Both were called ShiftDialog, so the two opposite
+ * subjects shared one name and whoever opened the wrong file lost ten minutes.
+ */
+function ShiftEditDialog({
   shift,
   pending,
   error,
