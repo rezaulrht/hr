@@ -291,29 +291,50 @@ export async function rejectRequest(
   })
 }
 
-/** The requester's own, while PENDING. No event: there is no "cancelled" stage in the feed. */
+/** The requester's own while PENDING; HR / Super Admin may close a live request they cannot source. No event: there is no "cancelled" stage in the feed. */
 export async function cancelRequest(
   requestId: string,
+  input: { note?: string },
   actor: AccessTokenPayload
 ): Promise<AssetRequest> {
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({ where: { id: requestId } })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    const self = await prisma.employee.findUnique({
-      where: { userId: actor.sub },
-      select: { id: true },
-    })
-    if (!self || self.id !== request.employeeId) {
-      throw new AppError(403, "You can only cancel your own request")
-    }
-    if (request.status !== "PENDING") {
-      throw new AppError(409, "Only a pending request can be cancelled")
+    const isHr = actor.role === "HR_ADMIN" || actor.role === "SUPER_ADMIN"
+    const LIVE = ["PENDING", "APPROVED", "ORDERED"]
+
+    if (isHr) {
+      // Decision 9: HR's dead end. "Discontinued, couldn't source it" is a
+      // different fact from "she changed her mind", and the note is what
+      // carries the difference.
+      if (!input.note || !input.note.trim()) {
+        throw new AppError(400, "A reason is required to cancel someone else's request")
+      }
+      if (!LIVE.includes(request.status)) {
+        throw new AppError(409, "This request has already been closed")
+      }
+    } else {
+      const self = await prisma.employee.findUnique({
+        where: { userId: actor.sub },
+        select: { id: true },
+      })
+      if (!self || self.id !== request.employeeId) {
+        throw new AppError(403, "You can only cancel your own request")
+      }
+      if (request.status !== "PENDING") {
+        throw new AppError(409, "Only a pending request can be cancelled")
+      }
     }
 
     const updated = await tx.assetRequest.update({
       where: { id: requestId },
-      data: { status: "CANCELLED", decidedBy: actor.sub, decidedAt: new Date() },
+      data: {
+        status: "CANCELLED",
+        decidedBy: actor.sub,
+        decidedAt: new Date(),
+        decisionNote: input.note?.trim() || null,
+      },
     })
 
     await writeAudit(tx, {
@@ -322,6 +343,51 @@ export async function cancelRequest(
       action: "CANCEL",
       changedBy: actor.sub,
       after: { status: "CANCELLED" },
+      note: input.note?.trim() ?? null,
+    })
+
+    return updated
+  })
+}
+
+/**
+ * Someone went shopping. Deliberately carries no estimated cost: the real
+ * figure lands on the Asset at creation, and two cost fields invite a
+ * reconciliation nobody performs.
+ */
+export async function markOrdered(
+  requestId: string,
+  input: { expectedBy?: string; note?: string },
+  actor: AccessTokenPayload
+): Promise<AssetRequest> {
+  return prisma.$transaction(async (tx) => {
+    const request = await tx.assetRequest.findUnique({ where: { id: requestId } })
+    if (!request) throw new AppError(404, "Asset request not found")
+    if (request.kind !== "NEW_ITEM") {
+      throw new AppError(409, "Only a request for a new item can be ordered")
+    }
+    if (request.status !== "APPROVED") {
+      throw new AppError(409, "Only an approved request can be marked as ordered")
+    }
+
+    const updated = await tx.assetRequest.update({
+      where: { id: requestId },
+      data: {
+        status: "ORDERED",
+        orderedAt: new Date(),
+        orderedBy: actor.sub,
+        expectedBy: input.expectedBy ? new Date(`${input.expectedBy}T00:00:00.000Z`) : null,
+        orderNote: input.note ?? null,
+      },
+    })
+
+    await writeAudit(tx, {
+      entity: "ASSET_REQUEST",
+      entityId: requestId,
+      action: "ORDER",
+      changedBy: actor.sub,
+      after: { status: "ORDERED", expectedBy: input.expectedBy ?? null },
+      note: input.note ?? null,
     })
 
     return updated
@@ -343,8 +409,11 @@ export async function fulfilRequest(
     // monitor or does not; if they do not, the request stays APPROVED and
     // visibly unfulfilled, which is the honest state and a useful
     // procurement signal.
-    if (request.status !== "APPROVED") {
-      throw new AppError(409, "Only an approved request can be fulfilled")
+    // Decision 8: a spare turning up mid-order should not require cancelling
+    // and resubmitting. ORDERED records that someone went shopping, not a
+    // promise about which unit arrives.
+    if (request.status !== "APPROVED" && request.status !== "ORDERED") {
+      throw new AppError(409, "Only an approved or ordered request can be fulfilled")
     }
 
     // Same transaction: a fulfilled request with no assignment behind it

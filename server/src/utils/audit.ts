@@ -72,6 +72,7 @@ export type AuditAction =
   | "MARK_LOST"
   | "WAIVE"
   | "FULFIL"
+  | "ORDER"
   | "IMPORT"
   | "CANCEL"
   | "POST"

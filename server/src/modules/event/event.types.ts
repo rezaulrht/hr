@@ -48,6 +48,7 @@ export type EventType =
   | "asset.returned"
   | "asset.request.submitted"
   | "asset.request.approved"
+  | "asset.request.ordered"
   | "asset.request.rejected"
   | "asset.retired"
   | "asset.marked_lost"

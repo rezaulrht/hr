@@ -29,6 +29,7 @@ import {
   cancelRequest,
   fulfilRequest,
   listRequests,
+  markOrdered,
   rejectRequest,
   submitRequest,
 } from "./asset.requests"
@@ -221,20 +222,54 @@ describe("cancelRequest", () => {
     })
     vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-other" } as never)
 
-    await expect(cancelRequest("req-1", mgr)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(cancelRequest("req-1", {}, mgr)).rejects.toMatchObject({ statusCode: 403 })
     expect(tx.assetRequest.update).not.toHaveBeenCalled()
   })
+})
 
-  it("409s when the request is not PENDING", async () => {
-    tx.assetRequest.findUnique.mockResolvedValue({
-      id: "req-1",
-      employeeId: "emp-1",
-      status: "APPROVED",
+describe("markOrdered", () => {
+  it("moves an APPROVED request to ORDERED", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({ id: "req-1", kind: "NEW_ITEM", status: "APPROVED" })
+    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "ORDERED" })
+
+    await expect(markOrdered("req-1", { expectedBy: "2026-09-01" }, hr)).resolves.toMatchObject({
+      status: "ORDERED",
     })
+  })
+
+  it("refuses a REPAIR — ordering is a NEW_ITEM concept", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({ id: "req-1", kind: "REPAIR", status: "APPROVED" })
+
+    await expect(markOrdered("req-1", {}, hr)).rejects.toMatchObject({ statusCode: 409 })
+  })
+})
+
+describe("cancelRequest — HR's dead end", () => {
+  it("lets HR cancel an ORDERED request with a note", async () => {
+    // Decision 9: CANCELLED widens rather than a fifth terminal status being
+    // added. The note carries "discontinued" vs "she changed her mind".
+    tx.assetRequest.findUnique.mockResolvedValue({ id: "req-1", employeeId: "emp-1", status: "ORDERED" })
+    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "CANCELLED" })
+
+    await expect(
+      cancelRequest("req-1", { note: "Discontinued by the supplier" }, hr)
+    ).resolves.toMatchObject({ status: "CANCELLED" })
+  })
+
+  it("requires a note when HR cancels", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({ id: "req-1", employeeId: "emp-1", status: "APPROVED" })
+
+    await expect(cancelRequest("req-1", {}, hr)).rejects.toMatchObject({
+      statusCode: 400,
+      message: "A reason is required to cancel someone else's request",
+    })
+  })
+
+  it("still refuses an employee cancelling after approval", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({ id: "req-1", employeeId: "emp-1", status: "APPROVED" })
     vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1" } as never)
 
-    await expect(cancelRequest("req-1", hr)).rejects.toMatchObject({ statusCode: 409 })
-    expect(tx.assetRequest.update).not.toHaveBeenCalled()
+    await expect(cancelRequest("req-1", {}, emp)).rejects.toMatchObject({ statusCode: 409 })
   })
 })
 

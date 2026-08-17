@@ -88,11 +88,12 @@ export function assetReturnedEvent(args: ReturnedArgs): EventInput {
   }
 }
 
-type RequestStage = "submitted" | "approved" | "rejected"
+type RequestStage = "submitted" | "approved" | "ordered" | "rejected"
 
 const REQUEST_COPY: Record<RequestStage, { title: string; severity: EventInput["severity"] }> = {
   submitted: { title: "Asset request submitted", severity: "INFO" },
   approved: { title: "Asset request approved", severity: "SUCCESS" },
+  ordered: { title: "Asset request ordered", severity: "INFO" },
   rejected: { title: "Asset request rejected", severity: "WARNING" },
 }
 

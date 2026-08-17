@@ -122,6 +122,15 @@ export const approveRequestSchema = z.object({ note: z.string().trim().max(1000)
 export const rejectRequestSchema = z.object({ note: z.string().trim().min(1).max(1000) })
 export const fulfilRequestSchema = z.object({ assetId: z.string().uuid() })
 
+export const markOrderedSchema = z.object({
+  expectedBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date").optional(),
+  note: z.string().trim().max(1000).optional(),
+})
+
+// Optional in the schema and required in the service when the canceller is not
+// the requester — the rule depends on who is asking, which Zod cannot see.
+export const cancelRequestSchema = z.object({ note: z.string().trim().max(1000).optional() })
+
 // The attachment kind arrives as a multipart TEXT field alongside the file,
 // matching employee.validators.ts's documentTypeSchema — it is validated on
 // its own rather than as part of a JSON body.
