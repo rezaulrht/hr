@@ -924,6 +924,11 @@ enum EventSeverity {
 
 // ── ASSETS ────────────────────────────────────
 
+enum AssetClassification {
+  IT
+  NON_IT
+}
+
 model AssetCategory {
   id   String @id @default(uuid())
   // Stable machine key (LAPTOP, MONITOR, PHONE, FURNITURE, VEHICLE, LICENCE).
@@ -937,6 +942,17 @@ model AssetCategory {
   // Issued and never expected back — a mouse, a keyboard, a headset. Excluded
   // from the exit checklist.
   isConsumable     Boolean @default(false)
+  // IT or non-IT, stated once per category. A property of the kind of thing,
+  // never of a single asset and never of a request — a chair is non-IT no
+  // matter who asks for it or why. Non-null deliberately: a nullable column
+  // creates a silent "unclassified" bucket nobody ever goes back and fills,
+  // and then every IT/non-IT filter lies by omission.
+  classification AssetClassification
+
+  // False means requestable but never registered — paper, pens, printer ink.
+  // Distinct from isConsumable, which means "never expected back" but is still
+  // one row with its own tag (a mouse). A pen is neither.
+  tracksIndividually Boolean @default(true)
   // Straight-line life. Unused in phase 1; the book-value report is phase 2.
   // The column exists now so the importer can carry it and there is no second
   // migration to backfill it later.
