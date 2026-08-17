@@ -14,6 +14,7 @@ vi.mock("../../config/prisma", () => {
     default: {
       assetRequest: { findMany: vi.fn(), findUnique: vi.fn() },
       employee: { findUnique: vi.fn(), findMany: vi.fn() },
+      auditLog: { findMany: vi.fn() },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       __tx: tx,
     },
@@ -28,6 +29,7 @@ import {
   approveRequest,
   cancelRequest,
   fulfilRequest,
+  getRequestTimeline,
   listRequests,
   markOrdered,
   rejectRequest,
@@ -445,5 +447,47 @@ describe("submitRequest — supplies and quantity", () => {
       statusCode: 400,
       message: "Monitor is issued one at a time — submit one request per item.",
     })
+  })
+})
+
+describe("getRequestTimeline", () => {
+  it("404s — not 403s — when the request is not visible to the viewer", async () => {
+    // Scoped through listRequests first, so an out-of-scope id teaches
+    // nothing about what exists (V-35) and never reads a history.
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
+
+    await expect(getRequestTimeline("req-invisible", finance)).rejects.toMatchObject({
+      statusCode: 404,
+    })
+    expect(prisma.auditLog.findMany).not.toHaveBeenCalled()
+  })
+
+  it("maps each audit row onto the timeline shape in ascending order", async () => {
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([
+      {
+        id: "req-1", employeeId: "emp-1", kind: "NEW_ITEM", status: "APPROVED",
+        category: { name: "Monitor" }, asset: null, repair: null,
+      } as never,
+    ])
+    const submittedAt = new Date("2026-08-01T10:00:00.000Z")
+    const approvedAt = new Date("2026-08-02T10:00:00.000Z")
+    vi.mocked(prisma.auditLog.findMany).mockResolvedValue([
+      { action: "SUBMIT", changedAt: submittedAt, changedBy: "user-emp", note: null },
+      { action: "APPROVE", changedAt: approvedAt, changedBy: "user-admin", note: "Looks fine" },
+    ] as never)
+
+    const timeline = await getRequestTimeline("req-1", finance)
+
+    expect(timeline).toEqual([
+      { action: "SUBMIT", at: submittedAt, byUserId: "user-emp", note: null },
+      { action: "APPROVE", at: approvedAt, byUserId: "user-admin", note: "Looks fine" },
+    ])
+    // The ascending order is the query's job; the service trusts the store.
+    expect(prisma.auditLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { entity: "ASSET_REQUEST", entityId: "req-1" },
+        orderBy: { changedAt: "asc" },
+      })
+    )
   })
 })

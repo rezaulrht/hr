@@ -230,6 +230,41 @@ describe("listAssets", () => {
 
     expect(prisma.journal.findMany).not.toHaveBeenCalled()
   })
+
+  it("filters by the derived status after the fetch (EC-1)", async () => {
+    // status is derived, never stored, so it cannot go in the WHERE clause —
+    // the parameter used to be parsed, validated and then silently dropped.
+    vi.mocked(prisma.asset.findMany).mockResolvedValue([
+      {
+        id: "a-1", assetTag: "BS-AST-00001", name: "ThinkPad", categoryId: "c-1",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: null, capitalisedBy: null, fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-1", code: "LAPTOP", name: "Laptop" },
+        assignments: [{
+          id: "asg-1", employeeId: "emp-1", assignedAt: new Date("2026-06-01T00:00:00.000Z"),
+          conditionOut: "GOOD", acknowledgedAt: null,
+          employee: { employeeCode: "EMP-001", fullName: "Ada Lovelace" },
+        }],
+        repairs: [],
+      } as never,
+      {
+        id: "a-2", assetTag: "BS-AST-00042", name: "Spare Monitor", categoryId: "c-2",
+        serialNumber: null, model: null, notes: null, purchaseDate: null, purchaseCost: null,
+        currency: "BDT", vendor: null, warrantyExpiry: null, departmentId: null, location: null,
+        lifecycle: "IN_SERVICE", retiredAt: null, retiredBy: null, retirementNote: null,
+        capitalisedAt: null, capitalisedBy: null, fxRateToBdt: null, purchaseCostBdt: null,
+        category: { id: "c-2", code: "MONITOR", name: "Monitor" },
+        assignments: [], repairs: [],
+      } as never,
+    ])
+
+    const rows = await listAssets(hr as never, { status: "AVAILABLE" })
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ id: "a-2", status: "AVAILABLE" })
+  })
 })
 
 describe("getAsset", () => {
