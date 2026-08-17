@@ -1014,7 +1014,8 @@ model Asset {
 
   assignments AssetAssignment[]
   repairs     AssetRepair[]
-  requests    AssetRequest[]
+  requests          AssetRequest[] @relation("RequestTarget")
+  fulfilledRequests AssetRequest[] @relation("RequestFulfilment")
   attachments AssetAttachment[]
   recoveries  AssetRecovery[]
 
@@ -1224,30 +1225,10 @@ enum AssetAttachmentKind {
   CONDITION_IN
 }
 
-model AssetRequest {
-  id         String             @id @default(uuid())
-  employeeId String
-  employee   Employee           @relation(fields: [employeeId], references: [id])
-  // A category, not a specific asset — you request "a monitor", not
-  // BS-AST-00042. Which unit is HR's call at fulfilment.
-  categoryId String
-  category   AssetCategory      @relation(fields: [categoryId], references: [id])
-  reason     String
-  status     AssetRequestStatus @default(PENDING)
-
-  decidedBy    String? // User id
-  decidedAt    DateTime?
-  decisionNote String? // required on reject, matching leave and attendance
-
-  fulfilledAt      DateTime?
-  fulfilledBy      String?
-  fulfilledAssetId String?
-  fulfilledAsset   Asset?    @relation(fields: [fulfilledAssetId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  @@index([status])
-  @@index([employeeId, createdAt])
+enum AssetRequestKind {
+  NEW_ITEM
+  REPAIR
+  RETURN
 }
 
 // PENDING/APPROVED/REJECTED/CANCELLED mirror LeaveStatus deliberately — the
@@ -1257,9 +1238,63 @@ model AssetRequest {
 enum AssetRequestStatus {
   PENDING
   APPROVED
+  ORDERED
   REJECTED
   CANCELLED
   FULFILLED
+}
+
+model AssetRequest {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  kind AssetRequestKind @default(NEW_ITEM)
+
+  // NEW_ITEM names a category, not a unit — you ask for "a monitor", not
+  // BS-AST-00042. REPAIR and RETURN name the specific asset the requester
+  // holds. Exactly one of the two is set, enforced by a CHECK the service
+  // also validates so the failure is a sentence rather than a 500.
+  categoryId String?
+  category   AssetCategory? @relation(fields: [categoryId], references: [id])
+  assetId    String?
+  asset      Asset?         @relation("RequestTarget", fields: [assetId], references: [id])
+
+  // Supplies only. A tracked request is strictly one-to-one, because
+  // fulfilment writes one fulfilledAssetId and an assignment is one asset to
+  // one person.
+  quantity Int?
+
+  reason String
+  status AssetRequestStatus @default(PENDING)
+
+  decidedBy    String?
+  decidedAt    DateTime?
+  decisionNote String?
+
+  // Someone went shopping. Deliberately carries no estimated cost: the real
+  // figure lands on the Asset at creation and two cost fields invite a
+  // reconciliation nobody performs.
+  orderedAt  DateTime?
+  orderedBy  String?
+  expectedBy DateTime?
+  orderNote  String?
+
+  // The repair this request created on approval. One repair per request.
+  repairId String?      @unique
+  repair   AssetRepair? @relation(fields: [repairId], references: [id])
+
+  fulfilledAt      DateTime?
+  fulfilledBy      String?
+  fulfilledAssetId String?
+  fulfilledAsset   Asset?    @relation("RequestFulfilment", fields: [fulfilledAssetId], references: [id])
+  fulfilledNote    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([employeeId, createdAt])
+  @@index([kind, status])
 }
 
 model AssetRepair {
@@ -1282,6 +1317,9 @@ model AssetRepair {
   // A repair that comes back unrepairable is how an asset reaches RETIRED or
   // LOST, but the transition is a separate explicit act.
   conditionAfter AssetCondition?
+
+  // The request that created this repair on approval. One repair per request.
+  request AssetRequest?
 
   @@index([assetId, sentAt])
   @@index([returnedAt])
