@@ -97,10 +97,24 @@ export const receiveRepairSchema = z.object({
   conditionAfter: z.enum(["NEW", "GOOD", "FAIR", "DAMAGED"]).optional(),
 })
 
-export const submitRequestSchema = z.object({
-  categoryId: z.string().uuid(),
-  reason: z.string().trim().min(1).max(1000),
-})
+// A discriminated union rather than one wide object: it makes the invalid
+// combinations unrepresentable at the edge, so the service only ever handles
+// shapes the CHECK constraints also permit.
+export const submitRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("NEW_ITEM"),
+    categoryId: z.string().uuid(),
+    quantity: z.coerce.number().int().min(1).optional(),
+    reason: z.string().trim().min(1).max(1000),
+  }),
+  z.object({
+    kind: z.enum(["REPAIR", "RETURN"]),
+    assetId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(1000),
+  }),
+])
+
+export type SubmitRequestInput = z.infer<typeof submitRequestSchema>
 
 // A note is required on reject and optional on approve, matching leave and
 // attendance: a rejection nobody explained is one the requester cannot act on.

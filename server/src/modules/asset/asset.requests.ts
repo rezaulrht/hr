@@ -26,11 +26,7 @@ import { assignAsset } from "./asset.assignments"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { assetRequestEvent } from "./asset.events"
-
-export interface SubmitRequestInput {
-  categoryId: string
-  reason: string
-}
+import type { SubmitRequestInput } from "./asset.validators"
 
 /** `employee.reportingManagerId`, or null so the request falls to HR. */
 export async function resolveApprover(employeeId: string): Promise<string | null> {
@@ -78,24 +74,61 @@ export async function submitRequest(
     const employee = await tx.employee.findUnique({ where: { userId: actor.sub } })
     if (!employee) throw new AppError(404, "Employee profile not found")
 
-    const category = await tx.assetCategory.findUnique({ where: { id: input.categoryId } })
-    if (!category) throw new AppError(400, "Asset category not found")
+    let data: Prisma.AssetRequestUncheckedCreateInput
+    let subject: string
 
-    const request = await tx.assetRequest.create({
-      data: {
+    if (input.kind === "NEW_ITEM") {
+      const category = await tx.assetCategory.findUnique({ where: { id: input.categoryId } })
+      if (!category) throw new AppError(400, "Asset category not found")
+
+      // Quantity belongs to supplies alone, in both directions.
+      if (!category.tracksIndividually && input.quantity === undefined) {
+        throw new AppError(400, `${category.name} is issued by quantity, so a quantity is required.`)
+      }
+      if (category.tracksIndividually && input.quantity !== undefined) {
+        throw new AppError(400, `${category.name} is issued one at a time — submit one request per item.`)
+      }
+
+      data = {
         employeeId: employee.id,
+        kind: "NEW_ITEM",
         categoryId: input.categoryId,
+        assetId: null,
+        quantity: input.quantity ?? null,
         reason: input.reason,
         status: "PENDING",
-      },
-    })
+      }
+      subject = category.name
+    } else {
+      // Decision 7: you may only ask about a thing you are holding. 404 rather
+      // than 403 so an id outside your custody teaches nothing about what
+      // exists (V-35).
+      const held = await tx.assetAssignment.findFirst({
+        where: { assetId: input.assetId, employeeId: employee.id, returnedAt: null },
+        include: { asset: { select: { assetTag: true, name: true } } },
+      })
+      if (!held) throw new AppError(404, "Asset not found")
+
+      data = {
+        employeeId: employee.id,
+        kind: input.kind,
+        categoryId: null,
+        assetId: input.assetId,
+        quantity: null,
+        reason: input.reason,
+        status: "PENDING",
+      }
+      subject = `${held.asset.assetTag} · ${held.asset.name}`
+    }
+
+    const request = await tx.assetRequest.create({ data })
 
     await writeAudit(tx, {
       entity: "ASSET_REQUEST",
       entityId: request.id,
       action: "SUBMIT",
       changedBy: actor.sub,
-      after: { categoryId: input.categoryId, reason: input.reason },
+      after: { kind: input.kind, reason: input.reason },
     })
 
     await emitEvent(
@@ -104,8 +137,7 @@ export async function submitRequest(
         stage: "submitted",
         requestId: request.id,
         employeeId: employee.id,
-        approverEmployeeId: await resolveApprover(employee.id),
-        categoryName: category.name,
+        subject,
         actorUserId: actor.sub,
         note: null,
       })

@@ -4,6 +4,7 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     assetRequest: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     assetCategory: { findUnique: vi.fn() },
+    assetAssignment: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
     event: { create: vi.fn() },
     employee: { findUnique: vi.fn() },
@@ -29,6 +30,7 @@ import {
   listRequests,
   rejectRequest,
   resolveApprover,
+  submitRequest,
 } from "./asset.requests"
 
 const tx = (prisma as unknown as { __tx: any }).__tx
@@ -229,5 +231,70 @@ describe("listRequests scoping", () => {
     expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: {} })
     )
+  })
+})
+
+describe("submitRequest — REPAIR and RETURN", () => {
+  beforeEach(() => {
+    tx.employee.findUnique.mockResolvedValue({ id: "emp-1" })
+  })
+
+  it("accepts a REPAIR for an asset the requester is holding", async () => {
+    tx.assetAssignment.findFirst.mockResolvedValue({
+      id: "asg-1",
+      assetId: "ast-1",
+      employeeId: "emp-1",
+      asset: { assetTag: "BS-AST-00012", name: "MacBook Pro 14" },
+    })
+    tx.assetRequest.create.mockResolvedValue({ id: "req-1", kind: "REPAIR", assetId: "ast-1" })
+
+    await expect(
+      submitRequest({ kind: "REPAIR", assetId: "ast-1", reason: "Keyboard is dead" }, emp)
+    ).resolves.toMatchObject({ id: "req-1" })
+
+    expect(tx.assetRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: "REPAIR", assetId: "ast-1", categoryId: null }),
+      })
+    )
+  })
+
+  it("404s when the requester does not hold the asset", async () => {
+    // 404 not 403 (V-35): probing ids must teach nothing about what exists.
+    tx.assetAssignment.findFirst.mockResolvedValue(null)
+
+    await expect(
+      submitRequest({ kind: "RETURN", assetId: "someone-elses", reason: "Done with it" }, emp)
+    ).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe("submitRequest — supplies and quantity", () => {
+  beforeEach(() => {
+    tx.employee.findUnique.mockResolvedValue({ id: "emp-1" })
+  })
+
+  it("requires a quantity for a supply category", async () => {
+    tx.assetCategory.findUnique.mockResolvedValue({ id: "cat-s", name: "Stationery", tracksIndividually: false })
+
+    await expect(
+      submitRequest({ kind: "NEW_ITEM", categoryId: "cat-s", reason: "Out of pens" }, emp)
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Stationery is issued by quantity, so a quantity is required.",
+    })
+  })
+
+  it("rejects a quantity on a tracked category", async () => {
+    // Two monitors is two requests: fulfilment writes one fulfilledAssetId
+    // and an assignment is one asset to one person.
+    tx.assetCategory.findUnique.mockResolvedValue({ id: "cat-m", name: "Monitor", tracksIndividually: true })
+
+    await expect(
+      submitRequest({ kind: "NEW_ITEM", categoryId: "cat-m", quantity: 2, reason: "Dual screen" }, emp)
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Monitor is issued one at a time — submit one request per item.",
+    })
   })
 })

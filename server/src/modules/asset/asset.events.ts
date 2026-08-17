@@ -100,13 +100,7 @@ interface RequestArgs {
   stage: RequestStage
   requestId: string
   employeeId: string
-  /**
-   * On submit, the person who must decide — so the event reaches the
-   * approver rather than the requester's own manager when those differ.
-   * Null when HR is the approver, since HR is covered by targetRoles.
-   */
-  approverEmployeeId: string | null
-  categoryName: string
+  subject: string
   actorUserId: string | null
   note: string | null
 }
@@ -120,12 +114,11 @@ export function assetRequestEvent(args: RequestArgs): EventInput {
     entity: "ASSET_REQUEST",
     entityId: args.requestId,
     subjectEmployeeId: args.employeeId,
-    managerEmployeeId: args.stage === "submitted" ? args.approverEmployeeId : undefined,
     targetRoles: ["HR_ADMIN"],
     title: copy.title,
-    meta: [args.categoryName, args.note].filter(Boolean).join(" · "),
+    meta: [args.subject, args.note].filter(Boolean).join(" · "),
     href: "/assets",
-    payload: { stage: args.stage, categoryName: args.categoryName, note: args.note },
+    payload: { stage: args.stage, subject: args.subject, note: args.note },
   }
 }
 
