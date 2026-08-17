@@ -120,7 +120,12 @@ export type SubmitRequestInput = z.infer<typeof submitRequestSchema>
 // attendance: a rejection nobody explained is one the requester cannot act on.
 export const approveRequestSchema = z.object({ note: z.string().trim().max(1000).optional() })
 export const rejectRequestSchema = z.object({ note: z.string().trim().min(1).max(1000) })
-export const fulfilRequestSchema = z.object({ assetId: z.string().uuid() })
+// assetId is optional because a supply has no asset to name. Which of the two
+// applies is decided by the category, in the service, where it is known.
+export const fulfilRequestSchema = z.object({
+  assetId: z.string().uuid().optional(),
+  note: z.string().trim().max(1000).optional(),
+})
 
 export const markOrderedSchema = z.object({
   expectedBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date").optional(),

@@ -197,6 +197,38 @@ describe("fulfilRequest", () => {
   })
 })
 
+describe("fulfilRequest — supplies", () => {
+  it("closes a supply request without creating an asset or an assignment", async () => {
+    // ADR-0003: ten pens is one fact, not ten rows.
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1", employeeId: "emp-1", kind: "NEW_ITEM", status: "APPROVED", quantity: 10,
+      category: { name: "Stationery", tracksIndividually: false }, asset: null,
+    })
+    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "FULFILLED" })
+
+    await fulfilRequest("req-1", { note: "Issued from the store cupboard" }, hr)
+
+    expect(assignAsset).not.toHaveBeenCalled()
+    expect(tx.assetRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "FULFILLED", fulfilledAssetId: null }),
+      })
+    )
+  })
+
+  it("requires an assetId for a tracked request", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-2", employeeId: "emp-1", kind: "NEW_ITEM", status: "APPROVED", quantity: null,
+      category: { name: "Monitor", tracksIndividually: true }, asset: null,
+    })
+
+    await expect(fulfilRequest("req-2", {}, hr)).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Choose which asset to hand over.",
+    })
+  })
+})
+
 describe("rejectRequest", () => {
   it("400s an empty note — a rejection nobody explained is one the requester cannot act on", async () => {
     await expect(rejectRequest("req-1", { note: "" }, hr)).rejects.toMatchObject({

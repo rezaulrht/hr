@@ -396,13 +396,13 @@ export async function markOrdered(
 
 export async function fulfilRequest(
   requestId: string,
-  input: { assetId: string },
+  input: { assetId?: string; note?: string },
   actor: AccessTokenPayload
 ) {
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: { select: { name: true, tracksIndividually: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
     // Fulfilment is an action, not a second approval. HR either has a spare
@@ -416,14 +416,19 @@ export async function fulfilRequest(
       throw new AppError(409, "Only an approved or ordered request can be fulfilled")
     }
 
-    // Same transaction: a fulfilled request with no assignment behind it
-    // would be a register that says somebody has a monitor nobody issued.
-    await assignAsset(
-      input.assetId,
-      { employeeId: request.employeeId, conditionOut: "GOOD", requestId },
-      actor,
-      tx
-    )
+    const isSupply = request.kind === "NEW_ITEM" && request.category?.tracksIndividually === false
+
+    if (!isSupply) {
+      if (!input.assetId) throw new AppError(400, "Choose which asset to hand over.")
+      // Same transaction: a fulfilled request with no assignment behind it
+      // would be a register that says somebody has a monitor nobody issued.
+      await assignAsset(
+        input.assetId,
+        { employeeId: request.employeeId, conditionOut: "GOOD", requestId },
+        actor,
+        tx
+      )
+    }
 
     const updated = await tx.assetRequest.update({
       where: { id: requestId },
@@ -431,7 +436,8 @@ export async function fulfilRequest(
         status: "FULFILLED",
         fulfilledAt: new Date(),
         fulfilledBy: actor.sub,
-        fulfilledAssetId: input.assetId,
+        fulfilledAssetId: isSupply ? null : input.assetId!,
+        fulfilledNote: input.note ?? null,
       },
     })
 
@@ -440,7 +446,7 @@ export async function fulfilRequest(
       entityId: requestId,
       action: "FULFIL",
       changedBy: actor.sub,
-      after: { assetId: input.assetId },
+      after: isSupply ? { status: "FULFILLED", fulfilledAssetId: null } : { assetId: input.assetId },
     })
 
     // No event here. assignAsset already emitted asset.assigned carrying the
