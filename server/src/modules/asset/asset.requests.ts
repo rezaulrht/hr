@@ -176,6 +176,27 @@ export async function approveRequest(
       throw new AppError(409, "This request has already been decided")
     }
 
+    // Decision 5: approving a REPAIR is the act of sending it. The fault the
+    // employee typed becomes the repair's fault, so the story is not retold.
+    let repairId: string | null = null
+    if (request.kind === "REPAIR") {
+      const open = await tx.assetRepair.findFirst({
+        where: { assetId: request.assetId!, returnedAt: null },
+        select: { id: true },
+      })
+      if (open) throw new AppError(409, "This asset already has an open repair")
+
+      const repair = await tx.assetRepair.create({
+        data: {
+          assetId: request.assetId!,
+          sentAt: new Date(),
+          sentBy: actor.sub,
+          fault: request.reason,
+        },
+      })
+      repairId = repair.id
+    }
+
     const updated = await tx.assetRequest.update({
       where: { id: requestId },
       data: {
@@ -183,6 +204,7 @@ export async function approveRequest(
         decidedBy: actor.sub,
         decidedAt: new Date(),
         decisionNote: body.note ?? null,
+        ...(repairId ? { repairId } : {}),
       },
     })
 

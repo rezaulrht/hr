@@ -114,6 +114,14 @@ export async function receiveFromRepair(
       },
     })
 
+    // A REPAIR request is fulfilled by the thing coming back. updateMany, not
+    // update: there may be no request behind this repair at all, because HR
+    // can still send an asset for repair directly.
+    await tx.assetRequest.updateMany({
+      where: { repairId, status: "APPROVED" },
+      data: { status: "FULFILLED", fulfilledAt: new Date(), fulfilledBy: actor.sub },
+    })
+
     await writeAudit(tx, {
       entity: "ASSET_REPAIR",
       entityId: repairId,

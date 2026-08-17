@@ -5,6 +5,7 @@ vi.mock("../../config/prisma", () => {
     assetRequest: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     assetCategory: { findUnique: vi.fn() },
     assetAssignment: { findFirst: vi.fn() },
+    assetRepair: { findFirst: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
     event: { create: vi.fn() },
     employee: { findUnique: vi.fn() },
@@ -110,6 +111,47 @@ describe("approveRequest — status guard", () => {
     })
 
     await expect(approveRequest("req-1", {}, admin)).rejects.toMatchObject({ statusCode: 409 })
+  })
+})
+
+describe("approveRequest — REPAIR", () => {
+  it("creates the repair in the same transaction and links it", async () => {
+    // Decision 5: approval means it has gone to the repairer. The alternative
+    // leaves a request APPROVED while nothing was sent — exactly the blind
+    // spot ORDERED exists to close.
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1", employeeId: "emp-1", kind: "REPAIR", status: "PENDING",
+      assetId: "ast-1", reason: "Keyboard is dead",
+      category: null, asset: { assetTag: "BS-AST-00012", name: "MacBook Pro 14" },
+    })
+    tx.assetRepair.findFirst.mockResolvedValue(null)
+    tx.assetRepair.create.mockResolvedValue({ id: "rep-1" })
+    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "APPROVED", repairId: "rep-1" })
+
+    await approveRequest("req-1", {}, admin)
+
+    expect(tx.assetRepair.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ assetId: "ast-1", fault: "Keyboard is dead" }),
+      })
+    )
+    expect(tx.assetRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ repairId: "rep-1" }) })
+    )
+  })
+
+  it("409s when the asset already has an open repair", async () => {
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1", employeeId: "emp-1", kind: "REPAIR", status: "PENDING",
+      assetId: "ast-1", reason: "Screen flickers",
+      category: null, asset: { assetTag: "BS-AST-00012", name: "MacBook Pro 14" },
+    })
+    tx.assetRepair.findFirst.mockResolvedValue({ id: "rep-existing" })
+
+    await expect(approveRequest("req-1", {}, admin)).rejects.toMatchObject({
+      statusCode: 409,
+      message: "This asset already has an open repair",
+    })
   })
 })
 
