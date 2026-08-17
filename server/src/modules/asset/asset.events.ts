@@ -100,6 +100,7 @@ interface RequestArgs {
   stage: RequestStage
   requestId: string
   employeeId: string
+  /** The category name, or the asset tag and name — whichever the kind names. */
   subject: string
   actorUserId: string | null
   note: string | null
@@ -114,7 +115,9 @@ export function assetRequestEvent(args: RequestArgs): EventInput {
     entity: "ASSET_REQUEST",
     entityId: args.requestId,
     subjectEmployeeId: args.employeeId,
-    targetRoles: ["HR_ADMIN"],
+    // ADR-0002: there is no resolved approver to notify any more. Without
+    // SUPER_ADMIN here a submitted request would notify nobody at all.
+    targetRoles: ["HR_ADMIN", "SUPER_ADMIN"],
     title: copy.title,
     meta: [args.subject, args.note].filter(Boolean).join(" · "),
     href: "/assets",

@@ -1,21 +1,14 @@
 /**
- * Asset requests, approved by the requester's manager.
+ * Asset requests, decided by Super Admin alone (ADR-0002).
  *
- * The approver rule is attendance's, verbatim:
+ * Approval can now mean "go and buy a laptop", and that purchase reaches the
+ * ledger through capitalisation — authority to commit money sits at the top.
+ * There is no resolved approver to notify any more, and no self-approval
+ * guard: `POST /requests` is STAFF_ROLES only, so a Super Admin has no
+ * request of their own to approve.
  *
- *   The approver is the employee's `reportingManagerId`. If that is null, the
- *   request falls to HR_ADMIN / SUPER_ADMIN.
- *
- * It is right for the same reason it was right there: a Reporting Manager is
- * an Employee like any other, so a manager's own request goes to whoever is
- * above them and to HR when nobody is. No role check, no special case — it
- * falls out of the org chart. Two guards on top: nobody approves their own
- * request, and HR/Super Admin can override any of them, so a resigned or slow
- * manager cannot park a request forever.
- *
- * *Why the manager rather than HR:* "does this person need a second monitor?"
- * is a judgement about their work, which their manager has and HR does not.
- * HR owns whether a unit is available, which is answered at fulfilment.
+ * Finance sees every request without deciding any: a pending purchase is a
+ * pending payable.
  */
 
 import prisma from "../../config/prisma"
@@ -28,42 +21,21 @@ import { emitEvent } from "../event/event.emit"
 import { assetRequestEvent } from "./asset.events"
 import type { SubmitRequestInput } from "./asset.validators"
 
-/** `employee.reportingManagerId`, or null so the request falls to HR. */
-export async function resolveApprover(employeeId: string): Promise<string | null> {
-  const employee = await prisma.employee.findUnique({
-    where: { id: employeeId },
-    select: { reportingManagerId: true },
-  })
-  return employee?.reportingManagerId ?? null
-}
-
 /**
- * Whether this actor may decide this request.
+ * ADR-0002: Super Admin alone decides, of every kind.
  *
- * Mirrors `attendance.approval.ts`'s `assertCanDecide`: nobody decides their
- * own request, HR/Super Admin override anyone, and otherwise the caller must
- * be the resolved approver.
+ * This replaces the `reportingManagerId ?? HR` routing inherited from
+ * attendance. Approval used to move no money — "hand them one from the
+ * cupboard". It can now mean "go and buy a laptop", and that purchase reaches
+ * the ledger through capitalisation. Authority to commit money sits at the top.
+ *
+ * The self-approval guard is gone with it: `POST /requests` is STAFF_ROLES
+ * only, so a Super Admin has no request of their own to approve.
  */
-async function assertCanDecide(
-  actor: AccessTokenPayload,
-  request: { employeeId: string }
-): Promise<void> {
-  const isHr = actor.role === "HR_ADMIN" || actor.role === "SUPER_ADMIN"
-
-  const self = await prisma.employee.findUnique({
-    where: { userId: actor.sub },
-    select: { id: true },
-  })
-  if (self && self.id === request.employeeId) {
-    throw new AppError(403, "You cannot approve your own asset request")
+function assertCanDecide(actor: AccessTokenPayload): void {
+  if (actor.role !== "SUPER_ADMIN") {
+    throw new AppError(403, "Only a Super Admin can decide an asset request")
   }
-
-  if (isHr) return
-
-  const approverId = await resolveApprover(request.employeeId)
-  if (self && approverId === self.id) return
-
-  throw new AppError(403, "You are not the approver for this request")
 }
 
 export async function submitRequest(
@@ -149,14 +121,20 @@ export async function submitRequest(
 
 /**
  * Scoped the way attendance's approvals queue is: an employee sees their own
- * requests, a manager sees their own plus their reports', HR/Super Admin see
- * all.
+ * requests, a manager sees their own plus their reports', HR / Super Admin /
+ * Finance see all.
  */
 export async function listRequests(viewer: AccessTokenPayload): Promise<AssetRequest[]> {
-  const isHr = viewer.role === "HR_ADMIN" || viewer.role === "SUPER_ADMIN"
+  // Finance sees everything because a pending purchase is a pending payable.
+  // Before this they fell into the employee branch, had no Employee row, and
+  // received an empty list.
+  const unscoped =
+    viewer.role === "HR_ADMIN" ||
+    viewer.role === "SUPER_ADMIN" ||
+    viewer.role === "FINANCE_OFFICER"
 
   let where: Prisma.AssetRequestWhereInput = {}
-  if (!isHr) {
+  if (!unscoped) {
     const self = await prisma.employee.findUnique({
       where: { userId: viewer.sub },
       select: { id: true },
@@ -173,6 +151,7 @@ export async function listRequests(viewer: AccessTokenPayload): Promise<AssetReq
     where,
     include: {
       category: true,
+      asset: { select: { id: true, assetTag: true, name: true } },
       employee: { select: { id: true, fullName: true, employeeCode: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -187,11 +166,11 @@ export async function approveRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: true, asset: { select: { assetTag: true, name: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    await assertCanDecide(actor, request)
+    assertCanDecide(actor)
 
     if (request.status !== "PENDING") {
       throw new AppError(409, "This request has already been decided")
@@ -222,8 +201,7 @@ export async function approveRequest(
         stage: "approved",
         requestId,
         employeeId: request.employeeId,
-        approverEmployeeId: null,
-        categoryName: request.category.name,
+        subject: request.category?.name ?? `${request.asset!.assetTag} · ${request.asset!.name}`,
         actorUserId: actor.sub,
         note: body.note ?? null,
       })
@@ -246,11 +224,11 @@ export async function rejectRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: true, asset: { select: { assetTag: true, name: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    await assertCanDecide(actor, request)
+    assertCanDecide(actor)
 
     if (request.status !== "PENDING") {
       throw new AppError(409, "This request has already been decided")
@@ -281,8 +259,7 @@ export async function rejectRequest(
         stage: "rejected",
         requestId,
         employeeId: request.employeeId,
-        approverEmployeeId: null,
-        categoryName: request.category.name,
+        subject: request.category?.name ?? `${request.asset!.assetTag} · ${request.asset!.name}`,
         actorUserId: actor.sub,
         note: body.note,
       })

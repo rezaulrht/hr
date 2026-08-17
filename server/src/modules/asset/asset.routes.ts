@@ -130,10 +130,9 @@ router.patch("/requests/:id/reject", requireAuth, rejectRequestHandler)
 router.patch("/requests/:id/cancel", requireAuth, requireRole(...STAFF_ROLES), cancelRequestHandler)
 router.post("/requests/:id/fulfil", requireAuth, requireRole(...HR_ROLES), fulfilRequestHandler)
 
-// Approve/reject carry no requireRole: the approver is resolved from the org
-// chart, not from a role. A Reporting Manager approving their report and an
-// HR_ADMIN overriding are both legitimate, and the 403 lives in the service
-// where the reporting line is known.
+// Approve/reject carry no requireRole: only a Super Admin can decide (ADR-0002)
+// and the 403 lives in the service, so the route stays open and the refusal is
+// a clean 403 rather than a 405/404 from the role gate.
 
 // spreadsheetUpload, not assetUpload: these carry an .xlsx/.csv register,
 // not a photo. assetUpload's document filter rejected every import.

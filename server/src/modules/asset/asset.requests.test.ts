@@ -29,7 +29,6 @@ import {
   fulfilRequest,
   listRequests,
   rejectRequest,
-  resolveApprover,
   submitRequest,
 } from "./asset.requests"
 
@@ -38,6 +37,8 @@ const tx = (prisma as unknown as { __tx: any }).__tx
 const hr = { sub: "user-hr", role: "HR_ADMIN", email: "hr@demo.com", mustChangePassword: false } as never
 const mgr = { sub: "user-mgr", role: "REPORTING_MANAGER", email: "m@demo.com", mustChangePassword: false } as never
 const emp = { sub: "user-emp", role: "EMPLOYEE", email: "e@demo.com", mustChangePassword: false } as never
+const admin = { sub: "user-admin", role: "SUPER_ADMIN", email: "a@demo.com", mustChangePassword: false } as never
+const finance = { sub: "user-fin", role: "FINANCE_OFFICER", email: "f@demo.com", mustChangePassword: false } as never
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -45,62 +46,62 @@ beforeEach(() => {
   tx.event.create.mockResolvedValue({})
 })
 
-describe("resolveApprover", () => {
-  it("returns the employee's reporting manager", async () => {
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-1", reportingManagerId: "emp-mgr" } as never)
-
-    await expect(resolveApprover("emp-1")).resolves.toBe("emp-mgr")
+describe("approveRequest — Super Admin alone", () => {
+  beforeEach(() => {
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1", employeeId: "emp-1", kind: "NEW_ITEM", status: "PENDING",
+      category: { name: "Monitor" }, asset: null,
+    })
+    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "APPROVED" })
+    prisma.employee.findUnique = vi.fn().mockResolvedValue({ id: "emp-9" })
   })
 
-  it("returns null when there is no manager, so the request falls to HR", async () => {
-    // A Reporting Manager is an Employee like any other, so a manager's own
-    // request goes to whoever is above them — and to HR when nobody is. No
-    // role check; it falls out of the org chart.
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr", reportingManagerId: null } as never)
-
-    await expect(resolveApprover("emp-mgr")).resolves.toBeNull()
+  it("lets a Super Admin approve", async () => {
+    await expect(approveRequest("req-1", {}, admin)).resolves.toMatchObject({ status: "APPROVED" })
   })
 
-  it("returns the manager's own manager for a manager's request", async () => {
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr", reportingManagerId: "emp-head" } as never)
+  it("refuses an HR_ADMIN — approval commits money and sits with Super Admin (ADR-0002)", async () => {
+    await expect(approveRequest("req-1", {}, hr)).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Only a Super Admin can decide an asset request",
+    })
+  })
 
-    await expect(resolveApprover("emp-mgr")).resolves.toBe("emp-head")
+  it("refuses the requester's own manager", async () => {
+    await expect(approveRequest("req-1", {}, mgr)).rejects.toMatchObject({ statusCode: 403 })
   })
 })
 
-describe("approveRequest", () => {
-  it("403s when the approver is the requester", async () => {
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr", reportingManagerId: null } as never)
-    tx.assetRequest.findUnique.mockResolvedValue({
-      id: "req-1",
-      employeeId: "emp-mgr",
-      status: "PENDING",
-      category: { name: "Monitor" },
-    })
+describe("listRequests — visibility", () => {
+  it("shows a Finance Officer every request", async () => {
+    // Finance capitalises whatever gets bought, so a pending purchase is a
+    // pending payable. Before this they fell into the employee branch, had no
+    // Employee row, and received [].
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
 
-    await expect(approveRequest("req-1", {}, mgr)).rejects.toMatchObject({ statusCode: 403 })
-    expect(tx.assetRequest.update).not.toHaveBeenCalled()
-  })
+    await listRequests(finance)
 
-  it("lets HR override a manager's queue so a request cannot be parked forever", async () => {
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null as never)
-    tx.assetRequest.findUnique.mockResolvedValue({
-      id: "req-1",
-      employeeId: "emp-1",
-      status: "PENDING",
-      category: { name: "Monitor" },
-    })
-    tx.assetRequest.update.mockResolvedValue({ id: "req-1", status: "APPROVED" })
-
-    await approveRequest("req-1", {}, hr)
-
-    expect(tx.assetRequest.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "APPROVED", decidedBy: "user-hr" }) })
+    expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} })
     )
   })
 
+  it("still scopes a manager to themselves and their reports", async () => {
+    vi.mocked(prisma.employee.findUnique).mockResolvedValue({ id: "emp-mgr" } as never)
+    vi.mocked(prisma.assetRequest.findMany).mockResolvedValue([] as never)
+
+    await listRequests(mgr)
+
+    expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ employeeId: "emp-mgr" }, { employee: { reportingManagerId: "emp-mgr" } }] },
+      })
+    )
+  })
+})
+
+describe("approveRequest — status guard", () => {
   it("409s on a request that is not PENDING", async () => {
-    vi.mocked(prisma.employee.findUnique).mockResolvedValue(null as never)
     tx.assetRequest.findUnique.mockResolvedValue({
       id: "req-1",
       employeeId: "emp-1",
@@ -108,7 +109,7 @@ describe("approveRequest", () => {
       category: { name: "Monitor" },
     })
 
-    await expect(approveRequest("req-1", {}, hr)).rejects.toMatchObject({ statusCode: 409 })
+    await expect(approveRequest("req-1", {}, admin)).rejects.toMatchObject({ statusCode: 409 })
   })
 })
 
