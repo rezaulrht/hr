@@ -1,8 +1,10 @@
 import type {
+  Asset,
   AssetComputedStatus,
   AssetCondition,
   AssetRecoveryKind,
   AssetRecoveryStatus,
+  AssetRequestStage,
   AssetRequestStatus,
   Role,
 } from "@/lib/api/types"
@@ -50,6 +52,51 @@ export const REQUEST_STATUS_LABEL: Record<AssetRequestStatus, string> = {
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
   FULFILLED: "Fulfilled",
+}
+
+/**
+ * The stage a request has reached, which is what a reader actually wants.
+ *
+ * Preferred over `REQUEST_STATUS_LABEL` everywhere a person reads a row:
+ * `status` is the stored column and says "Approved" for a laptop nobody has
+ * bought, a machine at the repairer, and a monitor waiting to be collected.
+ * `stage` is derived server-side (`asset.stage.ts`) and tells those apart.
+ */
+export const REQUEST_STAGE_LABEL: Record<AssetRequestStage, string> = {
+  AWAITING_APPROVAL: "Awaiting approval",
+  APPROVED: "Approved",
+  ORDERED: "Ordered",
+  IN_REPAIR: "At the repairer",
+  AWAITING_COLLECTION: "Awaiting collection",
+  DONE: "Done",
+  REJECTED: "Rejected",
+  CANCELLED: "Cancelled",
+}
+
+export const REQUEST_STAGE_TONE: Record<AssetRequestStage, string> = {
+  AWAITING_APPROVAL: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  APPROVED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  ORDERED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
+  IN_REPAIR: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  AWAITING_COLLECTION: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
+  DONE: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
+  REJECTED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+  CANCELLED: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
+}
+
+/**
+ * Still waiting on somebody. Drives the tab counts and the employee list's
+ * split, so a count means "needs attention" rather than "rows in this tab" —
+ * a number that includes closed rows only ever grows, and then nobody reads it.
+ */
+export function isRequestOpen(stage: AssetRequestStage): boolean {
+  return stage !== "DONE" && stage !== "REJECTED" && stage !== "CANCELLED"
+}
+
+/** How many units of a category are free to hand over right now. */
+export function availableOf(assets: Asset[], categoryId: string | null | undefined): number {
+  if (!categoryId) return 0
+  return assets.filter((a) => a.status === "AVAILABLE" && a.category?.id === categoryId).length
 }
 
 export const canManageAssets = (role: Role) => role === "HR_ADMIN" || role === "SUPER_ADMIN"

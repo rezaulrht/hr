@@ -2,6 +2,14 @@
 
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  RiArchiveLine,
+  RiInboxLine,
+  RiMoneyDollarCircleLine,
+  RiQuestionMark,
+  RiToolsLine,
+  RiUploadCloud2Line,
+} from "@remixicon/react"
 
 import {
   acknowledgeAssignment,
@@ -16,6 +24,7 @@ import {
   listRepairs,
   listUnacknowledged,
   markAssetLost,
+  markAssetRequestOrdered,
   payForAsset,
   rejectAssetRequest,
   retireAsset,
@@ -40,6 +49,7 @@ import { FulfilDialog } from "@/components/asset/fulfil-dialog"
 import { ImportWizard } from "@/components/asset/import-wizard"
 import { ReceiveRepairDialog } from "@/components/asset/receive-repair-dialog"
 import { RepairDialog } from "@/components/asset/repair-dialog"
+import { RequestDetail } from "@/components/asset/request-detail"
 import { RequestDialog } from "@/components/asset/request-dialog"
 import { ReturnDialog } from "@/components/asset/return-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
@@ -48,13 +58,15 @@ import { RecoveriesTab } from "@/components/asset/recoveries-tab"
 import { MyRecoveries } from "@/components/asset/my-recoveries"
 import { LifecycleRecoveryDialog } from "@/components/asset/lifecycle-recovery-dialog"
 import {
+  availableOf,
   canDispose,
   canManageAssets,
   CONDITION_LABEL,
   formatAssetDate,
+  isRequestOpen,
   isStaff,
-  REQUEST_STATUS_LABEL,
-  REQUEST_STATUS_TONE,
+  REQUEST_STAGE_LABEL,
+  REQUEST_STAGE_TONE,
   STATUS_LABEL,
   STATUS_TONE,
 } from "@/components/asset/asset-shared"
@@ -476,11 +488,15 @@ function RepairsTable({
 
 function RequestsTable({
   requests,
+  assets,
   ownEmployeeCode,
   canDecide,
   onApprove,
   onReject,
+  onView,
   onFulfil,
+  onAddAsset,
+  onMarkOrdered,
   onWithdraw,
   approvingId,
   emptyTitle,
@@ -488,24 +504,37 @@ function RequestsTable({
   ...state
 }: TableState & {
   requests: AssetRequest[]
+  /** The register, so a row can tell whether anything exists to hand over. */
+  assets?: Asset[]
   ownEmployeeCode?: string
   canDecide: boolean
   onApprove: (id: string) => void
   onReject: (id: string) => void
+  /** Opens the request's history. Available to every viewer of the row. */
+  onView?: (request: AssetRequest) => void
   /** HR / Super Admin only: the step that turns an approval into custody. */
   onFulfil?: (request: AssetRequest) => void
+  /** HR / Super Admin: add the thing that was approved, prefilled from the row. */
+  onAddAsset?: (request: AssetRequest) => void
+  /** HR / Super Admin: record that it has been ordered but has not arrived. */
+  onMarkOrdered?: (request: AssetRequest) => void
   /** The requester's own way out, before anybody has decided. */
   onWithdraw?: (request: AssetRequest) => void
   approvingId: string | null
   emptyTitle: string
   emptyBody: string
 }) {
-  const showActions = canDecide || !!onWithdraw
+  // `onView` counts: without it a read-only viewer (Finance) gets no action
+  // column at all, and the history is the one thing they came for.
+  const showActions = canDecide || !!onWithdraw || !!onView
 
   const rows: TableCell[][] = requests.map((r) => {
     // Nobody decides their own request — matching the server, so the button
     // never appears only to 403 when pressed.
     const isOwn = !!ownEmployeeCode && r.employee?.employeeCode === ownEmployeeCode
+    // A supply (quantity set) is issued by count and never registered, so it
+    // is always handable-over; a tracked item needs a free unit to exist.
+    const hasStock = availableOf(assets ?? [], r.categoryId) > 0
     return [
       {
         text: r.employee ? r.employee.fullName : r.employeeId,
@@ -514,17 +543,30 @@ function RequestsTable({
       },
       { text: r.category?.name ?? "No category" },
       { text: r.reason },
+      // The stage, not the stored status. "Approved" alone was the same word
+      // for a laptop nobody has bought, a machine at the repairer and a
+      // monitor waiting to be collected.
       badgeCell(
-        REQUEST_STATUS_TONE[r.status],
-        REQUEST_STATUS_LABEL[r.status],
-        r.status === "REJECTED" && r.decisionNote ? r.decisionNote : undefined
+        REQUEST_STAGE_TONE[r.stage],
+        REQUEST_STAGE_LABEL[r.stage],
+        r.stage === "REJECTED" && r.decisionNote ? r.decisionNote : undefined
       ),
       ...(showActions
         ? [
             {
               node: (
                 <div className="flex justify-end gap-2 whitespace-nowrap">
-                  {canDecide && r.status === "PENDING" && !isOwn ? (
+                  {/* First, and on every row regardless of stage: the history
+                      is the one thing that is always worth opening, including
+                      on a request that was rejected six months ago. Matches
+                      the register, where View is also the constant. */}
+                  {onView ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => onView(r)}>
+                      View
+                    </Button>
+                  ) : null}
+
+                  {canDecide && r.stage === "AWAITING_APPROVAL" && !isOwn ? (
                     <>
                       <Button
                         type="button"
@@ -540,17 +582,43 @@ function RequestsTable({
                     </>
                   ) : null}
 
-                  {/* An approved request used to stop here. The employee saw
-                      "Approved" and received nothing, because the only way to
-                      hand anything over was to assign it from the register and
-                      leave this row open forever. */}
-                  {onFulfil && r.status === "APPROVED" ? (
-                    <Button type="button" size="sm" onClick={() => onFulfil(r)}>
-                      Hand over
-                    </Button>
+                  {/* The row knows whether anything exists to hand over, so it
+                      names the step that is actually next. It used to offer
+                      "Hand over" regardless, and the dialog then told you to go
+                      and add an asset — a dead end you only found by clicking.
+                      Repairs and returns are excluded: their next act happens
+                      on the asset, not here. */}
+                  {r.kind === "NEW_ITEM" && (r.stage === "APPROVED" || r.stage === "ORDERED") ? (
+                    hasStock || r.quantity !== null ? (
+                      onFulfil ? (
+                        <Button type="button" size="sm" onClick={() => onFulfil(r)}>
+                          Hand over
+                        </Button>
+                      ) : null
+                    ) : (
+                      <>
+                        {onAddAsset ? (
+                          <Button type="button" size="sm" onClick={() => onAddAsset(r)}>
+                            Add asset
+                          </Button>
+                        ) : null}
+                        {/* Records that somebody went shopping, so "approved and
+                            forgotten" stops looking like "approved and ordered". */}
+                        {onMarkOrdered && r.stage === "APPROVED" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onMarkOrdered(r)}
+                          >
+                            Mark ordered
+                          </Button>
+                        ) : null}
+                      </>
+                    )
                   ) : null}
 
-                  {onWithdraw && r.status === "PENDING" && isOwn ? (
+                  {onWithdraw && r.stage === "AWAITING_APPROVAL" && isOwn ? (
                     <Button type="button" size="sm" variant="outline" onClick={() => onWithdraw(r)}>
                       Withdraw
                     </Button>
@@ -658,6 +726,11 @@ export function AssetPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editAssetId, setEditAssetId] = useState<string | null>(null)
   const [fulfilling, setFulfilling] = useState<AssetRequest | null>(null)
+  /** The approved request whose asset is being added, so the dialog can prefill. */
+  const [addingFor, setAddingFor] = useState<AssetRequest | null>(null)
+  const [showAllRequests, setShowAllRequests] = useState(false)
+  /** The request whose history is open in the side sheet. */
+  const [viewingRequest, setViewingRequest] = useState<AssetRequest | null>(null)
   const [receiving, setReceiving] = useState<AssetRepair | null>(null)
   const [withdrawing, setWithdrawing] = useState<AssetRequest | null>(null)
 
@@ -711,6 +784,23 @@ export function AssetPage() {
 
   const acknowledgeMutation = useMutation({
     mutationFn: (assignmentId: string) => acknowledgeAssignment(accessToken!, assignmentId),
+    onSuccess: () => {
+      setError(null)
+      invalidateAssets()
+    },
+    onError: handleError,
+  })
+
+  /**
+   * Records that somebody went shopping. Without it "approved a fortnight ago
+   * and forgotten" and "approved and on its way" are the same row.
+   *
+   * No dialog: the expected-by date and note the endpoint accepts are both
+   * optional, and asking for them would put a form in front of a one-word
+   * fact. If a date turns out to be wanted here, that is when it earns a form.
+   */
+  const markOrderedMutation = useMutation({
+    mutationFn: (requestId: string) => markAssetRequestOrdered(accessToken!, requestId),
     onSuccess: () => {
       setError(null)
       invalidateAssets()
@@ -832,6 +922,50 @@ export function AssetPage() {
   // Filtering happens on the server here, so an empty result means either a
   // narrow filter or an empty register, and only this tells the two apart.
   const filtersActive = !!filters.status || !!filters.categoryId || !!filters.q
+  const openRequestCount = (requestsQuery.data ?? []).filter((r) => isRequestOpen(r.stage)).length
+
+  /**
+   * Counts are what still needs somebody, never rows in the tab. Register and
+   * Import carry none: a register is not a queue, and an importer has nothing
+   * outstanding. Recoveries counts only PENDING — a waived or recovered one is
+   * closed and must not keep the badge lit.
+   */
+  const ASSET_TABS = [
+    { value: "register", label: "Register", icon: RiArchiveLine, count: 0 },
+    { value: "recoveries", label: "Recoveries", icon: RiMoneyDollarCircleLine, count: 0 },
+    {
+      value: "unacknowledged",
+      label: "Unacknowledged",
+      icon: RiQuestionMark,
+      count: unacknowledgedQuery.data?.length ?? 0,
+    },
+    {
+      value: "repairs",
+      label: "Open repairs",
+      icon: RiToolsLine,
+      count: repairsQuery.data?.length ?? 0,
+    },
+    { value: "requests", label: "Requests", icon: RiInboxLine, count: openRequestCount },
+    { value: "import", label: "Import", icon: RiUploadCloud2Line, count: 0 },
+  ]
+
+  // The employee list shows every open request plus the three most recent
+  // closed ones. `listRequests` returns their whole history, newest first, and
+  // a year of it buried the holdings section underneath.
+  const CLOSED_REQUESTS_SHOWN = 3
+  const myRequests = requestsQuery.data ?? []
+  const myVisibleRequests = showAllRequests
+    ? myRequests
+    : (() => {
+        let closedShown = 0
+        return myRequests.filter((r) => {
+          if (isRequestOpen(r.stage)) return true
+          closedShown += 1
+          return closedShown <= CLOSED_REQUESTS_SHOWN
+        })
+      })()
+  const hiddenRequestCount = myRequests.length - myVisibleRequests.length
+
   const acknowledgingId = acknowledgeMutation.isPending ? (acknowledgeMutation.variables ?? null) : null
   const approvingId = approveRequestMutation.isPending ? (approveRequestMutation.variables ?? null) : null
 
@@ -847,40 +981,63 @@ export function AssetPage() {
 
       {manage ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <RegisterFilters
-                filters={filters}
-                onChange={setFilters}
-                categories={categories}
-                shown={registerQuery.data?.length ?? 0}
-              />
-            </div>
+          {/* The filters moved inside the Register tab, where they apply.
+              Sitting out here they stayed on screen for all six tabs, so the
+              Requests tab offered a "Search tag, name or serial" box, asset
+              statuses and a "2 assets" count while showing three requests —
+              and typing in that box silently re-queried a register nobody
+              could see. "Add asset" stays: it is a global action, and the
+              Requests tab is exactly where it gets reached for. */}
+          <div className="flex flex-wrap items-start justify-end gap-3">
             <Button type="button" onClick={() => setCreateOpen(true)}>
               Add asset
             </Button>
           </div>
 
           <Tabs defaultValue="register">
-            <TabsList>
-              <TabsTrigger value="register">Register</TabsTrigger>
-              <TabsTrigger value="recoveries">Recoveries</TabsTrigger>
-              <TabsTrigger value="unacknowledged">
-                Unacknowledged
-                {unacknowledgedQuery.data?.length ? ` (${unacknowledgedQuery.data.length})` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="repairs">
-                Open repairs{repairsQuery.data?.length ? ` (${repairsQuery.data.length})` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="requests">Requests</TabsTrigger>
-              <TabsTrigger value="import">Import</TabsTrigger>
+            {/* The same underline strip the Settings page uses, for the same
+                reason: the sidebar already owns a filled-pill nav, so a second
+                filled treatment inside the page reads as a competing
+                hierarchy. The default boxed TabsList also pins itself to h-8
+                and overflowed at six items, which is where the scroll arrows
+                came from. */}
+            <TabsList
+              variant="line"
+              /* `h-auto!` is load-bearing: the primitive pins a horizontal list
+                 to `h-8` via `group-data-horizontal/tabs:h-8`, which outranks a
+                 plain utility on specificity. */
+              className="h-auto! w-full justify-start gap-6 overflow-x-auto rounded-none border-b border-[#E4E9EF] bg-transparent p-0"
+            >
+              {ASSET_TABS.map(({ value, label, icon: Icon, count }) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="h-auto flex-none gap-2 rounded-none border-b-2 border-transparent px-0 pt-0 pb-2.5 text-[13px] font-semibold text-[#5F6B7C] transition-colors after:hidden hover:text-[#1C2733] data-active:border-b-[#17191C] data-active:bg-transparent data-active:text-[#1C2733]"
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  {label}
+                  {/* A count is a quantity, not part of the name, so it reads
+                      as a pill rather than "(3)" glued to the label. */}
+                  {count ? (
+                    <span className="rounded-full bg-[#EEF1F5] px-1.5 py-px text-[11px] font-bold text-[#5F6B7C] tabular-nums">
+                      {count}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value="recoveries" className="pt-3">
               <RecoveriesTab />
             </TabsContent>
 
-            <TabsContent value="register" className="pt-3">
+            <TabsContent value="register" className="space-y-3 pt-3">
+              <RegisterFilters
+                filters={filters}
+                onChange={setFilters}
+                categories={categories}
+                shown={registerQuery.data?.length ?? 0}
+              />
               <AssetTable
                 assets={registerQuery.data ?? []}
                 isLoading={registerQuery.isPending}
@@ -921,6 +1078,7 @@ export function AssetPage() {
             <TabsContent value="requests" className="pt-3">
               <RequestsTable
                 requests={requestsQuery.data ?? []}
+                assets={registerQuery.data ?? []}
                 isLoading={requestsQuery.isPending}
                 isError={requestsQuery.isError}
                 onRetry={() => requestsQuery.refetch()}
@@ -931,7 +1089,10 @@ export function AssetPage() {
                   setError(null)
                   setRejecting(id)
                 }}
+                onView={setViewingRequest}
                 onFulfil={setFulfilling}
+                onAddAsset={setAddingFor}
+                onMarkOrdered={(r) => markOrderedMutation.mutate(r.id)}
                 onWithdraw={staff ? setWithdrawing : undefined}
                 approvingId={approvingId}
                 emptyTitle="No requests yet"
@@ -1029,6 +1190,7 @@ export function AssetPage() {
                 setError(null)
                 setRejecting(id)
               }}
+              onView={setViewingRequest}
               // No onFulfil: handing an asset over is HR / Super Admin on the
               // server, so a manager approving is where their part ends.
               onWithdraw={setWithdrawing}
@@ -1042,27 +1204,20 @@ export function AssetPage() {
 
       {role === "EMPLOYEE" ? (
         <div className="space-y-6">
+          {/* Requests lead, holdings follow. Most people hold one or two
+              things and have no reason to look at them; what brings somebody
+              to this page is asking for something, or chasing what they
+              already asked for. The button moved up with the section it
+              belongs to. */}
           <section>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-[15px] font-bold">What I&apos;m holding</div>
+              <div className="text-[15px] font-bold">My requests</div>
               <Button type="button" size="sm" variant="outline" onClick={() => setRequestOpen(true)}>
                 Request an asset
               </Button>
             </div>
-            <HoldingsTable
-              assignments={holdingsQuery.data ?? []}
-              isLoading={holdingsQuery.isPending}
-              isError={holdingsQuery.isError}
-              onRetry={() => holdingsQuery.refetch()}
-              onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
-              acknowledgingId={acknowledgingId}
-            />
-          </section>
-
-          <section>
-            <SectionTitle>My requests</SectionTitle>
             <RequestsTable
-              requests={requestsQuery.data ?? []}
+              requests={myVisibleRequests}
               isLoading={requestsQuery.isPending}
               isError={requestsQuery.isError}
               onRetry={() => requestsQuery.refetch()}
@@ -1070,12 +1225,39 @@ export function AssetPage() {
               canDecide={false}
               onApprove={() => {}}
               onReject={() => {}}
+              onView={setViewingRequest}
               // The requester's own way out. Without it a request typed by
               // mistake sat in somebody's queue until they rejected it.
               onWithdraw={setWithdrawing}
               approvingId={null}
               emptyTitle="You have not requested anything"
               emptyBody="Use Request an asset above, and the decision appears here."
+            />
+            {/* Below md every row becomes its own card, so an unbounded
+                history would push "What I'm holding" — and the Acknowledge
+                button on it — far below the fold on the phone most employees
+                use. Open requests always show; closed ones are capped until
+                asked for. */}
+            {hiddenRequestCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowAllRequests(true)}
+                className="mt-2 text-[12.5px] font-semibold text-[#3A6FF8] underline-offset-2 hover:underline"
+              >
+                Show {hiddenRequestCount} earlier request{hiddenRequestCount === 1 ? "" : "s"}
+              </button>
+            ) : null}
+          </section>
+
+          <section>
+            <SectionTitle>What I&apos;m holding</SectionTitle>
+            <HoldingsTable
+              assignments={holdingsQuery.data ?? []}
+              isLoading={holdingsQuery.isPending}
+              isError={holdingsQuery.isError}
+              onRetry={() => holdingsQuery.refetch()}
+              onAcknowledge={(id) => acknowledgeMutation.mutate(id)}
+              acknowledgingId={acknowledgingId}
             />
           </section>
 
@@ -1103,10 +1285,36 @@ export function AssetPage() {
         acknowledgePending={acknowledgeMutation.isPending}
       />
 
+      {/* Read-only, so it is mounted for every role. The actions all stay on
+          the row, which keeps one owner for the mutations and the query
+          invalidation they need. */}
+      <RequestDetail
+        request={viewingRequest}
+        open={!!viewingRequest}
+        onOpenChange={(next) => !next && setViewingRequest(null)}
+      />
+
       <CreateAssetDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
         onSuccess={invalidateAssets}
+      />
+
+      {/* Adding the thing an approved request asked for. Keyed on the request
+          so re-opening for a different row re-seeds the category. Saving does
+          NOT assign it: approving and buying are separate moments, and the
+          handover stays a distinct act so the register records who issued it
+          and in what condition. */}
+      <CreateAssetDialog
+        key={addingFor?.id ?? "add-for-idle"}
+        open={!!addingFor}
+        prefillCategoryId={addingFor?.categoryId ?? undefined}
+        requestedBy={addingFor?.employee?.fullName ?? undefined}
+        onOpenChange={(next) => !next && setAddingFor(null)}
+        onSuccess={() => {
+          setAddingFor(null)
+          invalidateAssets()
+        }}
       />
 
       {/* Keyed so switching target asset remounts and re-seeds the form. */}
