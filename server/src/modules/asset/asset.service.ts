@@ -18,7 +18,7 @@ import { assetScopeFor, canSeeCosts, stripCosts } from "./asset.access"
 import { assetLifecycleEvent } from "./asset.events"
 import { createRecoveryIn } from "./asset.recoveries"
 import { computeAssetStatus } from "./asset.status"
-import type { HeldBy } from "./asset.types"
+import type { AssetStatus, HeldBy } from "./asset.types"
 import type {
   CreateAssetInput,
   CreateCategoryInput,
@@ -259,6 +259,8 @@ export interface AssetListFilters {
   lifecycle?: AssetLifecycle
   /** Matches against name, asset tag or serial number. */
   q?: string
+  /** Derived status — filtered after the fetch, see listAssets. */
+  status?: AssetStatus
 }
 
 /**
@@ -312,7 +314,7 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       )
     : new Set<string>()
 
-  return assets.map(({ assignments, repairs, ...asset }) => {
+  const presented = assets.map(({ assignments, repairs, ...asset }) => {
     const openAssignment = assignments[0] ?? null
     const { status, heldBy } = computeAssetStatus({
       lifecycle: asset.lifecycle,
@@ -324,6 +326,11 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       : { ...asset, status, heldBy }
     return stripCosts(withCosts, viewer.role)
   })
+
+  // EC-1: status is derived, so it filters after the fetch. lifecycle is
+  // stored and stays in the WHERE clause above. The parameter used to be
+  // parsed, validated and then silently dropped.
+  return filters.status ? presented.filter((a) => a.status === filters.status) : presented
 }
 
 /**

@@ -25,6 +25,17 @@ vi.mock("./asset.assignments", () => ({
   openAssignmentsFor: vi.fn(async () => []),
 }))
 
+vi.mock("./asset.requests", () => ({
+  submitRequest: vi.fn(async () => ({ id: "req-1", status: "PENDING" })),
+  listRequests: vi.fn(async () => []),
+  approveRequest: vi.fn(async () => ({ id: "req-1", status: "APPROVED" })),
+  rejectRequest: vi.fn(async () => ({ id: "req-1", status: "REJECTED" })),
+  cancelRequest: vi.fn(async () => ({ id: "req-1", status: "CANCELLED" })),
+  fulfilRequest: vi.fn(async () => ({ id: "req-1", status: "FULFILLED" })),
+  markOrdered: vi.fn(async () => ({ id: "req-1", status: "ORDERED" })),
+  getRequestTimeline: vi.fn(async () => []),
+}))
+
 vi.mock("./asset.capitalise", () => ({
   capitaliseAsset: vi.fn(async () => ({ id: "ast-1", capitalisedAt: new Date() })),
   payForAsset: vi.fn(async () => ({ id: "ast-1" })),
@@ -316,5 +327,36 @@ describe("exit checklist", () => {
   it("refuses EMPLOYEE", async () => {
     const res = await request(app).get("/api/assets/exit-checklist/emp-1").set(authHeader("EMPLOYEE"))
     expect(res.status).toBe(403)
+  })
+})
+
+describe("asset request routes", () => {
+  it("refuses an HR_ADMIN approving a request", async () => {
+    const res = await request(app)
+      .patch("/api/assets/requests/req-1/approve")
+      .set(authHeader("HR_ADMIN"))
+      .send({})
+
+    expect(res.status).toBe(403)
+  })
+
+  it("lets HR mark an approved request as ordered", async () => {
+    const res = await request(app)
+      .patch("/api/assets/requests/req-1/order")
+      .set(authHeader("HR_ADMIN"))
+      .send({ expectedBy: "2026-09-01" })
+
+    expect(res.status).toBe(200)
+  })
+
+  it("filters the register by a derived status", async () => {
+    // EC-1: the parameter was parsed, validated, then dropped on the floor,
+    // because AssetListFilters has no status key and listAssets never read one.
+    const res = await request(app)
+      .get("/api/assets?status=AVAILABLE")
+      .set(authHeader("HR_ADMIN"))
+
+    expect(res.status).toBe(200)
+    expect(res.body.every((a: { status: string }) => a.status === "AVAILABLE")).toBe(true)
   })
 })

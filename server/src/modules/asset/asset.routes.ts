@@ -30,11 +30,13 @@ import {
   listRequestsHandler,
   listUnacknowledgedHandler,
   markLostHandler,
+  markOrderedHandler,
   myHoldingsHandler,
   payAssetHandler,
   receiveRepairHandler,
   recoverFromPayrollHandler,
   rejectRequestHandler,
+  requestTimelineHandler,
   retireHandler,
   returnHandler,
   sendRepairHandler,
@@ -125,14 +127,16 @@ router.get(
 
 router.post("/requests", requireAuth, requireRole(...STAFF_ROLES), submitRequestHandler)
 router.get("/requests", requireAuth, listRequestsHandler)
-router.patch("/requests/:id/approve", requireAuth, approveRequestHandler)
-router.patch("/requests/:id/reject", requireAuth, rejectRequestHandler)
-router.patch("/requests/:id/cancel", requireAuth, requireRole(...STAFF_ROLES), cancelRequestHandler)
+router.get("/requests/:id/timeline", requireAuth, requestTimelineHandler)
+// ADR-0002: Super Admin alone decides. The 403 for anyone else lives in the
+// service, but the route narrows it too so an HR_ADMIN never reaches it.
+router.patch("/requests/:id/approve", requireAuth, requireRole(Role.SUPER_ADMIN), approveRequestHandler)
+router.patch("/requests/:id/reject", requireAuth, requireRole(Role.SUPER_ADMIN), rejectRequestHandler)
+// Cancel is both the requester's withdrawal and HR's dead end, so no role
+// guard here — the service decides which rule applies from the caller.
+router.patch("/requests/:id/cancel", requireAuth, cancelRequestHandler)
+router.patch("/requests/:id/order", requireAuth, requireRole(...HR_ROLES), markOrderedHandler)
 router.post("/requests/:id/fulfil", requireAuth, requireRole(...HR_ROLES), fulfilRequestHandler)
-
-// Approve/reject carry no requireRole: only a Super Admin can decide (ADR-0002)
-// and the 403 lives in the service, so the route stays open and the refusal is
-// a clean 403 rather than a 405/404 from the role gate.
 
 // spreadsheetUpload, not assetUpload: these carry an .xlsx/.csv register,
 // not a photo. assetUpload's document filter rejected every import.
