@@ -83,6 +83,18 @@ export async function submitRequest(
       })
       if (!held) throw new AppError(404, "Asset not found")
 
+      // The unique partial index is the last line of defence; the service
+      // surfaces the conflict as a 409 rather than letting P2002 render a 500.
+      const openRequest = await tx.assetRequest.findFirst({
+        where: {
+          assetId: input.assetId,
+          kind: input.kind,
+          status: { in: ["PENDING", "APPROVED", "ORDERED"] },
+        },
+        select: { id: true },
+      })
+      if (openRequest) throw new AppError(409, "This asset already has an open request")
+
       data = {
         employeeId: employee.id,
         kind: input.kind,

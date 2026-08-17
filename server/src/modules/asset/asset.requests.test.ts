@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../config/prisma", () => {
   const tx = {
-    assetRequest: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+    assetRequest: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     assetCategory: { findUnique: vi.fn() },
     assetAssignment: { findFirst: vi.fn() },
     assetRepair: { findFirst: vi.fn(), create: vi.fn() },
@@ -46,6 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   tx.auditLog.create.mockResolvedValue({})
   tx.event.create.mockResolvedValue({})
+  tx.assetRequest.findFirst.mockResolvedValue(null)
 })
 
 describe("approveRequest — Super Admin alone", () => {
@@ -376,6 +377,27 @@ describe("submitRequest — REPAIR and RETURN", () => {
     await expect(
       submitRequest({ kind: "RETURN", assetId: "someone-elses", reason: "Done with it" }, emp)
     ).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it("409s when the asset already has an open request", async () => {
+    // The unique partial index is the last line of defence; without this
+    // check a double-submit throws P2002 and the error middleware renders a
+    // bare 500.
+    tx.assetAssignment.findFirst.mockResolvedValue({
+      id: "asg-1",
+      assetId: "ast-1",
+      employeeId: "emp-1",
+      asset: { assetTag: "BS-AST-00012", name: "MacBook Pro 14" },
+    })
+    tx.assetRequest.findFirst.mockResolvedValue({ id: "req-existing" })
+
+    await expect(
+      submitRequest({ kind: "REPAIR", assetId: "ast-1", reason: "Keyboard is dead" }, emp)
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "This asset already has an open request",
+    })
+    expect(tx.assetRequest.create).not.toHaveBeenCalled()
   })
 })
 
