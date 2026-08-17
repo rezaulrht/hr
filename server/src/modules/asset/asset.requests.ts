@@ -20,6 +20,8 @@ import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { assetRequestEvent } from "./asset.events"
 import type { SubmitRequestInput } from "./asset.validators"
+import { computeRequestStage } from "./asset.stage"
+import type { RequestStage } from "./asset.stage"
 
 /**
  * ADR-0002: Super Admin alone decides, of every kind.
@@ -119,12 +121,26 @@ export async function submitRequest(
   })
 }
 
+const listInclude = {
+  category: true,
+  asset: { select: { id: true, assetTag: true, name: true } },
+  employee: { select: { id: true, fullName: true, employeeCode: true } },
+  repair: { select: { returnedAt: true } },
+} satisfies Prisma.AssetRequestInclude
+
+/** What `listRequests` returns: the stored row plus the nested rows it reads to derive the stage. */
+export type ListedAssetRequest = Prisma.AssetRequestGetPayload<{
+  include: typeof listInclude
+}> & {
+  stage: RequestStage
+}
+
 /**
  * Scoped the way attendance's approvals queue is: an employee sees their own
  * requests, a manager sees their own plus their reports', HR / Super Admin /
  * Finance see all.
  */
-export async function listRequests(viewer: AccessTokenPayload): Promise<AssetRequest[]> {
+export async function listRequests(viewer: AccessTokenPayload): Promise<ListedAssetRequest[]> {
   // Finance sees everything because a pending purchase is a pending payable.
   // Before this they fell into the employee branch, had no Employee row, and
   // received an empty list.
@@ -147,15 +163,20 @@ export async function listRequests(viewer: AccessTokenPayload): Promise<AssetReq
         : { employeeId: self.id }
   }
 
-  return prisma.assetRequest.findMany({
+  const rows = await prisma.assetRequest.findMany({
     where,
-    include: {
-      category: true,
-      asset: { select: { id: true, assetTag: true, name: true } },
-      employee: { select: { id: true, fullName: true, employeeCode: true } },
-    },
+    include: listInclude,
     orderBy: { createdAt: "desc" },
   })
+
+  return rows.map((r) => ({
+    ...r,
+    stage: computeRequestStage({
+      kind: r.kind,
+      status: r.status,
+      repairReturnedAt: r.repair?.returnedAt ?? null,
+    }),
+  }))
 }
 
 export async function approveRequest(
@@ -453,4 +474,42 @@ export async function fulfilRequest(
     // request id; a second event would put one fact in the feed twice.
     return updated
   })
+}
+
+export interface TimelineEntry {
+  action: string
+  at: Date
+  byUserId: string | null
+  note: string | null
+}
+
+/**
+ * The story of one request, read back from the audit rows every transition
+ * already wrote inside its own transaction. Deliberately not a second table:
+ * a status-history table would record the same facts twice and drift from the
+ * first copy the moment one write path forgets it.
+ */
+export async function getRequestTimeline(
+  requestId: string,
+  viewer: AccessTokenPayload
+): Promise<TimelineEntry[]> {
+  // Scoped through listRequests' own rules so an out-of-scope id 404s rather
+  // than leaking a history (V-35).
+  const visible = await listRequests(viewer)
+  if (!visible.some((r) => r.id === requestId)) {
+    throw new AppError(404, "Asset request not found")
+  }
+
+  const rows = await prisma.auditLog.findMany({
+    where: { entity: "ASSET_REQUEST", entityId: requestId },
+    orderBy: { changedAt: "asc" },
+    select: { action: true, changedAt: true, changedBy: true, note: true },
+  })
+
+  return rows.map((r) => ({
+    action: r.action,
+    at: r.changedAt,
+    byUserId: r.changedBy,
+    note: r.note,
+  }))
 }
