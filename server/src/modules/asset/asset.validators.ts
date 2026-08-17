@@ -46,6 +46,11 @@ export const createCategorySchema = z.object({
   requiresSerial: z.boolean().optional(),
   isConsumable: z.boolean().optional(),
   usefulLifeMonths: z.coerce.number().int().min(1).nullable().optional(),
+  // Required, not optional-with-a-default. A category whose classification
+  // nobody chose is exactly the silent bucket the non-null column exists to
+  // prevent.
+  classification: z.enum(["IT", "NON_IT"]),
+  tracksIndividually: z.boolean().optional(),
 })
 
 export const updateCategorySchema = createCategorySchema.partial().omit({ code: true })

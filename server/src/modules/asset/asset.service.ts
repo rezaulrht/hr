@@ -493,6 +493,7 @@ export async function createCategory(input: CreateCategoryInput, actor: AccessTo
           requiresSerial: input.requiresSerial ?? true,
           isConsumable: input.isConsumable ?? false,
           usefulLifeMonths: input.usefulLifeMonths ?? null,
+          classification: input.classification,
         },
       })
 
@@ -545,6 +546,19 @@ export async function updateCategory(
       }
     }
 
+    // Mirrors the requiresSerial guard. A category that already has registered
+    // assets cannot retroactively become a supply — those rows have tags,
+    // custody and history that a supply has no room for.
+    if (input.tracksIndividually === false && existing.tracksIndividually) {
+      const registered = await tx.asset.count({ where: { categoryId: id } })
+      if (registered > 0) {
+        throw new AppError(
+          409,
+          `${registered} asset(s) are already registered in this category, so it cannot become a supply.`
+        )
+      }
+    }
+
     const data: Prisma.AssetCategoryUpdateInput = {}
     const before: Record<string, unknown> = {}
     const after: Record<string, unknown> = {}
@@ -571,6 +585,22 @@ export async function updateCategory(
       before.usefulLifeMonths = existing.usefulLifeMonths
       after.usefulLifeMonths = input.usefulLifeMonths
       data.usefulLifeMonths = input.usefulLifeMonths
+    }
+    if (
+      input.classification !== undefined &&
+      input.classification !== existing.classification
+    ) {
+      before.classification = existing.classification
+      after.classification = input.classification
+      data.classification = input.classification
+    }
+    if (
+      input.tracksIndividually !== undefined &&
+      input.tracksIndividually !== existing.tracksIndividually
+    ) {
+      before.tracksIndividually = existing.tracksIndividually
+      after.tracksIndividually = input.tracksIndividually
+      data.tracksIndividually = input.tracksIndividually
     }
 
     if (Object.keys(data).length === 0) return existing
