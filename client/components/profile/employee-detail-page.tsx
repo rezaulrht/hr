@@ -4,12 +4,14 @@ import { useState } from "react"
 import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getEmployee, setAccountActive, setSalaryStructure } from "@/lib/api/employees"
+import { getEmployee, setAccountActive, setSalaryStructure, updateEmployee } from "@/lib/api/employees"
 import { listSalaryStructures } from "@/lib/api/payroll"
+import { listShifts } from "@/lib/api/shifts"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
 import { SalaryStructureDialog } from "@/components/employees/salary-structure-dialog"
+import { ShiftDialog } from "@/components/employees/shift-dialog"
 import { CARD_FIELDS, EditCardDialog } from "@/components/profile/edit-card-dialog"
 import { EditNameDialog } from "@/components/profile/edit-name-dialog"
 import { ExitDetailsDialog } from "@/components/profile/exit-details-dialog"
@@ -56,6 +58,8 @@ export function EmployeeDetailPage({
   const [exitOpen, setExitOpen] = useState(false)
   const [assigningStructure, setAssigningStructure] = useState(false)
   const [assignError, setAssignError] = useState<string | null>(null)
+  const [assigningShift, setAssigningShift] = useState(false)
+  const [shiftError, setShiftError] = useState<string | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
 
   const employeeQuery = useQuery({
@@ -70,6 +74,15 @@ export function EmployeeDetailPage({
     queryKey: ["salary-structures"],
     queryFn: () => listSalaryStructures(accessToken!),
     enabled: assigningStructure && sessionStatus === "authenticated" && !!accessToken,
+  })
+
+  // Same lazy-fetch reasoning, and the same `["shifts"]` key the create-
+  // employee form uses — whichever dialog opens first, the other gets it
+  // from cache.
+  const shiftsQuery = useQuery({
+    queryKey: ["shifts"],
+    queryFn: () => listShifts(accessToken!),
+    enabled: assigningShift && sessionStatus === "authenticated" && !!accessToken,
   })
 
   const refresh = () => {
@@ -90,6 +103,24 @@ export function EmployeeDetailPage({
     },
     onError: (err) => {
       setAssignError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
+    },
+  })
+
+  // Goes through the general PATCH rather than a dedicated route — unlike
+  // salary structure, shift has no month-lock or approval logic of its own to
+  // protect, so it is a plain `HR_ONLY_EDITABLE_FIELDS` write like designation
+  // or office location. `null` clears it back to the General shift, and is
+  // sent explicitly for the same reason setSalaryStructure sends it: an
+  // omitted key is a no-op, not a clear.
+  const shiftMutation = useMutation({
+    mutationFn: (shiftId: string | null) => updateEmployee(accessToken!, employeeId, { shiftId }),
+    onSuccess: () => {
+      setAssigningShift(false)
+      setShiftError(null)
+      refresh()
+    },
+    onError: (err) => {
+      setShiftError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.")
     },
   })
 
@@ -141,6 +172,10 @@ export function EmployeeDetailPage({
   // would turn that into an error message on a page that is otherwise fine.
   const canSeePayslips =
     user?.role === "HR_ADMIN" || user?.role === "FINANCE_OFFICER" || user?.role === "SUPER_ADMIN"
+  // `shiftId` is HR-only on the server's write matrix — gating on the field
+  // itself, the same way `editAction` does per card, rather than on role,
+  // keeps this in step if that matrix ever changes.
+  const canAssignShift = employee.editableFields.includes("shiftId")
 
   // A card shows an Edit control if and only if it contains at least one
   // field this caller may write. No role check — editableFields comes from
@@ -170,7 +205,7 @@ export function EmployeeDetailPage({
         onAvatarChanged={refresh}
         onEditName={canEditName ? () => setEditingName(true) : undefined}
         action={
-          canEdit || canToggleAccount ? (
+          canEdit || canToggleAccount || canAssignShift ? (
             <>
               {canEdit ? (
                 <>
@@ -183,6 +218,11 @@ export function EmployeeDetailPage({
                     </Button>
                   ) : null}
                 </>
+              ) : null}
+              {canAssignShift ? (
+                <Button type="button" variant="outline" onClick={() => setAssigningShift(true)}>
+                  {employee.employment?.shift ? "Change shift" : "Assign shift"}
+                </Button>
               ) : null}
               {/* Distinct from "Record exit": that ends the employment, this
                   ends the access. Either can happen without the other. */}
@@ -359,6 +399,15 @@ export function EmployeeDetailPage({
         error={assignError}
         onOpenChange={(open) => !open && setAssigningStructure(false)}
         onSubmit={(salaryStructureId) => assignMutation.mutate(salaryStructureId)}
+      />
+
+      <ShiftDialog
+        employee={assigningShift ? employee : null}
+        shifts={shiftsQuery.data ?? []}
+        pending={shiftMutation.isPending}
+        error={shiftError}
+        onOpenChange={(open) => !open && setAssigningShift(false)}
+        onSubmit={(shiftId) => shiftMutation.mutate(shiftId)}
       />
     </>
   )

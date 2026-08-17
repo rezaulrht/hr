@@ -2,7 +2,13 @@ import type { ChartBar } from "@/components/dashboard/types"
 
 export function ChartCard({ title, sub, bars }: { title: string; sub: string; bars: ChartBar[] }) {
   return (
-    <div className="@container flex min-w-0 flex-col rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:px-5.5 sm:py-5">
+    // `min-w-75`, not `min-w-0`: this sits in `flex flex-wrap` rows of up to
+    // five (ProfileInsights). Without a floor, flex items shrink past their
+    // content's natural width instead of the row wrapping, and a three-word
+    // title like "Attendance rate" breaks into "Atten/rate" one letter-grid
+    // at a time. `flex-1` matches the loading skeleton's basis, so cards
+    // still stretch evenly to fill whatever row they land on.
+    <div className="@container flex min-w-75 flex-1 flex-col rounded-md border border-[#E4E9EF] bg-white px-4 py-4 sm:px-5.5 sm:py-5">
       <div className="text-[15px] font-bold">{title}</div>
       <div className="mt-0.5 mb-4.5 text-xs text-[#5F6B7C]">{sub}</div>
       <div className="mt-auto flex h-30 items-end gap-3.5 @[400px]:h-37.5">
