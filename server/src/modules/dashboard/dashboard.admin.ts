@@ -6,6 +6,7 @@
  * Finance submitted, and the mock it replaces had no card saying so.
  */
 
+import { env } from "../../config/env"
 import prisma from "../../config/prisma"
 import { officeToday } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
@@ -98,22 +99,54 @@ async function attendanceBacklogCard(count: number): Promise<DashboardStat> {
  * `User` lookups, the event log is being used wrong — and an event whose
  * actor has since been deleted still renders correctly today.
  */
+/**
+ * "Aug 17, 10:57 AM" in the office timezone.
+ *
+ * `createdAt` was being put straight into the cell, so the feed rendered
+ * "2026-08-17T10:57:44.683Z" — a machine stamp in a column a person reads.
+ *
+ * Formatted here rather than on the client because `TableCell` carries text
+ * and nothing marks a cell as a date, so the client cannot know which ones to
+ * convert. `APP_TIMEZONE` is the same source `attendance.time.ts` uses for the
+ * business day; this is one organisation in one place, and a viewer-local
+ * conversion would only introduce a second answer to "when did that happen".
+ *
+ * Absolute rather than "2 hours ago", matching the reasoning already recorded
+ * on the activity feed: a relative stamp has to read the clock to render.
+ */
+const whenFormat = new Intl.DateTimeFormat("en-US", {
+  timeZone: env.APP_TIMEZONE,
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+})
+
 function eventRows(events: Awaited<ReturnType<typeof listEvents>>["items"]): TableCell[][] {
   const severityTone = { INFO: "neutral", SUCCESS: "green", WARNING: "yellow", ERROR: "red" } as const
   return events.map((e) => [
     { text: e.title, sub: e.meta ?? undefined, weight: 500 },
-    { text: e.entity.replace(/_/g, " ").toLowerCase() },
+    // The icon keys off the entity, which is a closed vocabulary, so an
+    // unmapped one degrades to no icon rather than to a broken glyph.
+    { text: e.entity.replace(/_/g, " ").toLowerCase(), icon: e.entity },
     { tag: e.severity.toLowerCase(), tone: severityTone[e.severity] },
-    { text: e.createdAt },
+    { text: whenFormat.format(new Date(e.createdAt)) },
   ])
 }
 
 export async function buildAdminDashboard(actor: AccessTokenPayload): Promise<DashboardPayload> {
   // Counted once and used by both the card and the nav badge. Two sources
   // drift, and the one that drifts is always the one nobody is looking at.
-  const [queue, attendanceBacklog] = await Promise.all([
+  const [queue, attendanceBacklog, assetQueue] = await Promise.all([
     approvalQueue(),
     prisma.attendance.count({ where: { approval: "PENDING" } }),
+    // Requests still waiting on somebody, plus handovers the holder has not
+    // confirmed. Both are work; a fulfilled request and an acknowledged
+    // handover are not, and must not keep the badge lit.
+    Promise.all([
+      prisma.assetRequest.count({ where: { status: { in: ["PENDING", "APPROVED", "ORDERED"] } } }),
+      prisma.assetAssignment.count({ where: { returnedAt: null, acknowledgedAt: null } }),
+    ]).then(([requests, unacknowledged]) => requests + unacknowledged),
   ])
 
   const [stats, bars, events] = await Promise.all([
@@ -149,6 +182,10 @@ export async function buildAdminDashboard(actor: AccessTokenPayload): Promise<Da
     badges: {
       "/admin/payroll": queue.total,
       "/admin/attendance": attendanceBacklog,
+      // Things needing a person, not the size of the register: a badge beside
+      // a nav item reads as "you have N to do", and putting the asset count
+      // there would teach people the number is decoration.
+      "/admin/assets": assetQueue,
     },
   }
 }

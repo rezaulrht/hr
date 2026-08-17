@@ -74,9 +74,16 @@ export function StatCard({ stat }: { stat: Stat }) {
       href={stat.href}
       className={cn(
         SURFACE,
-        "transition-[box-shadow,transform,border-color] hover:border-[#CFD7E0] hover:shadow-[0_12px_28px_-12px_rgba(28,39,51,0.28)]",
-        "active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#17191C]/25 focus-visible:outline-none",
-        "motion-reduce:transition-none"
+        // 180ms: inside the 150-250ms band a user in a task expects. The card
+        // lifts a hair on hover and presses back down on click, so the
+        // pointer gets the same tactile answer twice rather than only on press.
+        "transition-[box-shadow,transform,border-color] duration-180 ease-out",
+        "hover:-translate-y-0.5 hover:border-[#CFD7E0] hover:shadow-[0_14px_30px_-12px_rgba(28,39,51,0.30)]",
+        "active:translate-y-0 active:shadow-[0_6px_18px_-12px_rgba(28,39,51,0.28)]",
+        "focus-visible:ring-2 focus-visible:ring-[#17191C]/25 focus-visible:outline-none",
+        // The lift is decoration to somebody who asked for less motion; the
+        // border and shadow still answer the hover.
+        "motion-reduce:transition-none motion-reduce:hover:translate-y-0"
       )}
     >
       <CardBody stat={stat} />

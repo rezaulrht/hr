@@ -26,6 +26,12 @@ export interface TableCell {
   weight?: number
   tag?: string
   tone?: Tone
+  /**
+   * An `AuditEntity`-shaped key the client maps to a glyph. A name, never a
+   * component or an SVG: the server has no view layer, and shipping markup
+   * from here would put presentation in two places.
+   */
+  icon?: string
 }
 
 export interface ActivityItem {

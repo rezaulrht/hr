@@ -1,19 +1,50 @@
 import Link from "next/link"
+import {
+  RiArchiveLine,
+  RiCalendarCheckLine,
+  RiFileList3Line,
+  RiInboxLine,
+  RiMoneyDollarCircleLine,
+  RiTeamLine,
+  RiToolsLine,
+  type RemixiconComponentType,
+} from "@remixicon/react"
 
 import { Tag } from "@/components/dashboard/tag"
 import type { SubpageData, TableCell } from "@/components/dashboard/types"
+
+/**
+ * `AuditEntity` names to glyphs. Deliberately partial: an entity with no entry
+ * renders no icon, so adding one server-side degrades to the old look instead
+ * of to a question-mark box.
+ */
+const CELL_ICONS: Record<string, RemixiconComponentType> = {
+  ASSET: RiArchiveLine,
+  ASSET_ASSIGNMENT: RiArchiveLine,
+  ASSET_REQUEST: RiInboxLine,
+  ASSET_REPAIR: RiToolsLine,
+  ASSET_RECOVERY: RiMoneyDollarCircleLine,
+  PAYROLL_RUN: RiMoneyDollarCircleLine,
+  PAYSLIP: RiFileList3Line,
+  EMPLOYEE: RiTeamLine,
+  ATTENDANCE: RiCalendarCheckLine,
+  LEAVE_REQUEST: RiCalendarCheckLine,
+  EXPENSE_CLAIM: RiMoneyDollarCircleLine,
+}
 
 /** The inner content of one cell, without any row or card chrome around it. */
 function CellBody({ cell }: { cell: TableCell }) {
   if (cell.node) return <>{cell.node}</>
   if (cell.tag) return <Tag label={cell.tag} tone={cell.tone ?? "neutral"} />
+  const Icon = cell.icon ? CELL_ICONS[cell.icon] : undefined
   return (
     <div className="min-w-0">
       <div
-        className="overflow-hidden text-[13px] text-ellipsis whitespace-nowrap"
+        className="flex items-center gap-1.5 overflow-hidden text-[13px] text-ellipsis whitespace-nowrap"
         style={{ fontWeight: cell.weight ?? 400, color: "#1C2733" }}
       >
-        {cell.text}
+        {Icon ? <Icon className="size-4 shrink-0 text-[#8A94A2]" aria-hidden /> : null}
+        <span className="truncate">{cell.text}</span>
       </div>
       {/* `#6B7789`, not the old `#A5AFBE`: that was 2.2:1 against white, which
           is unreadable rather than quiet. This is the same grey one shade down,

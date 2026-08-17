@@ -11,6 +11,8 @@ vi.mock("../../config/prisma", () => ({
     employee: { count: vi.fn(), findMany: vi.fn() },
     department: { count: vi.fn() },
     attendance: { count: vi.fn(), findFirst: vi.fn() },
+    assetRequest: { count: vi.fn() },
+    assetAssignment: { count: vi.fn() },
   },
 }))
 
@@ -38,6 +40,8 @@ beforeEach(() => {
 
   vi.mocked(prisma.payrollRun.count).mockResolvedValue(0)
   vi.mocked(prisma.settlement.count).mockResolvedValue(0)
+  vi.mocked(prisma.assetRequest.count).mockResolvedValue(0)
+  vi.mocked(prisma.assetAssignment.count).mockResolvedValue(0)
   vi.mocked(prisma.employee.count).mockResolvedValue(0)
   vi.mocked(prisma.department.count).mockResolvedValue(0)
   vi.mocked(prisma.attendance.count).mockResolvedValue(0)
