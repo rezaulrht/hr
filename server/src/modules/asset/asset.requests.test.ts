@@ -162,6 +162,7 @@ describe("fulfilRequest", () => {
     tx.assetRequest.findUnique.mockResolvedValue({
       id: "req-1",
       employeeId: "emp-1",
+      kind: "NEW_ITEM",
       status: "APPROVED",
       category: { name: "Monitor" },
     })
@@ -193,6 +194,22 @@ describe("fulfilRequest", () => {
 
     await expect(fulfilRequest("req-1", { assetId: "ast-1" }, hr)).rejects.toMatchObject({
       statusCode: 409,
+    })
+    expect(assignAsset).not.toHaveBeenCalled()
+  })
+
+  it("refuses a REPAIR — fulfilment hands out a new item, it never completes a repair", async () => {
+    // A REPAIR or RETURN request is completed by physically receiving the
+    // asset — receiving a repaired laptop is not the same act as handing out
+    // another one.
+    tx.assetRequest.findUnique.mockResolvedValue({
+      id: "req-1", employeeId: "emp-1", kind: "REPAIR", status: "APPROVED", quantity: null,
+      assetId: "ast-1", category: null, asset: { assetTag: "BS-AST-00012", name: "MacBook Pro 14" },
+    })
+
+    await expect(fulfilRequest("req-1", { assetId: "ast-1" }, hr)).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Only a request for a new item can be fulfilled",
     })
     expect(assignAsset).not.toHaveBeenCalled()
   })

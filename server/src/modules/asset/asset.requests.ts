@@ -448,6 +448,12 @@ export async function fulfilRequest(
     if (request.status !== "APPROVED" && request.status !== "ORDERED") {
       throw new AppError(409, "Only an approved or ordered request can be fulfilled")
     }
+    // A REPAIR or RETURN request is completed by physically receiving the
+    // asset back — the receiving flows already do that. Fulfilment hands out
+    // another asset, which only a new-item request ever asks for.
+    if (request.kind !== "NEW_ITEM") {
+      throw new AppError(409, "Only a request for a new item can be fulfilled")
+    }
 
     const isSupply = request.kind === "NEW_ITEM" && request.category?.tracksIndividually === false
 
