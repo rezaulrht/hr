@@ -37,6 +37,7 @@ export const CONDITION_LABEL: Record<AssetCondition, string> = {
 export const REQUEST_STATUS_TONE: Record<AssetRequestStatus, string> = {
   PENDING: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
   APPROVED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  ORDERED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
   REJECTED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
   CANCELLED: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
   FULFILLED: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
@@ -45,6 +46,7 @@ export const REQUEST_STATUS_TONE: Record<AssetRequestStatus, string> = {
 export const REQUEST_STATUS_LABEL: Record<AssetRequestStatus, string> = {
   PENDING: "Pending",
   APPROVED: "Approved",
+  ORDERED: "Ordered",
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
   FULFILLED: "Fulfilled",

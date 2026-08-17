@@ -732,7 +732,31 @@ export type AssetAttachmentKind =
   | "CONDITION_OUT"
   | "CONDITION_IN"
 
-export type AssetRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FULFILLED"
+export type AssetClassification = "IT" | "NON_IT"
+export type AssetRequestKind = "NEW_ITEM" | "REPAIR" | "RETURN"
+export type AssetRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "ORDERED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "FULFILLED"
+export type AssetRequestStage =
+  | "AWAITING_APPROVAL"
+  | "APPROVED"
+  | "ORDERED"
+  | "IN_REPAIR"
+  | "AWAITING_COLLECTION"
+  | "DONE"
+  | "REJECTED"
+  | "CANCELLED"
+
+export interface AssetRequestTimelineEntry {
+  action: string
+  at: string
+  byUserId: string | null
+  note: string | null
+}
 
 export interface AssetHeldBy {
   assignmentId: string
@@ -787,6 +811,8 @@ export interface AssetCategory {
   name: string
   requiresSerial: boolean
   isConsumable: boolean
+  classification: AssetClassification
+  tracksIndividually: boolean
   usefulLifeMonths: number | null
 }
 
@@ -824,15 +850,22 @@ export interface AssetAssignment {
 export interface AssetRequest {
   id: string
   employeeId: string
-  categoryId: string
+  kind: AssetRequestKind
+  categoryId: string | null
+  assetId: string | null
+  quantity: number | null
   reason: string
   status: AssetRequestStatus
+  stage: AssetRequestStage
   decidedBy: string | null
   decidedAt: string | null
   decisionNote: string | null
+  expectedBy: string | null
+  orderNote: string | null
   fulfilledAt: string | null
   fulfilledBy: string | null
   fulfilledAssetId: string | null
+  fulfilledNote: string | null
   createdAt: string
   category?: { id: string; name: string }
   employee?: { id: string; fullName: string; employeeCode: string }
@@ -975,10 +1008,9 @@ export interface ReceiveAssetRepairInput {
   conditionAfter?: AssetCondition
 }
 
-export interface SubmitAssetRequestInput {
-  categoryId: string
-  reason: string
-}
+export type SubmitAssetRequestInput =
+  | { kind: "NEW_ITEM"; categoryId: string; quantity?: number; reason: string }
+  | { kind: "REPAIR" | "RETURN"; assetId: string; reason: string }
 
 export interface ApproveAssetRequestInput {
   note?: string
@@ -989,7 +1021,8 @@ export interface RejectAssetRequestInput {
 }
 
 export interface FulfilAssetRequestInput {
-  assetId: string
+  assetId?: string
+  note?: string
 }
 
 // ── OPERATING COSTS ───────────────────────────

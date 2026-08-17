@@ -11,6 +11,7 @@ import type {
   AssetRecovery,
   AssetRepair,
   AssetRequest,
+  AssetRequestTimelineEntry,
   AssignAssetInput,
   ApproveAssetRequestInput,
   CreateAssetCategoryInput,
@@ -199,10 +200,34 @@ export function rejectAssetRequest(
   })
 }
 
-export function cancelAssetRequest(accessToken: string, id: string): Promise<AssetRequest> {
+export function markAssetRequestOrdered(
+  accessToken: string,
+  id: string,
+  input: { expectedBy?: string; note?: string } = {}
+): Promise<AssetRequest> {
+  return apiFetch<AssetRequest>(`/api/assets/requests/${id}/order`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(input),
+  })
+}
+
+export function getAssetRequestTimeline(
+  accessToken: string,
+  id: string
+): Promise<AssetRequestTimelineEntry[]> {
+  return apiFetch<AssetRequestTimelineEntry[]>(`/api/assets/requests/${id}/timeline`, { accessToken })
+}
+
+export function cancelAssetRequest(
+  accessToken: string,
+  id: string,
+  input: { note?: string } = {}
+): Promise<AssetRequest> {
   return apiFetch<AssetRequest>(`/api/assets/requests/${id}/cancel`, {
     method: "PATCH",
     accessToken,
+    body: JSON.stringify(input),
   })
 }
 
