@@ -115,6 +115,14 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+
+    /* The built-in CSS easings are too weak to read as intentional. These are
+       the strong variants: `ease-out-quint` for anything entering or reacting
+       to a press, `ease-in-out-quint` for anything travelling across the
+       screen. Never `ease-in` on a UI element — it delays the first frame,
+       which is the exact moment the user is watching most closely. */
+    --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out-quint: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 @layer base {
@@ -127,4 +135,53 @@
   html {
     @apply font-sans;
     }
+}
+
+/* ── Entrance motion ──────────────────────────────────────────────────────
+   Two classes, both under the 300ms ceiling a UI animation has before it
+   starts reading as slow. `.rise-in` is for a card or row arriving; the
+   caller sets `animation-delay` per item to stagger a grid, and is expected
+   to cap that delay so a hundred-row list never keeps anyone waiting.
+
+   Deliberately keyframes rather than transitions: these fire once, on mount,
+   and are never interrupted or retargeted. Transitions are the right tool
+   for the interactive states below, not for a one-shot entrance. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    /* 0.985, not 0 — nothing in the real world appears out of nothing. */
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.rise-in {
+  animation: rise-in 260ms var(--ease-out-quint) both;
+}
+
+.fade-in {
+  animation: fade-in 200ms var(--ease-out-quint) both;
+}
+
+/* Reduced motion means fewer and gentler animations, not zero. The fade
+   stays — it still explains that content arrived — and the movement, which
+   is the part that causes motion sickness, is what goes. The delay override
+   is `!important` because the stagger is set inline, per item. */
+@media (prefers-reduced-motion: reduce) {
+  .rise-in {
+    animation: fade-in 200ms ease both;
+  }
+
+  .rise-in,
+  .fade-in {
+    animation-delay: 0ms !important;
+  }
 }

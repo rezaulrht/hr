@@ -1,18 +1,20 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { usePathname } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { RiLoader4Line, RiLogoutBoxRLine } from "@remixicon/react"
 
 import { cn } from "@/lib/utils"
 import { BrandLogo } from "@/components/brand/brand"
 import { icons } from "@/components/dashboard/icons"
+import { UserAvatar } from "@/components/dashboard/user-avatar"
 import { getDashboard } from "@/lib/api/dashboard"
 import { useSession } from "@/lib/auth/session-context"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useIdentity } from "@/lib/auth/use-identity"
+import { useSignOut } from "@/lib/auth/use-sign-out"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sidebar as UiSidebar,
   SidebarContent,
@@ -31,21 +33,16 @@ import type { NavGroup } from "@/components/dashboard/types"
 export function Sidebar({
   navGroups,
   rootHref,
-  userName,
-  userInitials,
-  roleLabel,
+  profileHref,
 }: {
   navGroups: NavGroup[]
   rootHref: string
-  userName: string
-  userInitials: string
-  roleLabel: string
+  profileHref: string
 }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const { accessToken, clearSession, status } = useSession()
-  const [signingOut, setSigningOut] = useState(false)
+  const { accessToken, status } = useSession()
+  const { name, avatarUrl, subtitle, loading } = useIdentity()
+  const { signOut, signingOut } = useSignOut()
   // Closing the drawer on navigation is ours to do — the sidebar primitive has
   // no router awareness, so without this the overlay stays sitting over the
   // page you just navigated to.
@@ -60,21 +57,6 @@ export function Sidebar({
     enabled: status === "authenticated" && !!accessToken,
   })
   const badges = data?.badges ?? {}
-
-  async function handleSignOut() {
-    if (signingOut) return
-    setSigningOut(true)
-    // clearSession revokes the refresh token and drops the in-memory access
-    // token; it swallows network errors so a failed call still logs you out
-    // locally rather than trapping you in the dashboard.
-    await clearSession()
-    // Wipe cached rows too. Query keys like ["leave-requests"] aren't
-    // per-user, so without this the next person to sign in on this browser
-    // would briefly see the previous user's data before the refetch lands.
-    queryClient.clear()
-    // replace, not push — the dashboard must not come back via the back button.
-    router.replace("/login")
-  }
 
   return (
     <UiSidebar collapsible="offcanvas" className="border-r-0">
@@ -136,27 +118,41 @@ export function Sidebar({
           ))}
         </SidebarContent>
 
-        <SidebarFooter className="mt-3 flex-row items-center gap-2.5 rounded-md border border-white/[0.09] bg-white/[0.07] px-3 py-2.5">
-          <Avatar className="shrink-0">
-            <AvatarFallback className="bg-[#9AA3AD] text-xs font-bold text-[#101214]">
-              {userInitials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1 leading-tight">
-            <div className="overflow-hidden text-[12.5px] font-semibold text-ellipsis whitespace-nowrap">
-              {userName}
+        <SidebarFooter className="mt-3 flex-row items-center gap-1 rounded-md border border-white/[0.09] bg-white/[0.07] p-1.5 transition-colors duration-200 ease-out-quint hover:border-white/15 motion-reduce:transition-none">
+          {loading ? (
+            <div className="flex flex-1 items-center gap-2.5 px-1.5 py-1">
+              <Skeleton className="size-8 shrink-0 rounded-full bg-white/12" />
+              <div className="grid flex-1 gap-1.5">
+                <Skeleton className="h-2.5 w-24 bg-white/12" />
+                <Skeleton className="h-2 w-14 bg-white/12" />
+              </div>
             </div>
-            <div className="text-[10.5px] text-white/55">{roleLabel}</div>
-          </div>
+          ) : (
+            // The identity block was inert, which made "where do I edit my
+            // details" a question the sidebar answered only via a nav item
+            // five rows up. It is the most obvious thing to press here, so
+            // now it goes where people expect.
+            <Link
+              href={profileHref}
+              onClick={() => setOpenMobile(false)}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded px-1.5 py-1 transition-[transform,background-color] duration-150 ease-out-quint hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none active:scale-99 motion-reduce:transition-none"
+            >
+              <UserAvatar name={name} avatarUrl={avatarUrl} className="size-8" />
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="truncate text-[12.5px] font-semibold">{name}</div>
+                <div className="truncate text-[10.5px] text-white/55">{subtitle}</div>
+              </div>
+            </Link>
+          )}
           {/* Stays a raw button: a 28px icon-only control with bespoke dark
               styling gains nothing from ui/button and would fight it. */}
           <button
             type="button"
-            onClick={handleSignOut}
+            onClick={signOut}
             disabled={signingOut}
             title="Sign out"
             aria-label="Sign out"
-            className="grid size-7 shrink-0 place-items-center rounded text-white/55 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+            className="grid size-7 shrink-0 place-items-center rounded text-white/55 transition-[transform,color,background-color] duration-150 ease-out-quint hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none active:scale-92 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
           >
             {signingOut ? (
               <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
