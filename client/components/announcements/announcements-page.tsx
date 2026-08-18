@@ -12,10 +12,8 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { listDepartments } from "@/lib/api/departments"
 import { useSession } from "@/lib/auth/session-context"
-import { DataTable } from "@/components/dashboard/data-table"
-import { MiniStat } from "@/components/dashboard/page-header"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
+import { ConfirmDialog, PanelTable, RowActions } from "@/components/dashboard/record-kit"
 import type { TableCell } from "@/components/dashboard/types"
 import type { AnnouncementItem, CreateAnnouncementInput } from "@/lib/api/types"
 import { ComposeAnnouncementDialog } from "@/components/announcements/compose-announcement-dialog"
@@ -47,6 +45,10 @@ export function AnnouncementsPage() {
   const [composing, setComposing] = useState(false)
   const [editing, setEditing] = useState<AnnouncementItem | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  // Delete used to fire on the click, from a link-styled control sitting
+  // beside Edit. An announcement is not recoverable once gone, and the two
+  // controls are one pixel apart.
+  const [deleting, setDeleting] = useState<AnnouncementItem | null>(null)
 
   const listQuery = useQuery({
     queryKey: ["announcements"],
@@ -121,102 +123,114 @@ export function AnnouncementsPage() {
     canPublish && (isModerator || a.publishedBy === user?.id)
       ? {
           node: (
-            <div className="flex gap-3">
-              <Button
-                variant="link" className="h-auto p-0 text-[12px] font-bold underline"
-                onClick={() => {
-                  setFormError(null)
-                  setEditing(a)
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="link" className="h-auto p-0 text-[12px] font-bold text-[#B03A3A] underline"
-                onClick={() => deleteMutation.mutate(a.id)}
-              >
-                Delete
-              </Button>
-            </div>
+            <RowActions
+              actions={[
+                {
+                  kind: "edit",
+                  label: "Edit",
+                  onClick: () => {
+                    setFormError(null)
+                    setEditing(a)
+                  },
+                },
+                { kind: "delete", label: "Delete", onClick: () => setDeleting(a) },
+              ]}
+            />
           ),
         }
       : { text: "" },
   ])
 
-  if (status === "loading" || listQuery.isPending) {
-    return (
-      <div className="space-y-3 pt-7">
-        <Skeleton className="h-9 w-52" />
-        <Skeleton className="h-28 w-full" />
-      </div>
-    )
-  }
+  const isLoading = status === "loading" || listQuery.isPending
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4 pt-7 pb-5.5">
-        <div>
-          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">
-            Communication
-          </div>
-          <h1 className="font-heading mb-1 text-[23px] font-bold tracking-tight">Announcements</h1>
-          <div className="text-[13px] text-[#7A8698]">
-            Company and team notices. There are no read receipts — a rendered row is not a person
-            who read it.
-          </div>
-        </div>
-        {canPublish ? (
-          <Button
-            onClick={() => {
-              setFormError(null)
-              setComposing(true)
-            }}
-            className="h-auto rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white hover:bg-[#0E1012]"
-          >
-            New announcement
-          </Button>
-        ) : null}
-      </div>
+      {/* The shared header, not a hand-rolled one. It also survives loading:
+          replacing the whole page with two skeletons meant the title and the
+          New announcement button vanished and then jumped back. */}
+      <PageHeader
+        kicker="Communication"
+        title="Announcements"
+        sub="Company and team notices. There are no read receipts, so a rendered row is not a person who read it."
+        cta={canPublish ? "New announcement" : undefined}
+        onCta={() => {
+          setFormError(null)
+          setComposing(true)
+        }}
+      />
 
       <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        <MiniStat label="This month" value={String(thisMonth)} sub="Published and live" />
-        {/* Scheduled and drafts are only meaningful to somebody who can
-            publish — an employee sees neither, because neither is visible to
-            them in the first place. */}
-        {canPublish ? (
+        {/* Counted against no data these read "0", which is a claim rather
+            than a smaller version of the truth. On a failed load they are
+            dropped: the panel below says what happened, and three zeroes above
+            it would argue with that. Same rule the employees directory keeps. */}
+        {isLoading || listQuery.isError ? null : (
           <>
-            <MiniStat
-              label="Scheduled"
-              value={String(scheduled)}
-              sub="Goes live on its own, no action needed"
-            />
-            <MiniStat label="Drafts" value={String(drafts)} sub="Nobody can see these yet" />
+            <MiniStat label="This month" value={String(thisMonth)} sub="Published and live" />
+            {/* Scheduled and drafts are only meaningful to somebody who can
+                publish — an employee sees neither, because neither is visible
+                to them in the first place. */}
+            {canPublish ? (
+              <>
+                <MiniStat
+                  label="Scheduled"
+                  value={String(scheduled)}
+                  sub="Goes live on its own, no action needed"
+                />
+                <MiniStat label="Drafts" value={String(drafts)} sub="Nobody can see these yet" />
+              </>
+            ) : null}
           </>
-        ) : null}
-      </div>
-
-      <div className="pt-7">
-        {listQuery.isError ? (
-          <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
-            Failed to load announcements.{" "}
-            <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={() => listQuery.refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : items.length === 0 ? (
-          <div className="rounded-md border border-[#E4E9EF] bg-white p-8 text-center text-[13px] text-[#7A8698]">
-            No announcements yet.
-          </div>
-        ) : (
-          <DataTable
-            title="Announcements"
-            cols="2fr 1fr 0.8fr 0.9fr 0.8fr"
-            headers={["Title", "Audience", "Status", "Published", ""]}
-            rows={rows}
-            action=""
-          />
         )}
       </div>
+
+      {/* PanelTable carries loading, error, empty and data. This page was the
+          last one still hand-rolling that three-way branch, with its own error
+          panel duplicating the kit's and a bare "No announcements yet." that
+          offered no way forward. */}
+      <div className="pt-7">
+        <PanelTable
+          cols="2fr 1fr 0.8fr 0.9fr 0.8fr"
+          headers={["Title", "Audience", "Status", "Published", ""]}
+          rows={rows}
+          isLoading={isLoading}
+          isError={listQuery.isError}
+          onRetry={() => listQuery.refetch()}
+          emptyTitle="No announcements yet"
+          emptyBody={
+            canPublish
+              ? "Post one and it reaches everyone, a department or a single role. Schedule it and it goes live on its own."
+              : "Notices from HR and your manager appear here."
+          }
+          emptyAction={canPublish ? "New announcement" : "Refresh"}
+          onEmptyAction={
+            canPublish
+              ? () => {
+                  setFormError(null)
+                  setComposing(true)
+                }
+              : () => listQuery.refetch()
+          }
+        />
+      </div>
+
+      <ConfirmDialog
+        open={!!deleting}
+        title="Delete this announcement?"
+        body={
+          deleting?.publishedAt && deleting.publishedAt <= now
+            ? `"${deleting.title}" is already live. Deleting removes it for everyone who has not read it yet, and it cannot be restored.`
+            : `"${deleting?.title ?? ""}" will be removed. This cannot be undone.`
+        }
+        confirmLabel="Delete"
+        pending={deleteMutation.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => {
+          const target = deleting
+          setDeleting(null)
+          if (target) deleteMutation.mutate(target.id)
+        }}
+      />
 
       {composing || editing ? (
         <ComposeAnnouncementDialog
