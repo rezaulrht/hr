@@ -47,6 +47,11 @@ export interface SalaryStructure {
   basic: string
   isActive: boolean
   components: SalaryComponent[]
+  /**
+   * How many employees are assigned. The server refuses to delete a structure
+   * in use, so this is what lets the control say so before it is pressed.
+   */
+  employeeCount: number
 }
 
 export interface SalaryStructureInput {

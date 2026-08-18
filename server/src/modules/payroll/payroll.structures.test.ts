@@ -25,6 +25,7 @@ import {
   listExchangeRates,
   updateExchangeRate,
   deleteSalaryStructure,
+  listSalaryStructures,
   updateSalaryStructure,
 } from "./payroll.service"
 import { exchangeRateBody, salaryStructureBody } from "./payroll.validators"
@@ -344,5 +345,32 @@ describe("deleteSalaryStructure", () => {
         }),
       })
     )
+  })
+})
+
+describe("listSalaryStructures", () => {
+  it("reports how many employees are on each structure", async () => {
+    // Without this the only way to learn a structure is in use is to press
+    // Delete and read the refusal — a button whose purpose is to fail.
+    vi.mocked(prisma.salaryStructure.findMany).mockResolvedValue([
+      { id: "s-1", name: "Standard (BDT)", components: [], _count: { employees: 4 } },
+      { id: "s-2", name: "Intern (BDT)", components: [], _count: { employees: 0 } },
+    ] as never)
+
+    const rows = await listSalaryStructures()
+
+    expect(rows[0]).toMatchObject({ id: "s-1", employeeCount: 4 })
+    expect(rows[1]).toMatchObject({ id: "s-2", employeeCount: 0 })
+  })
+
+  it("does not leak Prisma's _count into the response", async () => {
+    // The shape a client reads should not say which ORM produced it.
+    vi.mocked(prisma.salaryStructure.findMany).mockResolvedValue([
+      { id: "s-1", components: [], _count: { employees: 4 } },
+    ] as never)
+
+    const rows = await listSalaryStructures()
+
+    expect(rows[0]).not.toHaveProperty("_count")
   })
 })

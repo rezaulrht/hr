@@ -169,11 +169,31 @@ const toComponentCreateInput = (c: SalaryStructureBody["components"][number]) =>
   countsAsWages: c.countsAsWages,
 })
 
+/**
+ * Every structure, with how many people are on it.
+ *
+ * The count is what makes the delete control honest. `deleteSalaryStructure`
+ * refuses a structure in use, so without it the only way to learn that is to
+ * press Delete and read the refusal — a button whose whole purpose is to be
+ * pressed and then not work.
+ *
+ * Flattened out of Prisma's `_count` here rather than in the client: `_count`
+ * is an ORM artefact, and a response shape should not leak which ORM produced
+ * it.
+ */
 export async function listSalaryStructures() {
-  return prisma.salaryStructure.findMany({
-    include: { components: { orderBy: [{ sortOrder: "asc" }, { code: "asc" }] } },
+  const rows = await prisma.salaryStructure.findMany({
+    include: {
+      components: { orderBy: [{ sortOrder: "asc" }, { code: "asc" }] },
+      _count: { select: { employees: true } },
+    },
     orderBy: { name: "asc" },
   })
+
+  return rows.map(({ _count, ...structure }) => ({
+    ...structure,
+    employeeCount: _count.employees,
+  }))
 }
 
 export async function createSalaryStructure(actorUserId: string, body: SalaryStructureBody) {
