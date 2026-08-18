@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RiCloseLine, RiSearchLine, RiShieldUserLine } from "@remixicon/react"
+import {
+  RiCloseLine,
+  RiIdCardLine,
+  RiLogoutBoxRLine,
+  RiSearchLine,
+  RiShieldUserLine,
+  RiTimeLine,
+} from "@remixicon/react"
 
 import { cn } from "@/lib/utils"
 import { createUser, listUsers, setUserRole, setUserStatus } from "@/lib/api/users"
@@ -41,6 +48,22 @@ const ALL_ROLES: Role[] = [
 
 /** Only the three with no Employee row — matches createUserSchema. */
 const CREATABLE_ROLES: CreateUserInput["role"][] = ["HR_ADMIN", "FINANCE_OFFICER", "SUPER_ADMIN"]
+
+/**
+ * Hand-mirrored from `user.events.ts`, like every other type on this side.
+ *
+ * Only used to warn before the click — the server decides, and it decides
+ * from its own copy. HR_ADMIN and FINANCE_OFFICER rank equally because
+ * neither contains the other, so moving between them is not a promotion and
+ * does take something away.
+ */
+const ROLE_TIER: Record<Role, number> = {
+  EMPLOYEE: 0,
+  REPORTING_MANAGER: 1,
+  HR_ADMIN: 2,
+  FINANCE_OFFICER: 2,
+  SUPER_ADMIN: 3,
+}
 
 type StatusFilter = "all" | "active" | "deactivated"
 
@@ -533,7 +556,7 @@ export function UsersPage() {
           </DialogHeader>
           {roleTarget ? (
             <div className="space-y-4">
-              <div className="text-[12.5px] text-[#7A8698]">
+              <div className="text-[12.5px] leading-relaxed text-[#5F6B7C]">
                 An employee or manager role needs a linked employee record. Demoting a manager
                 who still has direct reports is refused until they are reassigned.
               </div>
@@ -559,6 +582,14 @@ export function UsersPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <RoleChangeConsequences
+                // The dialog's own `role` is the *pending* choice — the Select
+                // writes straight into it — so the current role has to come
+                // back off the list.
+                from={users.find((u) => u.id === roleTarget.id)?.role}
+                to={roleTarget.role}
+                employeeCode={roleTarget.employee?.employeeCode}
+              />
               {error ? <p className="text-[13px] font-semibold text-[#B03A3A]">{error}</p> : null}
             </div>
           ) : null}
@@ -583,5 +614,67 @@ export function UsersPage() {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+/**
+ * What saving will actually do, said before the click rather than discovered
+ * afterwards.
+ *
+ * Both facts here were invisible until now. A demotion signs the person out of
+ * every device — that is new, and an admin who does not expect it will read it
+ * as a bug. And the employee code never changes, which is the thing people
+ * assume a promotion fixes.
+ */
+function RoleChangeConsequences({
+  from,
+  to,
+  employeeCode,
+}: {
+  /** Undefined only in the moment between a refetch and the list settling. */
+  from: Role | undefined
+  to: Role
+  employeeCode: string | undefined
+}) {
+  if (!from || from === to) return null
+
+  const promotion = ROLE_TIER[to] > ROLE_TIER[from]
+
+  return (
+    <ul className="space-y-2 rounded-md border border-[#E4E9EF] bg-[#FAFBFC] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#5F6B7C]">
+      <li className="flex items-start gap-2">
+        {promotion ? (
+          <RiTimeLine className="mt-px size-4 shrink-0 text-[#8A94A2]" aria-hidden />
+        ) : (
+          <RiLogoutBoxRLine className="mt-px size-4 shrink-0 text-[#8A5E0C]" aria-hidden />
+        )}
+        <span>
+          {promotion ? (
+            <>
+              They stay signed in. The new role reaches their session within fifteen minutes,
+              or straight away if they sign in again.
+            </>
+          ) : (
+            <>
+              <strong className="font-semibold text-[#8A5E0C]">
+                This signs them out everywhere.
+              </strong>{" "}
+              The role they are losing would otherwise stay live in their session for up to
+              fifteen minutes.
+            </>
+          )}
+        </span>
+      </li>
+      {employeeCode ? (
+        <li className="flex items-start gap-2">
+          <RiIdCardLine className="mt-px size-4 shrink-0 text-[#8A94A2]" aria-hidden />
+          <span>
+            Their code stays <span className="font-semibold text-[#1C2733]">{employeeCode}</span>.
+            It records what they were hired as, and it cannot be reissued — staff sign in with
+            it, and it appears on bank files and records already sent.
+          </span>
+        </li>
+      ) : null}
+    </ul>
   )
 }
