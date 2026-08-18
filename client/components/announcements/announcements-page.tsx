@@ -12,6 +12,16 @@ import {
 import { ApiError } from "@/lib/api/client"
 import { listDepartments } from "@/lib/api/departments"
 import { useSession } from "@/lib/auth/session-context"
+import {
+  RiBuilding2Line,
+  RiDraftLine,
+  RiGroupLine,
+  RiMegaphoneLine,
+  RiShieldUserLine,
+  RiTimeLine,
+  type RemixiconComponentType,
+} from "@remixicon/react"
+
 import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
 import { ConfirmDialog, PanelAlert, RowActions } from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
@@ -24,12 +34,30 @@ import { ComposeAnnouncementDialog } from "@/components/announcements/compose-an
 const PUBLISHER_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "FINANCE_OFFICER", "REPORTING_MANAGER"]
 const MODERATOR_ROLES = ["SUPER_ADMIN", "HR_ADMIN"]
 
-const AUDIENCE_LABEL = (a: AnnouncementItem) =>
-  a.audience === "ALL"
-    ? "Everyone"
-    : a.audience === "DEPARTMENT"
-      ? (a.departmentName ?? "A department")
-      : (a.targetRole?.replace(/_/g, " ").toLowerCase() ?? "A role")
+/**
+ * Who a notice reaches, as a glyph and a phrase.
+ *
+ * The label used to be the bare word "Everyone" sitting in a metadata line
+ * beside a date, which gives a first-time reader nothing to tell them it is an
+ * audience rather than a status. The verb carries that now, and the icon says
+ * it again before the words are read.
+ */
+function audienceOf(a: AnnouncementItem): { icon: RemixiconComponentType; label: string } {
+  if (a.audience === "ALL") return { icon: RiGroupLine, label: "Everyone at the company" }
+  if (a.audience === "DEPARTMENT") {
+    return { icon: RiBuilding2Line, label: a.departmentName ?? "One department" }
+  }
+  return {
+    icon: RiShieldUserLine,
+    label: a.targetRole ? sentenceCase(a.targetRole) : "One role",
+  }
+}
+
+/** "HR_ADMIN" → "HR admins". Role names are the only shouty strings on the card. */
+function sentenceCase(role: string): string {
+  const words = role.replace(/_/g, " ").toLowerCase()
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}s`
+}
 
 const stamp = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -47,26 +75,38 @@ type NoticeState = "draft" | "scheduled" | "published"
 function NoticeCard({
   announcement: a,
   state,
-  audience,
+  index,
   onEdit,
   onDelete,
 }: {
   announcement: AnnouncementItem
   state: NoticeState
-  audience: string
+  /** Position in its group, for the entrance stagger. */
+  index: number
   onEdit?: () => void
   onDelete?: () => void
 }) {
+  const audience = audienceOf(a)
+  const AudienceIcon = audience.icon
+
   return (
     <article
+      // Entrance: one short rise-and-fade, staggered a frame apart down the
+      // list, so a set of notices arrives rather than appearing. Capped so a
+      // long list does not make the last card wait on the first twenty.
+      style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
       className={cn(
-        "group relative rounded-md border bg-white p-4 transition-colors sm:p-5",
+        "group relative rounded-md border bg-white p-4 sm:p-5",
+        "animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-backwards duration-300 ease-out",
+        "transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-[#CFD7E0] hover:shadow-[0_10px_24px_-16px_rgba(28,39,51,0.35)]",
+        // Motion is a courtesy here, not information: the border and shadow
+        // still answer the hover without it.
+        "motion-reduce:animate-none motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         state === "draft"
           ? "border-dashed border-[#D4DBE4]"
           : state === "scheduled"
-            ? "border-[#E4E9EF] before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-[#C79A2E]"
-            : "border-[#E4E9EF]",
-        "hover:border-[#CFD7E0]"
+            ? "border-[#E4E9EF] before:absolute before:inset-y-3 before:left-0 before:w-0.75 before:rounded-full before:bg-[#C79A2E]"
+            : "border-[#E4E9EF]"
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -102,10 +142,15 @@ function NoticeCard({
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[#6B7789]">
-        <span className="font-semibold text-[#5F6B7C]">{audience}</span>
-        <span aria-hidden>·</span>
-        <span>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-[#6B7789]">
+        {/* A chip, not a bare word. "Everyone" floating beside a date reads as
+            a status; the verb and the glyph together say it is an audience. */}
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F1F4F8] py-1 pr-2.5 pl-2 font-semibold text-[#4A5563]">
+          <AudienceIcon className="size-3.5 shrink-0 text-[#8A94A2]" aria-hidden />
+          {state === "published" ? "Sent to" : "Goes to"} {audience.label}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <RiTimeLine className="size-3.5 shrink-0 text-[#A5AFBE]" aria-hidden />
           {a.publishedAt === null
             ? "Not published"
             : state === "scheduled"
@@ -126,7 +171,10 @@ function EmptyNotices({
   onCompose: () => void
 }) {
   return (
-    <div className="rounded-md border border-[#E4E9EF] bg-white px-6 py-12 text-center">
+    <div className="animate-in fade-in-0 rounded-md border border-[#E4E9EF] bg-white px-6 py-12 text-center duration-300 motion-reduce:animate-none">
+      <span className="mx-auto mb-3 grid size-11 place-items-center rounded-full bg-[#F1F4F8] text-[#8A94A2]">
+        <RiMegaphoneLine className="size-5" aria-hidden />
+      </span>
       <div className="text-[13.5px] font-bold">No announcements yet</div>
       <p className="mx-auto mt-1.5 max-w-[46ch] text-[12.5px] leading-relaxed text-[#5F6B7C]">
         {canPublish
@@ -230,9 +278,27 @@ export function AnnouncementsPage() {
    * one, so they see a plain list with no headings at all.
    */
   const groups = [
-    { key: "draft", heading: "Drafts", note: "Nobody can see these yet", items: [] as AnnouncementItem[] },
-    { key: "scheduled", heading: "Scheduled", note: "Goes live on its own", items: [] as AnnouncementItem[] },
-    { key: "published", heading: "Published", note: null as string | null, items: [] as AnnouncementItem[] },
+    {
+      key: "draft",
+      heading: "Drafts",
+      icon: RiDraftLine,
+      note: "Nobody can see these yet",
+      items: [] as AnnouncementItem[],
+    },
+    {
+      key: "scheduled",
+      heading: "Scheduled",
+      icon: RiTimeLine,
+      note: "Goes live on its own",
+      items: [] as AnnouncementItem[],
+    },
+    {
+      key: "published",
+      heading: "Published",
+      icon: RiMegaphoneLine,
+      note: null as string | null,
+      items: [] as AnnouncementItem[],
+    },
   ]
   for (const a of items) {
     const bucket = a.publishedAt === null ? 0 : a.publishedAt > now ? 1 : 2
@@ -325,24 +391,25 @@ export function AnnouncementsPage() {
                     group means one list, and a lone "Published" heading over
                     everything an employee can see is a label for nothing. */}
                 {visibleGroups.length > 1 ? (
-                  <div className="mb-2.5 flex items-baseline gap-2.5">
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <group.icon className="size-4 shrink-0 text-[#8A94A2]" aria-hidden />
                     <h2 className="text-[13px] font-bold">{group.heading}</h2>
-                    <span className="text-[12px] text-[#8A94A2] tabular-nums">
+                    <span className="rounded-full bg-[#F1F4F8] px-1.5 py-px text-[11px] font-bold text-[#5F6B7C] tabular-nums">
                       {group.items.length}
                     </span>
                     {group.note ? (
-                      <span className="text-[12px] text-[#8A94A2]">· {group.note}</span>
+                      <span className="text-[12px] text-[#8A94A2]">{group.note}</span>
                     ) : null}
                   </div>
                 ) : null}
 
                 <div className="space-y-2.5">
-                  {group.items.map((a) => (
+                  {group.items.map((a, i) => (
                     <NoticeCard
                       key={a.id}
                       announcement={a}
                       state={group.key as NoticeState}
-                      audience={AUDIENCE_LABEL(a)}
+                      index={i}
                       onEdit={
                         canEdit(a)
                           ? () => {
