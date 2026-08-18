@@ -7,7 +7,7 @@ vi.mock("../../config/env", () => ({
 vi.mock("../../config/prisma", () => ({
   default: {
     payrollRun: { count: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
-    settlement: { count: vi.fn() },
+    settlement: { count: vi.fn(), findMany: vi.fn() },
     employee: { count: vi.fn(), findMany: vi.fn() },
     department: { count: vi.fn() },
     attendance: { count: vi.fn(), findFirst: vi.fn() },
@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.mocked(prisma.settlement.count).mockResolvedValue(0)
   vi.mocked(prisma.assetRequest.count).mockResolvedValue(0)
   vi.mocked(prisma.assetAssignment.count).mockResolvedValue(0)
+  vi.mocked(prisma.settlement.findMany).mockResolvedValue([] as never)
   vi.mocked(prisma.employee.count).mockResolvedValue(0)
   vi.mocked(prisma.department.count).mockResolvedValue(0)
   vi.mocked(prisma.attendance.count).mockResolvedValue(0)
@@ -195,36 +196,42 @@ describe("chart and table", () => {
     expect(payload.chart?.bars[0].display).toBe("")
   })
 
-  it("renders the event log without resolving a single name", async () => {
-    // `title` and `meta` are frozen at emit. If this starts batching User
-    // lookups, the event log is being used wrong.
-    vi.mocked(listEvents).mockResolvedValue({
-      items: [
-        {
-          id: "evt-1",
-          type: "payroll.run.submitted",
-          severity: "WARNING",
-          entity: "PAYROLL_RUN",
-          entityId: "run-1",
-          title: "July 2026 payroll submitted for approval",
-          meta: null,
-          href: "/payroll",
-          createdAt: "2026-08-01T10:00:00.000Z",
-        },
-      ],
-      nextCursor: null,
-    })
+  it("lists what is waiting, oldest first, across both queues", async () => {
+    // The panel used to repeat the events log column for column. It now
+    // answers what a landing page should: what needs this person.
+    vi.mocked(prisma.payrollRun.findMany).mockResolvedValue([
+      { month: 7, year: 2026, submittedAt: new Date("2026-08-10T10:00:00.000Z"), createdAt: new Date("2026-08-01T00:00:00.000Z"), payslips: [] },
+    ] as never)
+    vi.mocked(prisma.settlement.findMany).mockResolvedValue([
+      {
+        calculatedAt: new Date("2026-08-05T10:00:00.000Z"),
+        employee: { fullName: "Nadia Rahman", employeeCode: "BS-EMP-00007" },
+      },
+    ] as never)
 
     const payload = await buildAdminDashboard(actor)
-    expect(payload.table?.rows[0][0].text).toBe("July 2026 payroll submitted for approval")
-    expect(payload.table?.rows[0][2]).toEqual({ tag: "warning", tone: "yellow" })
-    // No user lookup anywhere in the table path.
-    expect(prisma.employee.findMany).toHaveBeenCalledTimes(1) // headcountSeries only
+
+    expect(payload.table?.title).toBe("Waiting on you")
+    // The settlement was calculated first, so it has been waiting longer.
+    expect(payload.table?.rows[0][0]).toEqual({
+      text: "Nadia Rahman",
+      sub: "BS-EMP-00007",
+      weight: 500,
+    })
+    expect(payload.table?.rows[0][1].text).toBe("Settlement")
+    expect(payload.table?.rows[1][0].text).toBe("July 2026 payroll")
   })
 
-  it("asks the event log for the caller's own feed, scoped by visibility", async () => {
-    await buildAdminDashboard(actor)
-    expect(listEvents).toHaveBeenCalledWith(actor, { limit: 5 })
+  it("falls back to createdAt when a submitted run carries no submittedAt", async () => {
+    // Nullable in the schema even though a SUBMITTED run should always have
+    // it. Without the fallback the ageing column reads from an Invalid Date.
+    vi.mocked(prisma.payrollRun.findMany).mockResolvedValue([
+      { month: 7, year: 2026, submittedAt: null, createdAt: new Date("2026-08-02T00:00:00.000Z"), payslips: [] },
+    ] as never)
+
+    const payload = await buildAdminDashboard(actor)
+
+    expect(payload.table?.rows[0][2].text).toBe("Aug 2, 2026")
   })
 })
 

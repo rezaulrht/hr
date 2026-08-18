@@ -1,5 +1,5 @@
 import { apiFetch } from "./client"
-import type { EventPage } from "./types"
+import type { EventPage, EventSeverity } from "./types"
 
 export interface ListEventsQuery {
   limit?: number
@@ -7,6 +7,8 @@ export interface ListEventsQuery {
   cursor?: string
   entity?: string
   entityId?: string
+  /** Narrow to one severity: a month of INFO rows otherwise hides the warnings. */
+  severity?: EventSeverity
 }
 
 /**
@@ -20,6 +22,7 @@ export function listEvents(accessToken: string, query: ListEventsQuery = {}): Pr
   if (query.cursor) params.set("cursor", query.cursor)
   if (query.entity) params.set("entity", query.entity)
   if (query.entityId) params.set("entityId", query.entityId)
+  if (query.severity) params.set("severity", query.severity)
 
   const qs = params.toString()
   return apiFetch<EventPage>(`/api/events${qs ? `?${qs}` : ""}`, { accessToken })
