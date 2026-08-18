@@ -13,8 +13,10 @@ import { ApiError } from "@/lib/api/client"
 import { listDepartments } from "@/lib/api/departments"
 import { useSession } from "@/lib/auth/session-context"
 import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
-import { ConfirmDialog, PanelTable, RowActions } from "@/components/dashboard/record-kit"
-import type { TableCell } from "@/components/dashboard/types"
+import { ConfirmDialog, PanelAlert, RowActions } from "@/components/dashboard/record-kit"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 import type { AnnouncementItem, CreateAnnouncementInput } from "@/lib/api/types"
 import { ComposeAnnouncementDialog } from "@/components/announcements/compose-announcement-dialog"
 
@@ -31,6 +33,114 @@ const AUDIENCE_LABEL = (a: AnnouncementItem) =>
 
 const stamp = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+
+type NoticeState = "draft" | "scheduled" | "published"
+
+/**
+ * One notice, sized to be read.
+ *
+ * The state is carried by the card itself rather than by a pill in a column:
+ * a draft is visibly unfinished (dashed edge, muted), a scheduled one is
+ * visibly pending (accent rule down its left), a published one is plain. That
+ * makes the answer to "has this gone out?" a glance instead of a read.
+ */
+function NoticeCard({
+  announcement: a,
+  state,
+  audience,
+  onEdit,
+  onDelete,
+}: {
+  announcement: AnnouncementItem
+  state: NoticeState
+  audience: string
+  onEdit?: () => void
+  onDelete?: () => void
+}) {
+  return (
+    <article
+      className={cn(
+        "group relative rounded-md border bg-white p-4 transition-colors sm:p-5",
+        state === "draft"
+          ? "border-dashed border-[#D4DBE4]"
+          : state === "scheduled"
+            ? "border-[#E4E9EF] before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-[#C79A2E]"
+            : "border-[#E4E9EF]",
+        "hover:border-[#CFD7E0]"
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h3
+            className={cn(
+              "text-[14.5px] font-bold text-[#17191C]",
+              state === "draft" && "text-[#5F6B7C]"
+            )}
+          >
+            {a.title}
+          </h3>
+          {/* Two lines of the actual notice, wrapped at a word. The table cut
+              it at 70 characters mid-word, which is the one thing on the row
+              somebody actually wanted to read. */}
+          <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-[#4A5563]">{a.body}</p>
+        </div>
+
+        {/* Quiet until the row is hovered or focused within, so a list of
+            notices reads as notices rather than as a wall of controls. Always
+            visible on touch, where there is no hover to reveal them. */}
+        {onEdit || onDelete ? (
+          <div className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+            <RowActions
+              actions={[
+                ...(onEdit ? [{ kind: "edit" as const, label: "Edit", onClick: onEdit }] : []),
+                ...(onDelete
+                  ? [{ kind: "delete" as const, label: "Delete", onClick: onDelete }]
+                  : []),
+              ]}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[#6B7789]">
+        <span className="font-semibold text-[#5F6B7C]">{audience}</span>
+        <span aria-hidden>·</span>
+        <span>
+          {a.publishedAt === null
+            ? "Not published"
+            : state === "scheduled"
+              ? `Goes live ${stamp(a.publishedAt)}`
+              : stamp(a.publishedAt)}
+        </span>
+      </div>
+    </article>
+  )
+}
+
+/** Two audiences, two different truths about why the list is empty. */
+function EmptyNotices({
+  canPublish,
+  onCompose,
+}: {
+  canPublish: boolean
+  onCompose: () => void
+}) {
+  return (
+    <div className="rounded-md border border-[#E4E9EF] bg-white px-6 py-12 text-center">
+      <div className="text-[13.5px] font-bold">No announcements yet</div>
+      <p className="mx-auto mt-1.5 max-w-[46ch] text-[12.5px] leading-relaxed text-[#5F6B7C]">
+        {canPublish
+          ? "Post one and it reaches everyone, a department or a single role. Schedule it and it goes live on its own."
+          : "Notices from HR and your manager appear here."}
+      </p>
+      {canPublish ? (
+        <Button type="button" className="mt-4" onClick={onCompose}>
+          New announcement
+        </Button>
+      ) : null}
+    </div>
+  )
+}
 
 export function AnnouncementsPage() {
   const { accessToken, user, status } = useSession()
@@ -111,35 +221,24 @@ export function AnnouncementsPage() {
   const scheduled = items.filter((a) => a.publishedAt !== null && a.publishedAt > now).length
   const drafts = items.filter((a) => a.publishedAt === null).length
 
-  const rows: TableCell[][] = items.map((a) => [
-    { text: a.title, sub: a.body.slice(0, 70), weight: 600 },
-    { text: AUDIENCE_LABEL(a) },
-    {
-      tag:
-        a.publishedAt === null ? "Draft" : a.publishedAt > now ? "Scheduled" : "Published",
-      tone: a.publishedAt === null ? "neutral" : a.publishedAt > now ? "yellow" : "green",
-    },
-    { text: a.publishedAt ? stamp(a.publishedAt) : "—" },
+  const canEdit = (a: AnnouncementItem) =>
     canPublish && (isModerator || a.publishedBy === user?.id)
-      ? {
-          node: (
-            <RowActions
-              actions={[
-                {
-                  kind: "edit",
-                  label: "Edit",
-                  onClick: () => {
-                    setFormError(null)
-                    setEditing(a)
-                  },
-                },
-                { kind: "delete", label: "Delete", onClick: () => setDeleting(a) },
-              ]}
-            />
-          ),
-        }
-      : { text: "" },
-  ])
+
+  /**
+   * Three groups, in the order a publisher needs them: what is unfinished,
+   * what is on its way, what has gone out. An employee only ever has the last
+   * one, so they see a plain list with no headings at all.
+   */
+  const groups = [
+    { key: "draft", heading: "Drafts", note: "Nobody can see these yet", items: [] as AnnouncementItem[] },
+    { key: "scheduled", heading: "Scheduled", note: "Goes live on its own", items: [] as AnnouncementItem[] },
+    { key: "published", heading: "Published", note: null as string | null, items: [] as AnnouncementItem[] },
+  ]
+  for (const a of items) {
+    const bucket = a.publishedAt === null ? 0 : a.publishedAt > now ? 1 : 2
+    groups[bucket].items.push(a)
+  }
+  const visibleGroups = groups.filter((g) => g.items.length > 0)
 
   const isLoading = status === "loading" || listQuery.isPending
 
@@ -184,34 +283,82 @@ export function AnnouncementsPage() {
         )}
       </div>
 
-      {/* PanelTable carries loading, error, empty and data. This page was the
-          last one still hand-rolling that three-way branch, with its own error
-          panel duplicating the kit's and a bare "No announcements yet." that
-          offered no way forward. */}
+      {/* A notice is something a person reads, not a record they scan by
+          column. As a table the body was sliced to 70 characters and dropped
+          into a sub-line, so the one thing an announcement is *for* was the
+          least readable part of the row. */}
       <div className="pt-7">
-        <PanelTable
-          cols="2fr 1fr 0.8fr 0.9fr 0.8fr"
-          headers={["Title", "Audience", "Status", "Published", ""]}
-          rows={rows}
-          isLoading={isLoading}
-          isError={listQuery.isError}
-          onRetry={() => listQuery.refetch()}
-          emptyTitle="No announcements yet"
-          emptyBody={
-            canPublish
-              ? "Post one and it reaches everyone, a department or a single role. Schedule it and it goes live on its own."
-              : "Notices from HR and your manager appear here."
-          }
-          emptyAction={canPublish ? "New announcement" : "Refresh"}
-          onEmptyAction={
-            canPublish
-              ? () => {
-                  setFormError(null)
-                  setComposing(true)
-                }
-              : () => listQuery.refetch()
-          }
-        />
+        {isLoading ? (
+          <div className="space-y-2.5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-md border border-[#E4E9EF] bg-white p-4 sm:p-5">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="mt-2.5 h-3 w-full" />
+                <Skeleton className="mt-1.5 h-3 w-2/3" />
+              </div>
+            ))}
+          </div>
+        ) : listQuery.isError ? (
+          <PanelAlert>
+            The announcements could not be loaded.{" "}
+            <Button
+              variant="link"
+              className="h-auto p-0 font-semibold underline"
+              onClick={() => listQuery.refetch()}
+            >
+              Try again
+            </Button>
+          </PanelAlert>
+        ) : items.length === 0 ? (
+          <EmptyNotices
+            canPublish={canPublish}
+            onCompose={() => {
+              setFormError(null)
+              setComposing(true)
+            }}
+          />
+        ) : (
+          <div className="space-y-7">
+            {visibleGroups.map((group) => (
+              <section key={group.key}>
+                {/* Headings only where there is something to separate. One
+                    group means one list, and a lone "Published" heading over
+                    everything an employee can see is a label for nothing. */}
+                {visibleGroups.length > 1 ? (
+                  <div className="mb-2.5 flex items-baseline gap-2.5">
+                    <h2 className="text-[13px] font-bold">{group.heading}</h2>
+                    <span className="text-[12px] text-[#8A94A2] tabular-nums">
+                      {group.items.length}
+                    </span>
+                    {group.note ? (
+                      <span className="text-[12px] text-[#8A94A2]">· {group.note}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="space-y-2.5">
+                  {group.items.map((a) => (
+                    <NoticeCard
+                      key={a.id}
+                      announcement={a}
+                      state={group.key as NoticeState}
+                      audience={AUDIENCE_LABEL(a)}
+                      onEdit={
+                        canEdit(a)
+                          ? () => {
+                              setFormError(null)
+                              setEditing(a)
+                            }
+                          : undefined
+                      }
+                      onDelete={canEdit(a) ? () => setDeleting(a) : undefined}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
