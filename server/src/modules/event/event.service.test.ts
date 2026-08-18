@@ -242,3 +242,25 @@ describe("listEvents", () => {
     })
   })
 })
+
+describe("severity filter", () => {
+  it("narrows to one severity when asked", async () => {
+    // The activity log is read to find something. Without this the only way to
+    // pick warnings out of a month of INFO rows is to page through them.
+    await listEvents(actor("HR_ADMIN"), { severity: "WARNING" })
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: unknown[]
+    }
+    expect(where.AND).toContainEqual({ severity: "WARNING" })
+  })
+
+  it("leaves the filter out when none is asked for", async () => {
+    await listEvents(actor("HR_ADMIN"), {})
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: unknown[]
+    }
+    expect(where.AND).not.toContainEqual(expect.objectContaining({ severity: expect.anything() }))
+  })
+})

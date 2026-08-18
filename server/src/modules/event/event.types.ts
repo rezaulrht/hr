@@ -157,6 +157,8 @@ export interface ListEventsOptions {
   cursor?: string
   entity?: string
   entityId?: string
+  /** Narrow to one severity: a month of INFO rows otherwise hides the warnings. */
+  severity?: EventSeverity
   /** Injectable clock, so the scheduled-announcement boundary is testable. */
   now?: Date
 }

@@ -105,6 +105,7 @@ export async function listEvents(
       notYetPublished(opts.now ?? new Date()),
       ...(opts.entity ? [{ entity: opts.entity }] : []),
       ...(opts.entityId ? [{ entityId: opts.entityId }] : []),
+      ...(opts.severity ? [{ severity: opts.severity }] : []),
     ],
   }
 
