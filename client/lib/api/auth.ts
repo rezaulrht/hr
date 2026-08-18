@@ -24,6 +24,17 @@ export function logout(): Promise<void> {
 }
 
 /**
+ * Ends every session on the account, this one included.
+ *
+ * The caller is signed out as a result, so this belongs behind a confirm and
+ * must be followed by the same local teardown `logout` gets — the access
+ * token in memory outlives the cookie otherwise.
+ */
+export function logoutEverywhere(accessToken: string): Promise<void> {
+  return apiFetch<void>("/api/auth/logout-all", { method: "POST", accessToken })
+}
+
+/**
  * Always resolves for a well-formed email, whether or not an account exists.
  * The server will not say which, so neither can the screen: a reset form that
  * answered "no such user" would be a membership oracle for anyone who can

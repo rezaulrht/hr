@@ -109,6 +109,56 @@ export async function listEvents(
     ],
   }
 
+  return pageOf(where, limit, opts.cursor)
+}
+
+/**
+ * What *this person* did, rather than what they are allowed to see.
+ *
+ * A separate function and not an `actor` option on `listEvents`, because that
+ * would make the audience clause something a caller can turn off — the one
+ * thing this module's design forbids. The scope here is different, not
+ * absent: `actorUserId` is mandatory in exactly the way `visibleToFilter` is.
+ *
+ * The audience clause is deliberately **not** ANDed on. Two reasons:
+ *
+ * Safety first — a row recording that you did something cannot disclose
+ * anything you did not already see when you did it. The scope is inherently
+ * self-referential, which no audience rule can loosen.
+ *
+ * And correctness — emitting code targets an audience of people who need
+ * *telling*, which frequently excludes the person who acted. A Super Admin
+ * approving a payroll run is not in that event's target roles, so an actor
+ * filter ANDed with the audience would return a convincing empty list.
+ *
+ * `notYetPublished` is omitted for the same reason: an announcement you
+ * scheduled yourself is your own action, and holding it back until its
+ * publish time would hide your work from you.
+ */
+export async function listOwnActions(
+  actor: AccessTokenPayload,
+  opts: ListEventsOptions = {}
+): Promise<EventPage> {
+  const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT)
+
+  const where: Prisma.EventWhereInput = {
+    AND: [
+      { actorUserId: actor.sub },
+      ...(opts.entity ? [{ entity: opts.entity }] : []),
+      ...(opts.entityId ? [{ entityId: opts.entityId }] : []),
+      ...(opts.severity ? [{ severity: opts.severity }] : []),
+    ],
+  }
+
+  return pageOf(where, limit, opts.cursor)
+}
+
+/** The cursor walk both reads share. */
+async function pageOf(
+  where: Prisma.EventWhereInput,
+  limit: number,
+  cursor: string | undefined
+): Promise<EventPage> {
   const rows = await prisma.event.findMany({
     where,
     // `createdAt` alone duplicates rows across cursor pages when two events
@@ -118,7 +168,7 @@ export async function listEvents(
     // One extra row, purely to learn whether another page exists without a
     // second count query.
     take: limit + 1,
-    ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   })
 
   const page = rows.slice(0, limit)

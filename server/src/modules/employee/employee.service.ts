@@ -168,12 +168,51 @@ export async function getEmployee(
   return projectEmployee(employee, tier, documents, blockers)
 }
 
-export async function getMyProfile(viewer: AccessTokenPayload): Promise<MyProfileResponse> {
-  const account = {
+/**
+ * The account half of the profile, read from the row rather than the token.
+ *
+ * Email, role and mustChangePassword were taken straight off the JWT, which
+ * is why this page could only ever show three things — none of which needed a
+ * query. `createdAt` and the session list do, and they are what make an
+ * administrative profile worth opening.
+ *
+ * One round trip: the tokens come back on the include rather than as a second
+ * count, because this endpoint is on the path of every role.
+ */
+async function accountFor(viewer: AccessTokenPayload): Promise<MyProfileResponse["account"]> {
+  const now = new Date()
+  const row = await prisma.user.findUnique({
+    where: { id: viewer.sub },
+    select: {
+      createdAt: true,
+      refreshTokens: {
+        where: { revokedAt: null, expiresAt: { gt: now } },
+        select: { createdAt: true },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  })
+
+  const tokens = row?.refreshTokens ?? []
+
+  return {
     email: viewer.email,
     role: viewer.role,
     mustChangePassword: viewer.mustChangePassword,
+    // The token is valid, so the row exists; the fallback is for the sliver
+    // between a deletion and the token expiring, and must not be a crash.
+    createdAt: (row?.createdAt ?? now).toISOString(),
+    sessions: {
+      count: tokens.length,
+      // The newest rotation, which is the closest thing to "last seen" that
+      // exists. Never presented as a sign-in time — see AccountSessions.
+      lastActiveAt: tokens[0]?.createdAt.toISOString() ?? null,
+    },
   }
+}
+
+export async function getMyProfile(viewer: AccessTokenPayload): Promise<MyProfileResponse> {
+  const account = await accountFor(viewer)
   const employee = await prisma.employee.findUnique({
     where: { userId: viewer.sub },
     include: EMPLOYEE_INCLUDE,

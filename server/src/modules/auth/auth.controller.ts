@@ -78,6 +78,28 @@ export async function logoutHandler(req: Request, res: Response, next: NextFunct
   }
 }
 
+/**
+ * Ends every session this account has, including the one making the request.
+ *
+ * The subject is the token and there is no id in the path: this is a control
+ * on your own profile, not an administrative one. Signing somebody *else* out
+ * already happens as a consequence of deactivation and demotion, where it
+ * belongs.
+ *
+ * The cookie is cleared as well as revoked. Revocation alone leaves the
+ * browser holding a token that now 401s, which reads as a broken session
+ * rather than a deliberate sign-out.
+ */
+export async function logoutEverywhereHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    await authService.revokeAllUserTokens(req.user!.sub)
+    res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions())
+    return res.status(200).json({ success: true })
+  } catch (err) {
+    return next(err)
+  }
+}
+
 export async function forgotPasswordHandler(req: Request, res: Response, next: NextFunction) {
   const parsed = forgotPasswordSchema.safeParse(req.body)
   if (!parsed.success) {

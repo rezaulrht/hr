@@ -108,7 +108,28 @@ export interface EmployeeView {
   editableFields: string[]
 }
 
+/**
+ * The live sessions behind one account.
+ *
+ * **There is no "signed in since".** Refresh tokens rotate — `refresh()`
+ * revokes the old row and writes a new one — so a token's `createdAt` is when
+ * the session was last refreshed, never when it began. `count` is honest
+ * (rotation keeps one live row per session) and `lastActiveAt` is honest.
+ * A sign-in time would need a `lastLoginAt` column that does not exist.
+ */
+export interface AccountSessions {
+  count: number
+  lastActiveAt: string | null
+}
+
 export interface MyProfileResponse {
-  account: { email: string; role: string; mustChangePassword: boolean }
+  account: {
+    email: string
+    role: string
+    mustChangePassword: boolean
+    /** When the account was opened, not when the person joined. */
+    createdAt: string
+    sessions: AccountSessions
+  }
   employee: EmployeeView | null
 }

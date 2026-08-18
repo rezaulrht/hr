@@ -17,6 +17,21 @@ export interface ListEventsQuery {
  * an empty page rather than a 403.
  */
 export function listEvents(accessToken: string, query: ListEventsQuery = {}): Promise<EventPage> {
+  return apiFetch<EventPage>(`/api/events${toQuery(query)}`, { accessToken })
+}
+
+/**
+ * What the caller themselves did, newest first.
+ *
+ * A different endpoint rather than a flag, mirroring the server: this one is
+ * scoped by who acted, not by who may see. There is no id in the path and
+ * there must never be one — the subject is the token.
+ */
+export function listMyActions(accessToken: string, query: ListEventsQuery = {}): Promise<EventPage> {
+  return apiFetch<EventPage>(`/api/events/mine${toQuery(query)}`, { accessToken })
+}
+
+function toQuery(query: ListEventsQuery): string {
   const params = new URLSearchParams()
   if (query.limit !== undefined) params.set("limit", String(query.limit))
   if (query.cursor) params.set("cursor", query.cursor)
@@ -25,5 +40,5 @@ export function listEvents(accessToken: string, query: ListEventsQuery = {}): Pr
   if (query.severity) params.set("severity", query.severity)
 
   const qs = params.toString()
-  return apiFetch<EventPage>(`/api/events${qs ? `?${qs}` : ""}`, { accessToken })
+  return qs ? `?${qs}` : ""
 }

@@ -653,8 +653,29 @@ export interface EmployeeView {
   editableFields: string[]
 }
 
+/**
+ * Live sessions behind one account.
+ *
+ * **No "signed in since" here, and none is coming from the server.** Refresh
+ * tokens rotate on every refresh, so a token's age is the time since its last
+ * rotation, not since the session began. `count` and `lastActiveAt` are the
+ * two things that survive that; anything phrased as a sign-in time would be
+ * inventing one.
+ */
+export interface AccountSessions {
+  count: number
+  lastActiveAt: string | null
+}
+
 export interface MyProfileResponse {
-  account: { email: string; role: Role; mustChangePassword: boolean }
+  account: {
+    email: string
+    role: Role
+    mustChangePassword: boolean
+    /** When the account was opened, not when the person joined. */
+    createdAt: string
+    sessions: AccountSessions
+  }
   employee: EmployeeView | null
 }
 
