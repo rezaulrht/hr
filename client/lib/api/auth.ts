@@ -1,5 +1,5 @@
 import { apiFetch } from "./client"
-import type { LoginResponse, PublicUser } from "./types"
+import type { AccountIdentity, LoginResponse, PublicUser, SessionView } from "./types"
 
 export function loginAdmin(email: string, password: string): Promise<LoginResponse> {
   return apiFetch<LoginResponse>("/api/auth/login", {
@@ -73,4 +73,48 @@ export function changePassword(
     accessToken,
     body: JSON.stringify({ currentPassword, newPassword }),
   })
+}
+
+/* ── the account's own sessions and identity ─────────────────────────────── */
+
+/**
+ * Every live sign-in on this account, most recently used first.
+ *
+ * Self-scoped by the token; there is no id to pass and no way to read anyone
+ * else's. The `current` flag is resolved server-side by hashing the caller's
+ * own refresh cookie, which is why nothing here identifies it.
+ */
+export function listSessions(accessToken: string): Promise<SessionView[]> {
+  return apiFetch<SessionView[]>("/api/auth/sessions", { accessToken })
+}
+
+/** Ends one other session. The server refuses the caller's own with a 409. */
+export function revokeSession(accessToken: string, sessionId: string): Promise<void> {
+  return apiFetch<void>(`/api/auth/sessions/${sessionId}`, { method: "DELETE", accessToken })
+}
+
+/** Null clears it, and the account shows its email again. */
+export function setDisplayName(
+  accessToken: string,
+  displayName: string | null
+): Promise<AccountIdentity> {
+  return apiFetch<AccountIdentity>("/api/auth/me", {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify({ displayName }),
+  })
+}
+
+export function uploadOwnAvatar(accessToken: string, file: File): Promise<{ avatarUrl: string }> {
+  const form = new FormData()
+  form.append("file", file)
+  return apiFetch<{ avatarUrl: string }>("/api/auth/me/avatar", {
+    method: "PATCH",
+    accessToken,
+    body: form,
+  })
+}
+
+export function clearOwnAvatar(accessToken: string): Promise<{ avatarUrl: null }> {
+  return apiFetch<{ avatarUrl: null }>("/api/auth/me/avatar", { method: "DELETE", accessToken })
 }

@@ -198,9 +198,11 @@ describe("getMyProfile", () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
       vi.mocked(prisma.user.findUnique).mockResolvedValue({
         createdAt: new Date("2026-01-09T08:00:00.000Z"),
+        // `lastUsedAt`, not `createdAt`: rotation rewrites the row, so
+        // createdAt is the token's age rather than the session's.
         refreshTokens: [
-          { createdAt: new Date("2026-08-18T10:30:00.000Z") },
-          { createdAt: new Date("2026-08-17T09:00:00.000Z") },
+          { lastUsedAt: new Date("2026-08-18T10:30:00.000Z") },
+          { lastUsedAt: new Date("2026-08-17T09:00:00.000Z") },
         ],
       } as never)
 

@@ -131,6 +131,8 @@ describe("employee read routes", () => {
         mustChangePassword: false,
         createdAt: "2026-01-09T08:00:00.000Z",
         sessions: { count: 1, lastActiveAt: "2026-08-18T10:30:00.000Z" },
+        displayName: null,
+        avatarUrl: null,
       },
       employee: null,
     })

@@ -19,6 +19,15 @@ model User {
   role                Role
   isActive            Boolean              @default(true)
   mustChangePassword  Boolean              @default(false)
+  // Identity for an account with no Employee row — Super Admin, HR Admin and
+  // Finance Officer, who otherwise have no name and no face anywhere in the
+  // product and appear as a raw email address.
+  //
+  // Deliberately NOT used for staff: their name lives on Employee and is
+  // HR's to change, which is the existing rule and not one this relaxes.
+  displayName         String?
+  /// Packed "publicId:version", exactly as Employee.profilePicture is.
+  avatarUrl           String?
   employee            Employee?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -43,6 +52,28 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+
+  // ── the session this token belongs to ──
+  //
+  // Rotation replaces the row on every refresh, so `id` identifies a token
+  // and nothing identifies a *session*. Without this, a phone that has been
+  // signed in for a fortnight looks like a new device every fifteen minutes,
+  // and "where am I signed in" cannot be answered at all.
+  //
+  // Carried forward by `refresh()` onto the replacement row, along with
+  // startedAt and userAgent. Only ever one live row per sessionId.
+  sessionId String   @default(uuid())
+  /// When the session began — NOT when this token was written.
+  startedAt DateTime @default(now())
+  /// Bumped on every rotation. The honest reading of "last active".
+  lastUsedAt DateTime @default(now())
+  /// Frozen at login: the browser does not change mid-session.
+  userAgent String?
+  /// Updated on rotation, unlike userAgent — a laptop moves, and where it is
+  /// *now* is what makes an unfamiliar entry worth noticing.
+  ipAddress String?
+
+  @@index([userId, sessionId])
 }
 
 // Additive beyond spec §5 — see "Deviations" section, item 2.

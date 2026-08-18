@@ -667,6 +667,24 @@ export interface AccountSessions {
   lastActiveAt: string | null
 }
 
+/** One live sign-in. `sessionId` survives token rotation; the raw token never leaves the cookie. */
+export interface SessionView {
+  sessionId: string
+  /** "Chrome on Windows", or "Unknown device". Derived server-side from the user agent. */
+  device: string
+  ipAddress: string | null
+  startedAt: string
+  lastUsedAt: string
+  /** The session reading this list. The server refuses to revoke it. */
+  current: boolean
+}
+
+/** Name and photo for an account with no employee record. Null for staff. */
+export interface AccountIdentity {
+  displayName: string | null
+  avatarUrl: string | null
+}
+
 export interface MyProfileResponse {
   account: {
     email: string
@@ -675,6 +693,9 @@ export interface MyProfileResponse {
     /** When the account was opened, not when the person joined. */
     createdAt: string
     sessions: AccountSessions
+    /** Set only by accounts with no employee record — staff get their name and photo from HR. */
+    displayName: string | null
+    avatarUrl: string | null
   }
   employee: EmployeeView | null
 }

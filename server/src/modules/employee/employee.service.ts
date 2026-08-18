@@ -2,6 +2,7 @@ import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
 import { writeAudit } from "../../utils/audit"
 import { assertMonthNotLocked } from "../../utils/month-lock"
+import { projectAvatar } from "../auth/auth.me"
 import { generateTemporaryPassword, hashPassword } from "../auth/auth.utils"
 import { sendStaffCredentialsEmail } from "../auth/mailer"
 import { emitEvent } from "../event/event.emit"
@@ -185,10 +186,14 @@ async function accountFor(viewer: AccessTokenPayload): Promise<MyProfileResponse
     where: { id: viewer.sub },
     select: {
       createdAt: true,
+      displayName: true,
+      avatarUrl: true,
       refreshTokens: {
         where: { revokedAt: null, expiresAt: { gt: now } },
-        select: { createdAt: true },
-        orderBy: { createdAt: "desc" },
+        // `lastUsedAt`, not `createdAt`: rotation rewrites the row, so
+        // createdAt is the age of the token rather than of the session.
+        select: { lastUsedAt: true },
+        orderBy: { lastUsedAt: "desc" },
       },
     },
   })
@@ -199,6 +204,8 @@ async function accountFor(viewer: AccessTokenPayload): Promise<MyProfileResponse
     email: viewer.email,
     role: viewer.role,
     mustChangePassword: viewer.mustChangePassword,
+    displayName: row?.displayName ?? null,
+    avatarUrl: projectAvatar(row?.avatarUrl ?? null),
     // The token is valid, so the row exists; the fallback is for the sliver
     // between a deletion and the token expiring, and must not be a crash.
     createdAt: (row?.createdAt ?? now).toISOString(),
@@ -206,7 +213,7 @@ async function accountFor(viewer: AccessTokenPayload): Promise<MyProfileResponse
       count: tokens.length,
       // The newest rotation, which is the closest thing to "last seen" that
       // exists. Never presented as a sign-in time — see AccountSessions.
-      lastActiveAt: tokens[0]?.createdAt.toISOString() ?? null,
+      lastActiveAt: tokens[0]?.lastUsedAt.toISOString() ?? null,
     },
   }
 }

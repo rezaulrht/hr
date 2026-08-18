@@ -3,8 +3,6 @@
 import { useState } from "react"
 import { RiCloseLine, RiZoomInLine } from "@remixicon/react"
 
-import { deleteAvatar, uploadAvatar } from "@/lib/api/employees"
-import { useSession } from "@/lib/auth/session-context"
 import { AvatarLightbox } from "@/components/dashboard/avatar-lightbox"
 import { Button } from "@/components/ui/button"
 import { AVATAR_ACCEPT, AVATAR_MAX_BYTES, FileUpload } from "@/components/ui/file-upload"
@@ -23,19 +21,29 @@ export function initialsFrom(name: string): string {
  * action buttons beside it.
  */
 export function AvatarUpload({
-  employeeId,
+  upload,
+  remove,
   avatarUrl,
   fullName,
   editable,
   onChanged,
 }: {
-  employeeId: string
+  /**
+   * What to do with the chosen file, and how to take it away again.
+   *
+   * These were an `employeeId` the component turned into two API calls
+   * itself. They are operations now because an administrative account has a
+   * photo and no employee record — same control, different endpoint — and
+   * baking the employee route in would have meant a second copy of all of
+   * this for the sake of one URL.
+   */
+  upload: (file: File) => Promise<unknown>
+  remove: () => Promise<unknown>
   avatarUrl: string | null
   fullName: string
   editable: boolean
   onChanged: () => void
 }) {
-  const { accessToken } = useSession()
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
@@ -85,11 +93,10 @@ export function AvatarUpload({
   }
 
   async function handleRemove() {
-    if (!accessToken) return
     setRemoveError(null)
     setRemoving(true)
     try {
-      await deleteAvatar(accessToken, employeeId)
+      await remove()
       onChanged()
     } catch (err) {
       setRemoveError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
@@ -106,8 +113,7 @@ export function AvatarUpload({
           maxBytes={AVATAR_MAX_BYTES}
           label="Change photo"
           onSelect={async (file) => {
-            if (!accessToken) return
-            await uploadAvatar(accessToken, employeeId, file)
+            await upload(file)
             onChanged()
           }}
           render={({ open, pending }) => (

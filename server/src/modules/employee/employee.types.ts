@@ -130,6 +130,14 @@ export interface MyProfileResponse {
     /** When the account was opened, not when the person joined. */
     createdAt: string
     sessions: AccountSessions
+    /**
+     * Set only by accounts with no employee record. Null for staff, whose
+     * name and photo live on the Employee row and belong to HR — reading
+     * these for them would create a second answer to "what is this person
+     * called".
+     */
+    displayName: string | null
+    avatarUrl: string | null
   }
   employee: EmployeeView | null
 }

@@ -11,6 +11,7 @@ import { DocumentsCard } from "@/components/profile/documents-card"
 import { EditMyDetailsDialog } from "@/components/profile/edit-my-details-dialog"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
+import { SessionsCard } from "@/components/profile/sessions-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -74,7 +75,7 @@ export function MyProfilePage() {
       )}
 
       {employee === null ? (
-        <AccountProfile account={account} />
+        <AccountProfile account={account} onChanged={refresh} />
       ) : (
         <StaffProfile
           employee={employee}
@@ -228,6 +229,13 @@ function StaffProfile({
             ]}
           />
         ) : null}
+      </div>
+
+      {/* Every role, not only the administrative ones: "is somebody else in my
+          account" is not a question that belongs to one kind of user. Outside
+          the card grid because the rows are wide and read as a list. */}
+      <div className="mt-4">
+        <SessionsCard />
       </div>
 
       <EditMyDetailsDialog

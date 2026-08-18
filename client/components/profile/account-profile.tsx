@@ -9,19 +9,32 @@ import {
   RiInformationLine,
   RiKey2Line,
   RiLogoutBoxRLine,
+  RiPencilLine,
   RiShieldKeyholeLine,
   RiSubtractLine,
   type RemixiconComponentType,
 } from "@remixicon/react"
 
-import { logoutEverywhere } from "@/lib/api/auth"
+import { clearOwnAvatar, logoutEverywhere, setDisplayName, uploadOwnAvatar } from "@/lib/api/auth"
 import { listMyActions } from "@/lib/api/events"
 import { useSession } from "@/lib/auth/session-context"
 import type { EventItem, MyProfileResponse, Role } from "@/lib/api/types"
-import { ConfirmDialog, PanelTable, TONE } from "@/components/dashboard/record-kit"
+import {
+  ConfirmDialog,
+  DialogActions,
+  Field,
+  FormError,
+  PanelTable,
+  TONE,
+  toMessage,
+} from "@/components/dashboard/record-kit"
+import { AvatarUpload } from "@/components/profile/avatar-upload"
+import { SessionsCard } from "@/components/profile/sessions-card"
 import { Tag } from "@/components/dashboard/tag"
 import type { TableCell, Tone } from "@/components/dashboard/types"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 /**
@@ -111,10 +124,6 @@ function since(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
 }
 
-function initialsFromEmail(email: string): string {
-  return (email.split("@")[0] ?? "?").slice(0, 2).toUpperCase()
-}
-
 const SEVERITY_TONE: Record<EventItem["severity"], Tone> = {
   INFO: "neutral",
   SUCCESS: "green",
@@ -122,9 +131,20 @@ const SEVERITY_TONE: Record<EventItem["severity"], Tone> = {
   ERROR: "red",
 }
 
-export function AccountProfile({ account }: { account: MyProfileResponse["account"] }) {
+export function AccountProfile({
+  account,
+  onChanged,
+}: {
+  account: MyProfileResponse["account"]
+  /** Refetches the profile after a name or photo change. */
+  onChanged: () => void
+}) {
   const { accessToken, clearSession } = useSession()
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const [nameOpen, setNameOpen] = useState(false)
+
+  // Their own name once set, and the email until then — never a blank heading.
+  const displayed = account.displayName ?? account.email
 
   const actions = useQuery({
     queryKey: ["my-actions"],
@@ -149,15 +169,34 @@ export function AccountProfile({ account }: { account: MyProfileResponse["accoun
 
   return (
     <>
-      <header className="mb-4 flex flex-wrap items-center gap-4 rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
-        <div className="flex size-14 shrink-0 items-center justify-center rounded-md bg-[#EFF2F6] text-[17px] font-bold text-[#55657A]">
-          {initialsFromEmail(account.email)}
-        </div>
+      <header className="mb-4 flex flex-wrap items-start gap-4 rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
+        <AvatarUpload
+          upload={(file) => uploadOwnAvatar(accessToken!, file)}
+          remove={() => clearOwnAvatar(accessToken!)}
+          avatarUrl={account.avatarUrl}
+          fullName={displayed}
+          editable
+          onChanged={onChanged}
+        />
         <div className="min-w-0 flex-1">
-          <h1 className="font-heading text-[21px] font-bold tracking-tight break-words">
-            {account.email}
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-[#5F6B7C]">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-heading text-[21px] font-bold tracking-tight break-words">
+              {displayed}
+            </h1>
+            <button
+              type="button"
+              onClick={() => setNameOpen(true)}
+              aria-label="Edit your name"
+              title="Edit your name"
+              className="rounded p-1 text-[#7A8698] hover:bg-[#F4F6F9] hover:text-[#17191C]"
+            >
+              <RiPencilLine className="size-3.5" aria-hidden />
+            </button>
+          </div>
+          {/* The email stays visible even once a name is set: it is what they
+              sign in with, and the heading no longer says it. */}
+          <div className="mt-0.5 text-[13px] break-words text-[#5F6B7C]">{account.email}</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12.5px] text-[#5F6B7C]">
             <Tag label={ROLE_LABEL[account.role]} tone="neutral" />
             <span>Account opened {monthYear(account.createdAt)}</span>
           </div>
@@ -166,6 +205,10 @@ export function AccountProfile({ account }: { account: MyProfileResponse["accoun
 
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <Panel title="Security" icon={RiShieldKeyholeLine}>
+          {/* Session count and last-active used to sit here too. They moved
+              wholesale to SessionsCard rather than being repeated: the same
+              fact in two places is the defect that had the admin dashboard
+              restating the activity log. */}
           <Facts
             rows={[
               {
@@ -173,18 +216,7 @@ export function AccountProfile({ account }: { account: MyProfileResponse["accoun
                 value: account.mustChangePassword ? "Must be changed" : "Set",
                 tone: account.mustChangePassword ? "yellow" : undefined,
               },
-              {
-                label: "Signed in",
-                value:
-                  account.sessions.count === 0
-                    ? "Nowhere else"
-                    : `${account.sessions.count} ${account.sessions.count === 1 ? "device" : "devices"}`,
-              },
-              // Never "signed in since": refresh tokens rotate, so the only
-              // honest reading of a token's age is time since last use.
-              ...(account.sessions.lastActiveAt
-                ? [{ label: "Last active", value: since(account.sessions.lastActiveAt) }]
-                : []),
+              { label: "Account opened", value: monthYear(account.createdAt) },
             ]}
           />
           <div className="mt-4 flex flex-wrap gap-2 border-t border-[#EFF2F6] pt-4">
@@ -231,6 +263,10 @@ export function AccountProfile({ account }: { account: MyProfileResponse["accoun
         </Panel>
       </div>
 
+      <div className="mb-4">
+        <SessionsCard />
+      </div>
+
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
         <h2 className="font-heading text-[16px] font-bold tracking-tight">What you&apos;ve done</h2>
         <span className={cn("text-[12.5px]", TONE.muted)}>Your own actions, newest first</span>
@@ -264,7 +300,102 @@ export function AccountProfile({ account }: { account: MyProfileResponse["accoun
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={() => signOutAll.mutate()}
       />
+
+      <EditDisplayNameDialog
+        open={nameOpen}
+        current={account.displayName}
+        email={account.email}
+        onOpenChange={setNameOpen}
+        onSaved={onChanged}
+      />
     </>
+  )
+}
+
+/**
+ * The name an administrative account shows under.
+ *
+ * Clearing it is a supported outcome, not an empty form: the heading falls
+ * back to the email, which is where it started.
+ */
+function EditDisplayNameDialog({
+  open,
+  current,
+  email,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean
+  current: string | null
+  email: string
+  onOpenChange: (open: boolean) => void
+  onSaved: () => void
+}) {
+  const { accessToken } = useSession()
+  const [value, setValue] = useState(current ?? "")
+  const [error, setError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () => setDisplayName(accessToken!, value.trim() === "" ? null : value),
+    onSuccess: () => {
+      setError(null)
+      onOpenChange(false)
+      onSaved()
+    },
+    onError: (err) => setError(toMessage(err)),
+  })
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Reopening should show what is saved, not what was abandoned.
+        if (next) setValue(current ?? "")
+        setError(null)
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Your name</DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            save.mutate()
+          }}
+        >
+          <Field
+            label="Display name"
+            htmlFor="display-name"
+            hint={`Shown in the header and the sidebar. Leave it empty to show ${email} instead.`}
+          >
+            <Input
+              id="display-name"
+              value={value}
+              maxLength={120}
+              autoFocus
+              placeholder={email}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </Field>
+          {error ? (
+            <div className="mt-3">
+              <FormError>{error}</FormError>
+            </div>
+          ) : null}
+          <DialogFooter className="mt-4">
+            <DialogActions
+              pending={save.isPending}
+              submitLabel="Save"
+              disabled={value.trim() === (current ?? "")}
+              onCancel={() => onOpenChange(false)}
+              onSubmit={() => save.mutate()}
+            />
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
