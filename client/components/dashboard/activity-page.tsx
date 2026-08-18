@@ -73,6 +73,10 @@ const AREA_OPTIONS = [
   { value: "ATTENDANCE", label: "Attendance" },
   { value: "EXPENSE_CLAIM", label: "Expenses" },
   { value: "EMPLOYEE", label: "Employees" },
+  // Role changes. Filed apart from "Employees" because this is the login and
+  // what it may do, not the employment record — the same split the server
+  // draws between /admin/users and /admin/employees.
+  { value: "USER", label: "Accounts" },
 ]
 
 const SEVERITY_OPTIONS = [

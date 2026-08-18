@@ -43,6 +43,7 @@ export type EventType =
   | "employee.joined"
   | "employee.exited"
   | "employee.bank_changed"
+  | "user.role_changed"
   | "asset.assigned"
   | "asset.acknowledged"
   | "asset.returned"

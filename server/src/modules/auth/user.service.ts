@@ -14,7 +14,9 @@
 import prisma from "../../config/prisma"
 import { AppError } from "../../middleware/errorHandler"
 import type { Role } from "../../generated/prisma/client"
+import { emitEvent } from "../event/event.emit"
 import { generateTemporaryPassword, hashPassword } from "./auth.utils"
+import { isPromotion, roleChangedEvent } from "./user.events"
 import { revokeAllUserTokens } from "./auth.service"
 
 export interface UserAccount {
@@ -169,15 +171,28 @@ const EMPLOYEE_TIER_ROLES: readonly Role[] = ["EMPLOYEE", "REPORTING_MANAGER"]
  * Promotion out of an employee role is safe: the Employee row stays, so
  * payroll, leave and attendance keep resolving through it. The employeeCode
  * prefix (BS-EMP-) goes stale, which is correct — it records what they were
- * hired as, not what they are now.
+ * hired as, not what they are now. It cannot be reissued in any case: staff
+ * log in with it (`loginStaff`), it is the first column of the bank file, and
+ * it is the join key every spreadsheet import resolves rows through.
  *
  * The two refusals below are the directions that break something.
  *
- * `actorUserId` is unused today. It is here so the signature matches
- * setUserStatus and so an audit row can be added without touching call sites.
+ * Two things happen after the write, and neither is optional:
+ *
+ * **The change is announced.** Until this existed a promotion changed one
+ * column and told nobody — not HR, not the person it happened to. The event
+ * goes out in the same transaction as the update, so a role can never change
+ * silently.
+ *
+ * **A demotion ends the session.** The role is a JWT claim, so the old one
+ * survives for the access token's full life while the refresh cookie keeps
+ * minting new ones — exactly the reasoning `setUserStatus` already applies to
+ * a deactivation. A promotion is left alone: nothing was taken away, so there
+ * is nothing to cut short, and bouncing somebody to the login screen for
+ * being promoted is a poor way to hear it.
  */
 export async function setUserRole(
-  _actorUserId: string,
+  actorUserId: string,
   targetUserId: string,
   role: Role
 ): Promise<UserAccount> {
@@ -216,10 +231,35 @@ export async function setUserRole(
 
   await assertNotLastActiveSuperAdmin(current)
 
-  const updated = await prisma.user.update({
-    where: { id: targetUserId },
-    data: { role },
-    select: USER_ACCOUNT_SELECT,
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.user.update({
+      where: { id: targetUserId },
+      data: { role },
+      select: USER_ACCOUNT_SELECT,
+    })
+
+    await emitEvent(
+      tx,
+      roleChangedEvent({
+        targetUserId,
+        subjectEmployeeId: current.employee?.id ?? null,
+        // An administrative account has no Employee row and therefore no name
+        // anywhere; the login email is the only thing that identifies it.
+        displayName: current.employee?.fullName ?? current.email,
+        from: current.role,
+        to: role,
+        actorUserId,
+      })
+    )
+
+    return row
   })
+
+  // Outside the transaction, and after it: revoking tokens for a change that
+  // then rolled back would sign somebody out of a role they still hold.
+  if (!isPromotion(current.role, role)) {
+    await revokeAllUserTokens(targetUserId)
+  }
+
   return toAccount(updated as UserRow)
 }
