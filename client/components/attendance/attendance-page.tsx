@@ -36,6 +36,7 @@ import {
   formatDayLabel,
   formatHours,
   formatMonthLabel,
+  toTimeInput,
 } from "@/components/attendance/attendance-shared"
 
 /** Roles with an Employee profile — the only ones who punch. */
@@ -147,9 +148,25 @@ export function AttendancePage() {
     setPeriod({ month: next.getMonth() + 1, year: next.getFullYear() })
   }
 
-  /** Only a missing check-out on a tracked day, inside the amendment window. */
+  /**
+   * Any tracked day that has not been approved, inside the amendment window.
+   *
+   * This used to require a *missing* check-out — `|| day.checkOut` returned
+   * false the moment one existed. So somebody who tapped Check out by mistake
+   * at 11:00 lost the only control that could fix it, and a day rejected by
+   * their approver offered them nothing at all. The clock cannot help there
+   * either: a punch records `now`, so re-opening it at 15:00 would write 15:00
+   * over a 09:00 start. Typing the real time is the only honest remedy, and
+   * this is the button that does it.
+   *
+   * The conditions below are the server's own, no stricter:
+   * `regulariseAttendance` refuses an APPROVED record and anything older than
+   * MAX_REGULARISE_DAYS, and accepts everything else — REJECTED included.
+   */
   const canAmend = useCallback((day: AttendanceDay) => {
-    if (!day.attendanceId || !day.checkIn || day.checkOut) return false
+    // No row means there is nothing to amend: an untouched day is HR's to
+    // enter, through `createManualAttendance`.
+    if (!day.attendanceId) return false
     if (day.approval === "APPROVED") return false
     const age = (Date.now() - new Date(`${day.date}T00:00:00`).getTime()) / 86_400_000
     return age <= REGULARISE_WINDOW_DAYS
@@ -181,7 +198,9 @@ export function AttendancePage() {
                 actions={[
                   {
                     kind: "custom",
-                    label: "Fix this day",
+                    // A rejected day has already been round the loop once, so
+                    // "Fix this day" undersells what the button is for.
+                    label: day.approval === "REJECTED" ? "Fix and resend" : "Fix this day",
                     icon: <RiPencilLine className="size-3.5" aria-hidden />,
                     onClick: () => {
                       setAmendError(null)
@@ -395,8 +414,17 @@ export function AttendancePage() {
             if (!open) setAmending(null)
           }}
           title={`Fix ${formatDayLabel(amending.date)}`}
-          description="This goes to your manager for review. It cannot approve itself, because you are supplying a time nobody else recorded."
+          description={
+            amending.approval === "REJECTED"
+              ? "Your last submission for this day was rejected. Correct the times and send it again — it goes back to your manager for review."
+              : "This goes to your manager for review. It cannot approve itself, because you are supplying a time nobody else recorded."
+          }
           confirmLabel="Send to my manager"
+          // Prefilled, so fixing a mistaken check-out means editing the wrong
+          // time rather than recalling it into an empty box. A field left
+          // untouched is sent unchanged and lands on the same value.
+          defaultCheckIn={toTimeInput(amending.checkIn)}
+          defaultCheckOut={toTimeInput(amending.checkOut)}
           pending={regulariseMutation.isPending}
           error={amendError}
           onConfirm={(body) =>

@@ -145,3 +145,20 @@ export const currentMonth = () => {
   const now = new Date()
   return { month: now.getMonth() + 1, year: now.getFullYear() }
 }
+
+/**
+ * An instant as `<input type="time">` wants it: "18:00", 24-hour, zero-padded.
+ *
+ * Same local-zone conversion `formatClock` does, so a prefilled field and the
+ * cell it came from can never disagree. `hourCycle: "h23"` rather than
+ * `hour12: false`, which renders midnight as "24:00" and is rejected by the
+ * input.
+ */
+export function toTimeInput(iso: string | null): string | undefined {
+  if (!iso) return undefined
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+}
