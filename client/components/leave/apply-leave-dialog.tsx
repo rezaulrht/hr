@@ -293,7 +293,7 @@ export function ApplyLeaveDialog({
               </SelectContent>
             </Select>
             {selectedBalance && !isUnpaidType ? (
-              <p className="mt-1.5 text-xs text-[#7A8698]">
+              <p className="mt-1.5 text-xs text-[#5F6B7C]">
                 {selectedBalance.balance} of {selectedBalance.entitlement} days remaining
               </p>
             ) : null}
@@ -438,7 +438,7 @@ export function ApplyLeaveDialog({
                 saying: why halves are unavailable, the hours the selected
                 choice covers, or how to find those hours out.
               */}
-              <p className="mt-1.5 text-xs text-[#7A8698]">
+              <p className="mt-1.5 text-xs text-[#5F6B7C]">
                 {selectedType && !typeAllowsHalfDay
                   ? `${selectedType.name} leave is taken in whole days.`
                   : halfDayWindow
@@ -454,7 +454,7 @@ export function ApplyLeaveDialog({
             <div className="space-y-1">
               <p className="text-[13px] font-semibold">
                 {chargedDays} day{chargedDays === 1 ? "" : "s"}{" "}
-                <span className="font-normal text-[#7A8698]">
+                <span className="font-normal text-[#5F6B7C]">
                   {countsHolidays
                     ? "(holidays inside the period count as leave)"
                     : "(weekly and public holidays excluded)"}
@@ -471,7 +471,7 @@ export function ApplyLeaveDialog({
 
           <div>
             <Label htmlFor="reason" className="mb-1.5 text-xs font-bold">
-              Reason <span className="font-normal text-[#7A8698]">(optional)</span>
+              Reason <span className="font-normal text-[#5F6B7C]">(optional)</span>
             </Label>
             <Textarea
               id="reason"

@@ -62,10 +62,10 @@ export function DecisionDialog({
           <div className="flex items-start gap-2.5 rounded-md border border-[#E4E9EF] bg-[#F4F6F9] p-3">
             <Checkbox id="notify-employee" disabled className="mt-0.5" />
             <div>
-              <Label htmlFor="notify-employee" className="text-[13px] font-semibold text-[#7A8698]">
+              <Label htmlFor="notify-employee" className="text-[13px] font-semibold text-[#5F6B7C]">
                 Email the employee
               </Label>
-              <p className="text-[11.5px] text-[#A5AFBE]">Coming soon — no email is sent yet.</p>
+              <p className="text-[11.5px] text-[#6B7789]">Coming soon — no email is sent yet.</p>
             </div>
           </div>
 

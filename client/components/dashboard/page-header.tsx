@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import type { RemixiconComponentType } from "@remixicon/react"
 
 import { Button } from "@/components/ui/button"
 
@@ -59,11 +60,31 @@ export function PageHeader({
   )
 }
 
-export function MiniStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+export function MiniStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+}: {
+  label: string
+  value: string
+  sub: string
+  /**
+   * Optional, and the tile is unchanged without one. Every existing caller
+   * predates it, so a required glyph would have meant inventing one for
+   * tiles whose subject has no obvious picture.
+   */
+  icon?: RemixiconComponentType
+}) {
   return (
     <div className="rounded-md border border-[#E4E9EF] bg-white px-5 py-4">
-      <div className="text-[11.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">{label}</div>
-      <div className="font-heading mt-1.5 text-[22px] font-bold tracking-tight">{value}</div>
+      <div className="flex items-center gap-1.5">
+        {Icon ? <Icon className="size-3.5 shrink-0 text-[#8A94A2]" aria-hidden /> : null}
+        <div className="text-[11.5px] font-bold tracking-wide text-[#5F6B7C] uppercase">{label}</div>
+      </div>
+      <div className="font-heading mt-1.5 text-[22px] font-bold tracking-tight tabular-nums">
+        {value}
+      </div>
       <div className="mt-0.5 text-xs text-[#5F6B7C]">{sub}</div>
     </div>
   )
