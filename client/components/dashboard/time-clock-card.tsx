@@ -81,7 +81,17 @@ export function TimeClockCard({
       <Button
         disabled={pending || (!state.canCheckIn && !state.canCheckOut)}
         onClick={state.canCheckOut ? onCheckOut : onCheckIn}
-        className="h-auto rounded-md bg-white px-3 py-3 text-sm font-bold text-[#17191C] hover:brightness-[1.06] disabled:opacity-50"
+        // `hover:bg-white/90` is load-bearing, not decoration. The default
+        // variant ships `hover:bg-primary/80`, and passing `bg-white` alone
+        // leaves that untouched — so on hover the button turned near-black
+        // behind near-black text and the label vanished. The same trap
+        // `avatar-upload.tsx` documents: a base colour here does not override
+        // a hover colour there.
+        //
+        // The previous `hover:brightness-[1.06]` could never have helped:
+        // white is already at full brightness, so it was a no-op sitting
+        // where a real hover state was needed.
+        className="h-auto rounded-md bg-white px-3 py-3 text-sm font-bold text-[#17191C] transition-[background-color,transform] duration-150 ease-out hover:bg-white/90 active:translate-y-px disabled:opacity-50 motion-reduce:transition-none"
       >
         {pending ? "Saving…" : state.canCheckOut ? "Check out" : "Check in"}
       </Button>
