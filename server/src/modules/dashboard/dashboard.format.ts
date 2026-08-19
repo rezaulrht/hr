@@ -11,6 +11,7 @@
  * sent to the client as a number.
  */
 
+import { env } from "../../config/env"
 import { Prisma } from "../../generated/prisma/client"
 
 const LAKH = 100_000
@@ -50,6 +51,28 @@ export function money(amount: Amount, currency: string): string {
 }
 
 /** "3 days", "1 day", "today". */
+/**
+ * "Aug 11, 2026", and with `withTime`, "Aug 11, 2026, 10:57 AM".
+ *
+ * Dashboard cells carry text and nothing marks one as a date, so the client
+ * cannot know which to convert — the formatting has to happen here. The zone is
+ * `APP_TIMEZONE`, the same source `attendance.time.ts` uses for the business
+ * day: one organisation in one place, so a viewer-local conversion would only
+ * introduce a second answer to "when did that happen".
+ *
+ * Absolute, never "2 hours ago". A relative stamp has to read the clock to
+ * render, which is the reasoning already recorded on the activity feed.
+ */
+export function when(value: Date, withTime = false): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: env.APP_TIMEZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...(withTime ? { hour: "numeric" as const, minute: "2-digit" as const } : {}),
+  }).format(value)
+}
+
 export function days(count: number): string {
   if (count <= 0) return "today"
   return `${count} day${count === 1 ? "" : "s"}`

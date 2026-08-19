@@ -17,6 +17,9 @@ export type AssetComputedStatus =
   | "ASSIGNED"
   | "AVAILABLE"
 
+/** The name `AssetListFilters` uses for the status query filter. */
+export type AssetStatus = AssetComputedStatus
+
 export interface HeldBy {
   assignmentId: string
   employeeId: string

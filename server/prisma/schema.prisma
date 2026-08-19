@@ -19,6 +19,15 @@ model User {
   role                Role
   isActive            Boolean              @default(true)
   mustChangePassword  Boolean              @default(false)
+  // Identity for an account with no Employee row — Super Admin, HR Admin and
+  // Finance Officer, who otherwise have no name and no face anywhere in the
+  // product and appear as a raw email address.
+  //
+  // Deliberately NOT used for staff: their name lives on Employee and is
+  // HR's to change, which is the existing rule and not one this relaxes.
+  displayName         String?
+  /// Packed "publicId:version", exactly as Employee.profilePicture is.
+  avatarUrl           String?
   employee            Employee?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -43,6 +52,28 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+
+  // ── the session this token belongs to ──
+  //
+  // Rotation replaces the row on every refresh, so `id` identifies a token
+  // and nothing identifies a *session*. Without this, a phone that has been
+  // signed in for a fortnight looks like a new device every fifteen minutes,
+  // and "where am I signed in" cannot be answered at all.
+  //
+  // Carried forward by `refresh()` onto the replacement row, along with
+  // startedAt and userAgent. Only ever one live row per sessionId.
+  sessionId String   @default(uuid())
+  /// When the session began — NOT when this token was written.
+  startedAt DateTime @default(now())
+  /// Bumped on every rotation. The honest reading of "last active".
+  lastUsedAt DateTime @default(now())
+  /// Frozen at login: the browser does not change mid-session.
+  userAgent String?
+  /// Updated on rotation, unlike userAgent — a laptop moves, and where it is
+  /// *now* is what makes an unfamiliar entry worth noticing.
+  ipAddress String?
+
+  @@index([userId, sessionId])
 }
 
 // Additive beyond spec §5 — see "Deviations" section, item 2.
@@ -392,6 +423,16 @@ model Attendance {
   // that the time came from the person it benefits.
   regularisedAt   DateTime?
   regularisedNote String?
+
+  // Set when the nightly job closed a day the employee left open, writing the
+  // shift's end time as the check-out.
+  //
+  // A column of its own rather than a new `AttendanceSource`: the check-*in*
+  // really was a WEB punch, and rewriting `source` would launder a true fact
+  // in order to record a false one. This marks the check-out alone as
+  // invented, which is what the approver needs to know — without it,
+  // MISSING_CHECKOUT stops firing and the guessed time becomes invisible.
+  autoCheckOutAt DateTime?
 
   // User id, set when HR edits the record.
   correctedBy    String?
@@ -924,6 +965,11 @@ enum EventSeverity {
 
 // ── ASSETS ────────────────────────────────────
 
+enum AssetClassification {
+  IT
+  NON_IT
+}
+
 model AssetCategory {
   id   String @id @default(uuid())
   // Stable machine key (LAPTOP, MONITOR, PHONE, FURNITURE, VEHICLE, LICENCE).
@@ -937,6 +983,17 @@ model AssetCategory {
   // Issued and never expected back — a mouse, a keyboard, a headset. Excluded
   // from the exit checklist.
   isConsumable     Boolean @default(false)
+  // IT or non-IT, stated once per category. A property of the kind of thing,
+  // never of a single asset and never of a request — a chair is non-IT no
+  // matter who asks for it or why. Non-null deliberately: a nullable column
+  // creates a silent "unclassified" bucket nobody ever goes back and fills,
+  // and then every IT/non-IT filter lies by omission.
+  classification AssetClassification
+
+  // False means requestable but never registered — paper, pens, printer ink.
+  // Distinct from isConsumable, which means "never expected back" but is still
+  // one row with its own tag (a mouse). A pen is neither.
+  tracksIndividually Boolean @default(true)
   // Straight-line life. Unused in phase 1; the book-value report is phase 2.
   // The column exists now so the importer can carry it and there is no second
   // migration to backfill it later.
@@ -998,7 +1055,8 @@ model Asset {
 
   assignments AssetAssignment[]
   repairs     AssetRepair[]
-  requests    AssetRequest[]
+  requests          AssetRequest[] @relation("RequestTarget")
+  fulfilledRequests AssetRequest[] @relation("RequestFulfilment")
   attachments AssetAttachment[]
   recoveries  AssetRecovery[]
 
@@ -1208,30 +1266,10 @@ enum AssetAttachmentKind {
   CONDITION_IN
 }
 
-model AssetRequest {
-  id         String             @id @default(uuid())
-  employeeId String
-  employee   Employee           @relation(fields: [employeeId], references: [id])
-  // A category, not a specific asset — you request "a monitor", not
-  // BS-AST-00042. Which unit is HR's call at fulfilment.
-  categoryId String
-  category   AssetCategory      @relation(fields: [categoryId], references: [id])
-  reason     String
-  status     AssetRequestStatus @default(PENDING)
-
-  decidedBy    String? // User id
-  decidedAt    DateTime?
-  decisionNote String? // required on reject, matching leave and attendance
-
-  fulfilledAt      DateTime?
-  fulfilledBy      String?
-  fulfilledAssetId String?
-  fulfilledAsset   Asset?    @relation(fields: [fulfilledAssetId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  @@index([status])
-  @@index([employeeId, createdAt])
+enum AssetRequestKind {
+  NEW_ITEM
+  REPAIR
+  RETURN
 }
 
 // PENDING/APPROVED/REJECTED/CANCELLED mirror LeaveStatus deliberately — the
@@ -1241,9 +1279,63 @@ model AssetRequest {
 enum AssetRequestStatus {
   PENDING
   APPROVED
+  ORDERED
   REJECTED
   CANCELLED
   FULFILLED
+}
+
+model AssetRequest {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  kind AssetRequestKind @default(NEW_ITEM)
+
+  // NEW_ITEM names a category, not a unit — you ask for "a monitor", not
+  // BS-AST-00042. REPAIR and RETURN name the specific asset the requester
+  // holds. Exactly one of the two is set, enforced by a CHECK the service
+  // also validates so the failure is a sentence rather than a 500.
+  categoryId String?
+  category   AssetCategory? @relation(fields: [categoryId], references: [id])
+  assetId    String?
+  asset      Asset?         @relation("RequestTarget", fields: [assetId], references: [id])
+
+  // Supplies only. A tracked request is strictly one-to-one, because
+  // fulfilment writes one fulfilledAssetId and an assignment is one asset to
+  // one person.
+  quantity Int?
+
+  reason String
+  status AssetRequestStatus @default(PENDING)
+
+  decidedBy    String?
+  decidedAt    DateTime?
+  decisionNote String?
+
+  // Someone went shopping. Deliberately carries no estimated cost: the real
+  // figure lands on the Asset at creation and two cost fields invite a
+  // reconciliation nobody performs.
+  orderedAt  DateTime?
+  orderedBy  String?
+  expectedBy DateTime?
+  orderNote  String?
+
+  // The repair this request created on approval. One repair per request.
+  repairId String?      @unique
+  repair   AssetRepair? @relation(fields: [repairId], references: [id])
+
+  fulfilledAt      DateTime?
+  fulfilledBy      String?
+  fulfilledAssetId String?
+  fulfilledAsset   Asset?    @relation("RequestFulfilment", fields: [fulfilledAssetId], references: [id])
+  fulfilledNote    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([employeeId, createdAt])
+  @@index([kind, status])
 }
 
 model AssetRepair {
@@ -1266,6 +1358,9 @@ model AssetRepair {
   // A repair that comes back unrepairable is how an asset reaches RETIRED or
   // LOST, but the transition is a separate explicit act.
   conditionAfter AssetCondition?
+
+  // The request that created this repair on approval. One repair per request.
+  request AssetRequest?
 
   @@index([assetId, sentAt])
   @@index([returnedAt])

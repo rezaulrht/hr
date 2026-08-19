@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("../../config/prisma", () => ({
-  default: {
+// `$transaction` runs its callback against this same object rather than a
+// separate tx double, so an assertion on `prisma.user.update` reads the same
+// whether the call sits inside a transaction or outside one.
+vi.mock("../../config/prisma", () => {
+  const client = {
     user: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
     employee: { count: vi.fn() },
-  },
-}))
+    $transaction: vi.fn(),
+  }
+  client.$transaction.mockImplementation((fn: (tx: typeof client) => unknown) => fn(client))
+  return { default: client }
+})
 
 vi.mock("./auth.utils", () => ({
   generateTemporaryPassword: vi.fn(() => "TempPass123"),
@@ -16,7 +22,11 @@ vi.mock("./auth.service", () => ({
   revokeAllUserTokens: vi.fn(async () => undefined),
 }))
 
+vi.mock("../event/event.emit", () => ({ emitEvent: vi.fn() }))
+
 import prisma from "../../config/prisma"
+import { emitEvent } from "../event/event.emit"
+import { revokeAllUserTokens } from "./auth.service"
 import { createUser, listUsers, setUserRole, setUserStatus } from "./user.service"
 
 beforeEach(() => {
@@ -326,5 +336,158 @@ describe("setUserRole", () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never)
 
     await expect(setUserRole("u-1", "nope", "HR_ADMIN")).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  describe("telling people about it", () => {
+    const employeeTarget = {
+      ...adminTarget,
+      id: "u-5",
+      role: "EMPLOYEE",
+      employee: { id: "emp-5", employeeCode: "BS-EMP-00007", fullName: "Nadia Rahman" },
+    }
+
+    function promoteTo(role: string) {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(employeeTarget as never)
+      vi.mocked(prisma.employee.count).mockResolvedValue(0 as never)
+      vi.mocked(prisma.user.update).mockResolvedValue({ ...employeeTarget, role } as never)
+    }
+
+    it("announces the change to the person it happened to", async () => {
+      // The whole point: without a subject audience the row exists and the
+      // one person who most needs it never sees it.
+      promoteTo("REPORTING_MANAGER")
+
+      await setUserRole("u-1", "u-5", "REPORTING_MANAGER")
+
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          type: "user.role_changed",
+          severity: "SUCCESS",
+          actorUserId: "u-1",
+          entity: "USER",
+          entityId: "u-5",
+          subjectEmployeeId: "emp-5",
+          title: "Nadia Rahman is now a Reporting Manager",
+          meta: "Was Employee",
+        })
+      )
+    })
+
+    it("writes the event inside the transaction that changes the role", async () => {
+      // A role change that lands without its announcement is the bug this
+      // whole change exists to fix, so the two must not be separable.
+      promoteTo("REPORTING_MANAGER")
+
+      await setUserRole("u-1", "u-5", "REPORTING_MANAGER")
+
+      expect(prisma.$transaction).toHaveBeenCalled()
+      const tx = vi.mocked(emitEvent).mock.calls[0]![0]
+      expect(tx).toBe(prisma)
+    })
+
+    it("names an administrative account by its email, having no employee record", async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+      vi.mocked(prisma.user.count).mockResolvedValue(3 as never)
+      vi.mocked(prisma.user.update).mockResolvedValue({
+        ...adminTarget,
+        role: "SUPER_ADMIN",
+      } as never)
+
+      await setUserRole("u-1", "u-2", "SUPER_ADMIN")
+
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          title: "hr@demo.com is now a Super Admin",
+          subjectEmployeeId: null,
+        })
+      )
+    })
+
+    it("emits nothing when the role is unchanged", async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+
+      await setUserRole("u-1", "u-2", "HR_ADMIN")
+
+      expect(emitEvent).not.toHaveBeenCalled()
+    })
+
+    it("emits nothing when the change is refused", async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(staffTarget as never)
+      vi.mocked(prisma.employee.count).mockResolvedValue(3 as never)
+
+      await expect(setUserRole("u-1", "u-4", "EMPLOYEE")).rejects.toMatchObject({
+        statusCode: 409,
+      })
+      expect(emitEvent).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("the session", () => {
+    const managerTarget = {
+      ...adminTarget,
+      id: "u-4",
+      role: "REPORTING_MANAGER",
+      employee: { id: "emp-4", employeeCode: "BS-MGR-00001", fullName: "Karim Rahman" },
+    }
+
+    it("leaves a promotion's session alone", async () => {
+      // Nothing was taken away, so there is nothing to cut short. The next
+      // refresh re-reads the role from the row within the access token's life.
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        ...managerTarget,
+        role: "EMPLOYEE",
+      } as never)
+      vi.mocked(prisma.employee.count).mockResolvedValue(0 as never)
+      vi.mocked(prisma.user.update).mockResolvedValue(managerTarget as never)
+
+      await setUserRole("u-1", "u-4", "REPORTING_MANAGER")
+
+      expect(revokeAllUserTokens).not.toHaveBeenCalled()
+    })
+
+    it("signs out a demotion, so the lost privilege is lost now", async () => {
+      // The access token carries the role for its full 15 minutes and the
+      // refresh cookie keeps minting new ones — the same reasoning
+      // setUserStatus already applies to a deactivation.
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(managerTarget as never)
+      vi.mocked(prisma.employee.count).mockResolvedValue(0 as never)
+      vi.mocked(prisma.user.update).mockResolvedValue({
+        ...managerTarget,
+        role: "EMPLOYEE",
+      } as never)
+
+      await setUserRole("u-1", "u-4", "EMPLOYEE")
+
+      expect(revokeAllUserTokens).toHaveBeenCalledWith("u-4")
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ severity: "WARNING" })
+      )
+    })
+
+    it("signs out a sideways move between the two peer admin roles", async () => {
+      // HR_ADMIN and FINANCE_OFFICER rank equally, so neither direction is a
+      // promotion — and each one takes the other's endpoints away.
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+      vi.mocked(prisma.user.update).mockResolvedValue({
+        ...adminTarget,
+        role: "FINANCE_OFFICER",
+      } as never)
+
+      await setUserRole("u-1", "u-2", "FINANCE_OFFICER")
+
+      expect(revokeAllUserTokens).toHaveBeenCalledWith("u-2")
+    })
+
+    it("does not sign anyone out when the change is refused", async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(adminTarget as never)
+
+      await expect(setUserRole("u-1", "u-2", "EMPLOYEE")).rejects.toMatchObject({
+        statusCode: 400,
+      })
+      expect(revokeAllUserTokens).not.toHaveBeenCalled()
+    })
   })
 })

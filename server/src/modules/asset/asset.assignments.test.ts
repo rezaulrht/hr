@@ -4,6 +4,7 @@ vi.mock("../../config/prisma", () => {
   const tx = {
     asset: { findUnique: vi.fn() },
     assetAssignment: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
+    assetRequest: { findMany: vi.fn(), updateMany: vi.fn() },
     assetRecovery: { create: vi.fn() },
     assetRepair: { count: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -36,6 +37,7 @@ beforeEach(() => {
   tx.event.create.mockResolvedValue({})
   tx.assetRecovery.create.mockResolvedValue({ id: "rec-1" })
   tx.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "emp-mgr" })
+  tx.assetRequest.findMany.mockResolvedValue([])
 })
 
 describe("assignAsset", () => {
@@ -199,6 +201,40 @@ describe("returnAsset", () => {
     )
 
     expect(tx.assetRecovery.create).not.toHaveBeenCalled()
+  })
+
+  it("closes an approved RETURN request for the same asset", async () => {
+    // Decision 6: conditionIn is mandatory and only HR can judge it, so a
+    // RETURN request cannot auto-complete on approval — it completes when
+    // somebody actually catches the thing.
+    tx.asset.findUnique.mockResolvedValue({ id: "ast-1", assetTag: "BS-AST-00012", name: "MacBook Pro 14" })
+    tx.assetAssignment.findFirst.mockResolvedValue({ id: "asg-1", assetId: "ast-1", employeeId: "emp-1" })
+    tx.assetAssignment.update.mockResolvedValue({ id: "asg-1", returnedAt: new Date() })
+    tx.assetRequest.findMany.mockResolvedValue([{ id: "req-1" }])
+    tx.assetRequest.updateMany.mockResolvedValue({ count: 1 })
+
+    await returnAsset("ast-1", { conditionIn: "GOOD" }, hr)
+
+    // The request is fulfilled by the act of receiving, not by approving it.
+    // updateMany because most returns have no request behind them — HR takes
+    // things back directly all the time.
+    expect(tx.assetRequest.updateMany).toHaveBeenCalledWith({
+      where: { assetId: "ast-1", kind: "RETURN", status: "APPROVED" },
+      data: expect.objectContaining({ status: "FULFILLED" }),
+    })
+    // Global Constraint: the mutation writes its ASSET_REQUEST audit row inside
+    // the same transaction, mirroring receiveFromRepair's FULFIL rows.
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entity: "ASSET_REQUEST",
+          entityId: "req-1",
+          action: "FULFIL",
+          changedBy: "user-hr",
+          after: { status: "FULFILLED" },
+        }),
+      })
+    )
   })
 })
 

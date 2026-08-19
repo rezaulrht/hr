@@ -60,3 +60,12 @@ export const setUserRoleSchema = z.object({
   ]),
 })
 export type SetUserRoleInput = z.infer<typeof setUserRoleSchema>
+
+/**
+ * Nullable on purpose. Clearing the name is a real choice — it falls back to
+ * showing the email — and is not the same as omitting the field.
+ */
+export const displayNameSchema = z.object({
+  displayName: z.string().trim().max(120).nullable(),
+})
+export type DisplayNameInput = z.infer<typeof displayNameSchema>

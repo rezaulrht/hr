@@ -136,6 +136,29 @@ export async function returnAsset(
       },
     })
 
+    // Decision 6: the return request is fulfilled by the act of receiving, not
+    // by approving it. updateMany, not update: HR takes things back directly
+    // all the time, so most returns have no request behind them. updateMany
+    // can't return the row ids, so read them first to write one ASSET_REQUEST
+    // audit per request.
+    const closing = await tx.assetRequest.findMany({
+      where: { assetId, kind: "RETURN", status: "APPROVED" },
+      select: { id: true },
+    })
+    await tx.assetRequest.updateMany({
+      where: { assetId, kind: "RETURN", status: "APPROVED" },
+      data: { status: "FULFILLED", fulfilledAt: new Date(), fulfilledBy: actor.sub },
+    })
+    for (const r of closing) {
+      await writeAudit(tx, {
+        entity: "ASSET_REQUEST",
+        entityId: r.id,
+        action: "FULFIL",
+        changedBy: actor.sub,
+        after: { status: "FULFILLED" },
+      })
+    }
+
     // Decision 4: a return with conditionIn DAMAGED is the other moment the
     // facts are fresh, and the same dialog offers to price the damage.
     if (input.recovery && input.conditionIn === "DAMAGED") {

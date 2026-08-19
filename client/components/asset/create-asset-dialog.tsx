@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { formatAssetDate } from "@/components/asset/asset-shared"
+import { PanelAlert } from "@/components/dashboard/record-kit"
 
 /** `<input type="date">` wants YYYY-MM-DD; the API sends a full ISO string. */
 function toDateInput(value: string | null | undefined): string {
@@ -104,6 +105,8 @@ function CustodyStrip({
  */
 function AssetForm({
   asset,
+  prefillCategoryId,
+  requestedBy,
   onOpenChange,
   onSuccess,
   onHandOver,
@@ -111,6 +114,8 @@ function AssetForm({
 }: {
   /** null creates; non-null edits. */
   asset: AssetDetail | null
+  prefillCategoryId?: string
+  requestedBy?: string
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   onHandOver?: (assetId: string) => void
@@ -119,7 +124,10 @@ function AssetForm({
   const { accessToken } = useSession()
   const queryClient = useQueryClient()
 
-  const [categoryId, setCategoryId] = useState(asset?.categoryId ?? "")
+  // Seeded at first render rather than in an effect, so the select is right on
+  // the first paint with no flash of an empty field. The parent keys this
+  // component on the request id, so opening it for a different row re-seeds.
+  const [categoryId, setCategoryId] = useState(asset?.categoryId ?? prefillCategoryId ?? "")
   const [name, setName] = useState(asset?.name ?? "")
   const [serialNumber, setSerialNumber] = useState(asset?.serialNumber ?? "")
   const [model, setModel] = useState(asset?.model ?? "")
@@ -185,6 +193,16 @@ function AssetForm({
       <DialogHeader>
         <DialogTitle>{asset ? "Edit asset" : "Add an asset"}</DialogTitle>
       </DialogHeader>
+
+      {/* Says why the dialog opened, so a prefilled category does not look
+          like a stray default. Deliberately does not promise to assign it:
+          the handover stays a separate act on the request row. */}
+      {!asset && requestedBy ? (
+        <PanelAlert>
+          Adding this registers it and nothing more. Hand it to {requestedBy} from their
+          request afterwards, so the register records who issued it and in what condition.
+        </PanelAlert>
+      ) : null}
 
       {/* Edit only. A brand-new asset has no custody yet by definition, and
           offering a handover before the record exists would need the create to
@@ -391,6 +409,8 @@ function AssetForm({
 export function CreateAssetDialog({
   open,
   assetId,
+  prefillCategoryId,
+  requestedBy,
   onOpenChange,
   onSuccess,
   onHandOver,
@@ -399,6 +419,10 @@ export function CreateAssetDialog({
   open: boolean
   /** Non-null puts the dialog in edit mode. */
   assetId?: string | null
+  /** Seeds the category when opened from an approved request. */
+  prefillCategoryId?: string
+  /** Whose request opened this, so the dialog can say why it is here. */
+  requestedBy?: string
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   /**
@@ -436,6 +460,8 @@ export function CreateAssetDialog({
         ) : (
           <AssetForm
             asset={assetQuery.data ?? null}
+            prefillCategoryId={prefillCategoryId}
+            requestedBy={requestedBy}
             onOpenChange={onOpenChange}
             onSuccess={onSuccess}
             onHandOver={onHandOver}

@@ -125,7 +125,15 @@ describe("employee read routes", () => {
 
   it("routes /me to the profile handler, not to :id", async () => {
     vi.mocked(employeeService.getMyProfile).mockResolvedValue({
-      account: { email: "hr@demo.com", role: "HR_ADMIN", mustChangePassword: false },
+      account: {
+        email: "hr@demo.com",
+        role: "HR_ADMIN",
+        mustChangePassword: false,
+        createdAt: "2026-01-09T08:00:00.000Z",
+        sessions: { count: 1, lastActiveAt: "2026-08-18T10:30:00.000Z" },
+        displayName: null,
+        avatarUrl: null,
+      },
       employee: null,
     })
     const res = await request(app)

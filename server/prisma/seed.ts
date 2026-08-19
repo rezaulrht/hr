@@ -5,6 +5,7 @@ import {
   PrismaClient,
   Role,
   type HolidayType,
+  type Prisma,
 } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
 import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
@@ -137,20 +138,15 @@ async function seedAnnouncements(hrUserId: string) {
 // Asset categories. A table rather than an enum because HR will add
 // "docking station" and no code branches on the name — the same rule
 // Department and LeaveType follow.
-const ASSET_CATEGORIES = [
-  { code: "LAPTOP", name: "Laptop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36 },
-  { code: "DESKTOP", name: "Desktop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 48 },
-  { code: "MONITOR", name: "Monitor", requiresSerial: true, isConsumable: false, usefulLifeMonths: 60 },
-  { code: "PHONE", name: "Mobile phone", requiresSerial: true, isConsumable: false, usefulLifeMonths: 24 },
-  // A chair has no serial and a headset is never chased. Both still get a
-  // row and a tag, because knowing you issued 40 headsets last year is
-  // exactly what this register is for.
-  { code: "FURNITURE", name: "Furniture", requiresSerial: false, isConsumable: false, usefulLifeMonths: 120 },
-  { code: "PERIPHERAL", name: "Peripheral", requiresSerial: false, isConsumable: true, usefulLifeMonths: null },
-  { code: "VEHICLE", name: "Vehicle", requiresSerial: true, isConsumable: false, usefulLifeMonths: 120 },
-  // A licence cannot be physically returned and has no serial. One register
-  // row is all it gets this phase.
-  { code: "LICENCE", name: "Software licence", requiresSerial: false, isConsumable: false, usefulLifeMonths: 12 },
+const ASSET_CATEGORIES: Prisma.AssetCategoryCreateInput[] = [
+  { code: "LAPTOP", name: "Laptop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36, classification: "IT", tracksIndividually: true },
+  { code: "MONITOR", name: "Monitor", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36, classification: "IT", tracksIndividually: true },
+  { code: "PHONE", name: "Phone", requiresSerial: true, isConsumable: false, usefulLifeMonths: 24, classification: "IT", tracksIndividually: true },
+  { code: "FURNITURE", name: "Furniture", requiresSerial: false, isConsumable: false, usefulLifeMonths: 60, classification: "NON_IT", tracksIndividually: true },
+  { code: "LICENCE", name: "Software licence", requiresSerial: false, isConsumable: false, usefulLifeMonths: 12, classification: "IT", tracksIndividually: true },
+  // A supply: issued by quantity, never registered as individual rows. Ten
+  // pens is one fact, not ten assets with ten tags.
+  { code: "STATIONERY", name: "Stationery", requiresSerial: false, isConsumable: true, usefulLifeMonths: null, classification: "NON_IT", tracksIndividually: false },
 ]
 
 async function seedAssetCategories() {
@@ -174,6 +170,7 @@ const costCategories = [
   { code: "SECURITY", name: "Security" },
   { code: "MAINTENANCE", name: "Maintenance" },
   { code: "OTHER", name: "Other" },
+  { code: "STATIONERY", name: "Stationery and office supplies" },
 ]
 
 async function seedCostCategories() {

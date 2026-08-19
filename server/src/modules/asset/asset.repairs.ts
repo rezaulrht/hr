@@ -114,6 +114,28 @@ export async function receiveFromRepair(
       },
     })
 
+    // A REPAIR request is fulfilled by the thing coming back. updateMany, not
+    // update: there may be no request behind this repair at all, because HR
+    // can still send an asset for repair directly. updateMany can't return the
+    // row ids, so read them first to write one ASSET_REQUEST audit per request.
+    const closing = await tx.assetRequest.findMany({
+      where: { repairId, status: "APPROVED" },
+      select: { id: true },
+    })
+    await tx.assetRequest.updateMany({
+      where: { repairId, status: "APPROVED" },
+      data: { status: "FULFILLED", fulfilledAt: new Date(), fulfilledBy: actor.sub },
+    })
+    for (const r of closing) {
+      await writeAudit(tx, {
+        entity: "ASSET_REQUEST",
+        entityId: r.id,
+        action: "FULFIL",
+        changedBy: actor.sub,
+        after: { status: "FULFILLED" },
+      })
+    }
+
     await writeAudit(tx, {
       entity: "ASSET_REPAIR",
       entityId: repairId,

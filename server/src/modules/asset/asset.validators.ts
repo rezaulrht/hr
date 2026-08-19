@@ -46,6 +46,11 @@ export const createCategorySchema = z.object({
   requiresSerial: z.boolean().optional(),
   isConsumable: z.boolean().optional(),
   usefulLifeMonths: z.coerce.number().int().min(1).nullable().optional(),
+  // Required, not optional-with-a-default. A category whose classification
+  // nobody chose is exactly the silent bucket the non-null column exists to
+  // prevent.
+  classification: z.enum(["IT", "NON_IT"]),
+  tracksIndividually: z.boolean().optional(),
 })
 
 export const updateCategorySchema = createCategorySchema.partial().omit({ code: true })
@@ -92,16 +97,44 @@ export const receiveRepairSchema = z.object({
   conditionAfter: z.enum(["NEW", "GOOD", "FAIR", "DAMAGED"]).optional(),
 })
 
-export const submitRequestSchema = z.object({
-  categoryId: z.string().uuid(),
-  reason: z.string().trim().min(1).max(1000),
-})
+// A discriminated union rather than one wide object: it makes the invalid
+// combinations unrepresentable at the edge, so the service only ever handles
+// shapes the CHECK constraints also permit.
+export const submitRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("NEW_ITEM"),
+    categoryId: z.string().uuid(),
+    quantity: z.coerce.number().int().min(1).optional(),
+    reason: z.string().trim().min(1).max(1000),
+  }),
+  z.object({
+    kind: z.enum(["REPAIR", "RETURN"]),
+    assetId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(1000),
+  }),
+])
+
+export type SubmitRequestInput = z.infer<typeof submitRequestSchema>
 
 // A note is required on reject and optional on approve, matching leave and
 // attendance: a rejection nobody explained is one the requester cannot act on.
 export const approveRequestSchema = z.object({ note: z.string().trim().max(1000).optional() })
 export const rejectRequestSchema = z.object({ note: z.string().trim().min(1).max(1000) })
-export const fulfilRequestSchema = z.object({ assetId: z.string().uuid() })
+// assetId is optional because a supply has no asset to name. Which of the two
+// applies is decided by the category, in the service, where it is known.
+export const fulfilRequestSchema = z.object({
+  assetId: z.string().uuid().optional(),
+  note: z.string().trim().max(1000).optional(),
+})
+
+export const markOrderedSchema = z.object({
+  expectedBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date").optional(),
+  note: z.string().trim().max(1000).optional(),
+})
+
+// Optional in the schema and required in the service when the canceller is not
+// the requester — the rule depends on who is asking, which Zod cannot see.
+export const cancelRequestSchema = z.object({ note: z.string().trim().max(1000).optional() })
 
 // The attachment kind arrives as a multipart TEXT field alongside the file,
 // matching employee.validators.ts's documentTypeSchema — it is validated on

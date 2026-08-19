@@ -9,9 +9,9 @@
 import prisma from "../../config/prisma"
 import { officeToday } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
-import { listEvents } from "../event/event.service"
+import { monthName } from "../payroll/payroll.events"
 import { settleCards } from "./dashboard.cards"
-import { ageInDays, days } from "./dashboard.format"
+import { ageInDays, days, when } from "./dashboard.format"
 import { timeOfDayGreeting } from "./dashboard.greeting"
 import { currentPayrollCard } from "./dashboard.payroll-card"
 import { headcountSeries, payrollSeries } from "./dashboard.series"
@@ -91,32 +91,80 @@ async function attendanceBacklogCard(count: number): Promise<DashboardStat> {
 }
 
 /**
- * The event log, rendered as rows.
+ * What is actually waiting on this person, oldest first.
  *
- * `title` and `meta` are frozen at emit, so there is **no** name resolution
- * and no diff-to-prose mapping here. If this function ever starts batching
- * `User` lookups, the event log is being used wrong — and an event whose
- * actor has since been deleted still renders correctly today.
+ * Replaces a 'Recent activity' table that repeated the events log column for
+ * column — same headers, same rows, one labelled 'recent' and the other 'all'.
+ * Activity now lives in one place, at /admin/reports, and the dashboard
+ * answers the question a landing page should: what needs me.
+ *
+ * The shape matches HR's 'Leave requests waiting' and Finance's 'Claims
+ * waiting on you', so the three admin-facing dashboards agree on what their
+ * wide panel is for.
  */
-function eventRows(events: Awaited<ReturnType<typeof listEvents>>["items"]): TableCell[][] {
-  const severityTone = { INFO: "neutral", SUCCESS: "green", WARNING: "yellow", ERROR: "red" } as const
-  return events.map((e) => [
-    { text: e.title, sub: e.meta ?? undefined, weight: 500 },
-    { text: e.entity.replace(/_/g, " ").toLowerCase() },
-    { tag: e.severity.toLowerCase(), tone: severityTone[e.severity] },
-    { text: e.createdAt },
+async function approvalRows(): Promise<TableCell[][]> {
+  const today = officeToday()
+  const [runs, settlements] = await Promise.all([
+    prisma.payrollRun.findMany({
+      where: { status: "SUBMITTED" },
+      // When it was handed over, not when the row last changed: the question
+      // is how long this has been sitting with the approver.
+      orderBy: { submittedAt: "asc" },
+      take: 5,
+      select: { month: true, year: true, submittedAt: true, createdAt: true },
+    }),
+    prisma.settlement.findMany({
+      where: { status: "DRAFT", calculatedAt: { not: null } },
+      orderBy: { calculatedAt: "asc" },
+      take: 5,
+      select: { calculatedAt: true, employee: { select: { fullName: true, employeeCode: true } } },
+    }),
   ])
+
+  const rows = [
+    ...runs.map((r) => ({
+      what: `${monthName(r.month, r.year)} payroll`,
+      sub: undefined as string | undefined,
+      queue: "Payroll run",
+      // Nullable in the schema even though a SUBMITTED run should always carry
+      // it; falling back keeps a data oddity out of the ageing column.
+      since: r.submittedAt ?? r.createdAt,
+    })),
+    ...settlements.map((s) => ({
+      what: s.employee.fullName,
+      sub: s.employee.employeeCode,
+      queue: "Settlement",
+      since: s.calculatedAt!,
+    })),
+  ].sort((a, b) => a.since.getTime() - b.since.getTime())
+
+  return rows.slice(0, 6).map((r) => {
+    const age = ageInDays(r.since, today)
+    return [
+      { text: r.what, sub: r.sub, weight: 500 },
+      { text: r.queue },
+      { text: when(r.since) },
+      { tag: days(age), tone: toneFor.aging(age) },
+    ]
+  })
 }
 
 export async function buildAdminDashboard(actor: AccessTokenPayload): Promise<DashboardPayload> {
   // Counted once and used by both the card and the nav badge. Two sources
   // drift, and the one that drifts is always the one nobody is looking at.
-  const [queue, attendanceBacklog] = await Promise.all([
+  const [queue, attendanceBacklog, assetQueue] = await Promise.all([
     approvalQueue(),
     prisma.attendance.count({ where: { approval: "PENDING" } }),
+    // Requests still waiting on somebody, plus handovers the holder has not
+    // confirmed. Both are work; a fulfilled request and an acknowledged
+    // handover are not, and must not keep the badge lit.
+    Promise.all([
+      prisma.assetRequest.count({ where: { status: { in: ["PENDING", "APPROVED", "ORDERED"] } } }),
+      prisma.assetAssignment.count({ where: { returnedAt: null, acknowledgedAt: null } }),
+    ]).then(([requests, unacknowledged]) => requests + unacknowledged),
   ])
 
-  const [stats, bars, events] = await Promise.all([
+  const [stats, bars, waiting] = await Promise.all([
     settleCards([
       { label: "Awaiting your approval", build: () => awaitingApprovalCard(queue.total) },
       { label: "Total employees", build: () => headcountCard() },
@@ -124,7 +172,7 @@ export async function buildAdminDashboard(actor: AccessTokenPayload): Promise<Da
       { label: "Attendance backlog", build: () => attendanceBacklogCard(attendanceBacklog) },
     ]),
     payrollSeries(6),
-    listEvents(actor, { limit: 5 }),
+    approvalRows(),
   ])
 
   return {
@@ -141,14 +189,18 @@ export async function buildAdminDashboard(actor: AccessTokenPayload): Promise<Da
     stats,
     chart: { title: "Payroll disbursed", sub: "Last six months, BDT", bars },
     table: {
-      title: "Recent activity",
-      headers: ["What happened", "Area", "Severity", "When"],
-      rows: eventRows(events.items),
-      href: "/admin/reports",
+      title: "Waiting on you",
+      headers: ["What", "Queue", "Since", "Waiting"],
+      rows: waiting,
+      href: "/admin/payroll",
     },
     badges: {
       "/admin/payroll": queue.total,
       "/admin/attendance": attendanceBacklog,
+      // Things needing a person, not the size of the register: a badge beside
+      // a nav item reads as "you have N to do", and putting the asset count
+      // there would teach people the number is decoration.
+      "/admin/assets": assetQueue,
     },
   }
 }

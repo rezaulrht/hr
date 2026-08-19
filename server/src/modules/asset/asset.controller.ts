@@ -22,7 +22,9 @@ import {
   approveRequest,
   cancelRequest,
   fulfilRequest,
+  getRequestTimeline,
   listRequests,
+  markOrdered,
   rejectRequest,
   submitRequest,
 } from "./asset.requests"
@@ -58,11 +60,13 @@ import {
   approveRequestSchema,
   assignSchema,
   attachmentKindSchema,
+  cancelRequestSchema,
   createAssetSchema,
   createCategorySchema,
   fulfilRequestSchema,
   lifecycleSchema,
   listAssetsQuery,
+  markOrderedSchema,
   receiveRepairSchema,
   rejectRequestSchema,
   returnSchema,
@@ -304,7 +308,33 @@ export async function cancelRequestHandler(
   next: NextFunction
 ) {
   try {
-    res.json(await cancelRequest(req.params.id, req.user!))
+    const body = cancelRequestSchema.parse(req.body)
+    res.json(await cancelRequest(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function markOrderedHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const body = markOrderedSchema.parse(req.body)
+    res.json(await markOrdered(req.params.id, body, req.user!))
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function requestTimelineHandler(
+  req: RequestWithId,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    res.json(await getRequestTimeline(req.params.id, req.user!))
   } catch (err) {
     next(err)
   }

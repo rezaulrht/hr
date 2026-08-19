@@ -1,6 +1,5 @@
-import { SubpagePage } from "@/components/dashboard/subpage"
-import { reports } from "@/components/dashboard/shared-pages"
+import { ActivityPage } from "@/components/dashboard/activity-page"
 
-export default function ReportsPage() {
-  return <SubpagePage data={reports} />
+export default function Page() {
+  return <ActivityPage />
 }

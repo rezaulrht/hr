@@ -48,6 +48,12 @@ export type TableCell = {
   weight?: number
   tag?: string
   tone?: Tone
+  /**
+   * A glyph key from the server (an `AuditEntity` name), resolved to a real
+   * icon by `data-table`. Unknown keys render nothing rather than a fallback
+   * glyph, so a new entity server-side degrades quietly.
+   */
+  icon?: string
   /** Rendered instead of text/tag — the escape hatch for per-row action buttons. */
   node?: ReactNode
 }

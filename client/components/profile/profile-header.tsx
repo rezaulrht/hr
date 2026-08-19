@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react"
 
+import { deleteAvatar, uploadAvatar } from "@/lib/api/employees"
+import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView, EmploymentStatus } from "@/lib/api/types"
 import { AvatarUpload } from "@/components/profile/avatar-upload"
 import { formatDateValue } from "@/components/profile/profile-card"
@@ -41,11 +43,13 @@ export function ProfileHeader({
   onEditName?: () => void
   action?: ReactNode
 }) {
+  const { accessToken } = useSession()
   const employment = employee.employment
   return (
     <div className="mb-5 flex flex-wrap items-start gap-4 rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
       <AvatarUpload
-        employeeId={employee.id}
+        upload={(file) => uploadAvatar(accessToken!, employee.id, file)}
+        remove={() => deleteAvatar(accessToken!, employee.id)}
         avatarUrl={employee.work.avatarUrl}
         fullName={employee.work.fullName}
         editable={avatarEditable}

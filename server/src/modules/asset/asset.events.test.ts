@@ -45,19 +45,22 @@ describe("assetAssignedEvent", () => {
 })
 
 describe("assetRequestEvent", () => {
-  it("addresses the approver on submit, not the requester", () => {
+  it("addresses HR and Super Admin on submit — there is no resolved approver (ADR-0002)", () => {
     const event = assetRequestEvent({
       stage: "submitted",
       requestId: "req-1",
       employeeId: "emp-1",
-      approverEmployeeId: "emp-mgr",
-      categoryName: "Monitor",
+      subject: "Monitor",
       actorUserId: "user-1",
       note: null,
     })
 
     expect(event.type).toBe("asset.request.submitted")
-    expect(event.managerEmployeeId).toBe("emp-mgr")
+    expect(event.subjectEmployeeId).toBe("emp-1")
+    // No resolved approver any more: the manager audience stays unresolved for
+    // the subject employee, and the roles are who a submitted request reaches.
+    expect(event.managerEmployeeId).toBeUndefined()
+    expect(event.targetRoles).toEqual(["HR_ADMIN", "SUPER_ADMIN"])
   })
 
   it("carries the rejection note, because a rejection without one is unactionable", () => {
@@ -65,8 +68,7 @@ describe("assetRequestEvent", () => {
       stage: "rejected",
       requestId: "req-1",
       employeeId: "emp-1",
-      approverEmployeeId: null,
-      categoryName: "Monitor",
+      subject: "Monitor",
       actorUserId: "user-1",
       note: "Already has two",
     })

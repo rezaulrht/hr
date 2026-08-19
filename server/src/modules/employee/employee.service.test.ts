@@ -190,6 +190,64 @@ describe("getMyProfile", () => {
     expect(result.employee?.personal).toBeDefined()
     expect(result.employee?.employment?.deviceUserId).toBeUndefined()
   })
+
+  describe("the account block", () => {
+    it("reads the row for facts the token does not carry", async () => {
+      // Email, role and mustChangePassword come off the JWT, which is why
+      // this block could only ever hold three fields and needed no query.
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        createdAt: new Date("2026-01-09T08:00:00.000Z"),
+        // `lastUsedAt`, not `createdAt`: rotation rewrites the row, so
+        // createdAt is the token's age rather than the session's.
+        refreshTokens: [
+          { lastUsedAt: new Date("2026-08-18T10:30:00.000Z") },
+          { lastUsedAt: new Date("2026-08-17T09:00:00.000Z") },
+        ],
+      } as never)
+
+      const { account } = await getMyProfile(viewerToken("SUPER_ADMIN", "u-sa"))
+
+      expect(account.createdAt).toBe("2026-01-09T08:00:00.000Z")
+      expect(account.sessions.count).toBe(2)
+      expect(account.sessions.lastActiveAt).toBe("2026-08-18T10:30:00.000Z")
+    })
+
+    it("counts only tokens that are neither revoked nor expired", async () => {
+      // A revoked token is a session that has ended. Counting it would put a
+      // device on the security card that nobody can sign out of.
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        createdAt: new Date("2026-01-09T08:00:00.000Z"),
+        refreshTokens: [],
+      } as never)
+
+      await getMyProfile(viewerToken("SUPER_ADMIN", "u-sa"))
+
+      const args = vi.mocked(prisma.user.findUnique).mock.calls[0]![0] as {
+        select: { refreshTokens: { where: Record<string, unknown> } }
+      }
+      expect(args.select.refreshTokens.where).toMatchObject({
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+      })
+    })
+
+    it("reports no sessions rather than failing when there are none", async () => {
+      // Reachable: every token revoked by a demotion, or a first login that
+      // has not happened yet.
+      vi.mocked(prisma.employee.findUnique).mockResolvedValue(null)
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        createdAt: new Date("2026-01-09T08:00:00.000Z"),
+        refreshTokens: [],
+      } as never)
+
+      const { account } = await getMyProfile(viewerToken("HR_ADMIN", "u-hr"))
+
+      expect(account.sessions.count).toBe(0)
+      expect(account.sessions.lastActiveAt).toBeNull()
+    })
+  })
 })
 
 describe("listEmployees", () => {

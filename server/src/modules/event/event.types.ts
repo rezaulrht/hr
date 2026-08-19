@@ -24,6 +24,7 @@ export type EventType =
   | "attendance.regularised"
   | "attendance.corrected"
   | "attendance.decided"
+  | "attendance.auto_closed"
   | "attendance.bulk_decided"
   | "payroll.run.created"
   | "payroll.run.processed"
@@ -43,11 +44,13 @@ export type EventType =
   | "employee.joined"
   | "employee.exited"
   | "employee.bank_changed"
+  | "user.role_changed"
   | "asset.assigned"
   | "asset.acknowledged"
   | "asset.returned"
   | "asset.request.submitted"
   | "asset.request.approved"
+  | "asset.request.ordered"
   | "asset.request.rejected"
   | "asset.retired"
   | "asset.marked_lost"
@@ -156,6 +159,8 @@ export interface ListEventsOptions {
   cursor?: string
   entity?: string
   entityId?: string
+  /** Narrow to one severity: a month of INFO rows otherwise hides the warnings. */
+  severity?: EventSeverity
   /** Injectable clock, so the scheduled-announcement boundary is testable. */
   now?: Date
 }

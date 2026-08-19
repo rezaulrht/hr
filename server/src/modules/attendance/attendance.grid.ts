@@ -385,6 +385,10 @@ export function resolveGrid(
         unservedStatus:
           leave && leave.fraction < 1 && !row ? (date < today ? "ABSENT" : "NOT_CHECKED_IN") : null,
         regularised: row?.regularisedAt != null,
+        // The employee needs to know this even more than the approver does:
+        // it is the only signal that a time they never punched is sitting on
+        // their record, and only they can say whether it is right.
+        autoCheckOut: row?.autoCheckOutAt != null,
         corrected: row?.correctedAt != null,
         attendanceId: row?.id ?? null,
       }

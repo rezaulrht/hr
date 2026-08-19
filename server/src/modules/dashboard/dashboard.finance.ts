@@ -14,7 +14,7 @@ import { REPORTING_CURRENCY, dec, toMoneyString } from "../payroll/payroll.money
 import { monthName } from "../payroll/payroll.events"
 import { preflight } from "../payroll/payroll.preflight"
 import { settleCards } from "./dashboard.cards"
-import { ageInDays, bdt, days, money } from "./dashboard.format"
+import { ageInDays, bdt, days, money, when } from "./dashboard.format"
 import { timeOfDayGreeting } from "./dashboard.greeting"
 import { currentPayrollCard } from "./dashboard.payroll-card"
 import { payrollSeries } from "./dashboard.series"
@@ -185,8 +185,12 @@ async function pendingClaimRows(): Promise<TableCell[][]> {
   return claims.map((c) => [
     { text: c.employee.fullName, sub: c.employee.employeeCode, weight: 500 },
     { text: c.category.name },
-    { text: money(c.amount, c.currency), tag: c.currency },
-    { text: c.expenseDate.toISOString().slice(0, 10) },
+    // No `tag` beside the text: the client's CellBody returns the tag and
+    // never reaches the text, so carrying both rendered a bare "BDT" pill and
+    // dropped the figure — a money column with no money on the money screen.
+    // `money()` already carries the symbol, so the tag was a duplicate anyway.
+    { text: money(c.amount, c.currency) },
+    { text: when(c.expenseDate) },
   ])
 }
 

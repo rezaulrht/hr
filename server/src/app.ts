@@ -28,6 +28,16 @@ import postingRoutes from "./modules/posting/posting.routes"
 
 const app = express()
 
+// Heroku terminates TLS at its router and forwards the real client address in
+// `X-Forwarded-For`. Without this, `req.ip` is the router's own address, so
+// every session in the system would record the same IP and the sign-in list
+// would show one indistinguishable location for the whole company.
+//
+// `1`, not `true`: trusting exactly one hop means a client cannot spoof its
+// own address by sending an X-Forwarded-For header, because only the value
+// the nearest proxy appended is believed.
+app.set("trust proxy", 1)
+
 app.use(helmet())
 app.use(
   cors({

@@ -11,7 +11,7 @@ import { getDailySummary } from "../attendance/attendance.summary"
 import { officeToday } from "../attendance/attendance.time"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { settleCards } from "./dashboard.cards"
-import { ageInDays, days } from "./dashboard.format"
+import { ageInDays, days, when } from "./dashboard.format"
 import { rollingAttrition } from "./dashboard.attrition"
 import { timeOfDayGreeting } from "./dashboard.greeting"
 import { headcountSeries } from "./dashboard.series"
@@ -144,9 +144,7 @@ async function pendingLeaveRows(): Promise<TableCell[][]> {
     return [
       { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 500 },
       { text: r.leaveType.name },
-      {
-        text: `${r.startDate.toISOString().slice(0, 10)} → ${r.endDate.toISOString().slice(0, 10)}`,
-      },
+      { text: `${when(r.startDate)} → ${when(r.endDate)}` },
       { tag: days(age), tone: toneFor.aging(age) },
     ]
   })

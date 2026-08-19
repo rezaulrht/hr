@@ -88,11 +88,12 @@ export function assetReturnedEvent(args: ReturnedArgs): EventInput {
   }
 }
 
-type RequestStage = "submitted" | "approved" | "rejected"
+type RequestStage = "submitted" | "approved" | "ordered" | "rejected"
 
 const REQUEST_COPY: Record<RequestStage, { title: string; severity: EventInput["severity"] }> = {
   submitted: { title: "Asset request submitted", severity: "INFO" },
   approved: { title: "Asset request approved", severity: "SUCCESS" },
+  ordered: { title: "Asset request ordered", severity: "INFO" },
   rejected: { title: "Asset request rejected", severity: "WARNING" },
 }
 
@@ -100,13 +101,8 @@ interface RequestArgs {
   stage: RequestStage
   requestId: string
   employeeId: string
-  /**
-   * On submit, the person who must decide — so the event reaches the
-   * approver rather than the requester's own manager when those differ.
-   * Null when HR is the approver, since HR is covered by targetRoles.
-   */
-  approverEmployeeId: string | null
-  categoryName: string
+  /** The category name, or the asset tag and name — whichever the kind names. */
+  subject: string
   actorUserId: string | null
   note: string | null
 }
@@ -120,12 +116,13 @@ export function assetRequestEvent(args: RequestArgs): EventInput {
     entity: "ASSET_REQUEST",
     entityId: args.requestId,
     subjectEmployeeId: args.employeeId,
-    managerEmployeeId: args.stage === "submitted" ? args.approverEmployeeId : undefined,
-    targetRoles: ["HR_ADMIN"],
+    // ADR-0002: there is no resolved approver to notify any more. Without
+    // SUPER_ADMIN here a submitted request would notify nobody at all.
+    targetRoles: ["HR_ADMIN", "SUPER_ADMIN"],
     title: copy.title,
-    meta: [args.categoryName, args.note].filter(Boolean).join(" · "),
+    meta: [args.subject, args.note].filter(Boolean).join(" · "),
     href: "/assets",
-    payload: { stage: args.stage, categoryName: args.categoryName, note: args.note },
+    payload: { stage: args.stage, subject: args.subject, note: args.note },
   }
 }
 

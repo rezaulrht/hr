@@ -50,6 +50,7 @@ export interface EvaluatedDay {
   onApprovedLeave: boolean
   isOffDay: boolean
   regularisedAt: Date | null
+  autoCheckOutAt: Date | null
   source: Attendance["source"]
 }
 
@@ -61,7 +62,11 @@ export function exceptionsFor(day: EvaluatedDay): ExceptionCode[] {
   const out: ExceptionCode[] = []
   if (day.isLate) out.push("LATE")
   if (day.isEarlyOut) out.push("EARLY_OUT")
-  if (!day.checkOut) out.push("MISSING_CHECKOUT")
+  // Ordered against each other on purpose. A day the job closed has a
+  // check-out, so MISSING_CHECKOUT cannot fire for it — and a shortfall is
+  // meaningless when the hours were assumed rather than worked.
+  if (day.autoCheckOutAt) out.push("AUTO_CHECK_OUT")
+  else if (!day.checkOut) out.push("MISSING_CHECKOUT")
   else if (day.workedHours !== null && day.workedHours < day.expectedHours) out.push("SHORTFALL")
   if (day.onApprovedLeave) out.push("LEAVE_CONFLICT")
   if (day.isOffDay) out.push("WORKED_OFF_DAY")
@@ -179,6 +184,7 @@ async function toApprovalItem(
       onApprovedLeave: leave !== undefined,
       isOffDay: (holiday?.isHoliday ?? false) || isWeeklyOff,
       regularisedAt: record.regularisedAt,
+      autoCheckOutAt: record.autoCheckOutAt,
       source: record.source,
     }),
     agingDays: agingDays(record.date),

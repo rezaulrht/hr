@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RiArrowLeftSLine, RiArrowRightSLine, RiPencilLine } from "@remixicon/react"
+import {
+  RiAlertLine,
+  RiArrowLeftSLine,
+  RiArrowRightSLine,
+  RiPencilLine,
+} from "@remixicon/react"
 
 import {
   checkIn as checkInApi,
@@ -36,6 +41,7 @@ import {
   formatDayLabel,
   formatHours,
   formatMonthLabel,
+  toTimeInput,
 } from "@/components/attendance/attendance-shared"
 
 /** Roles with an Employee profile — the only ones who punch. */
@@ -147,9 +153,25 @@ export function AttendancePage() {
     setPeriod({ month: next.getMonth() + 1, year: next.getFullYear() })
   }
 
-  /** Only a missing check-out on a tracked day, inside the amendment window. */
+  /**
+   * Any tracked day that has not been approved, inside the amendment window.
+   *
+   * This used to require a *missing* check-out — `|| day.checkOut` returned
+   * false the moment one existed. So somebody who tapped Check out by mistake
+   * at 11:00 lost the only control that could fix it, and a day rejected by
+   * their approver offered them nothing at all. The clock cannot help there
+   * either: a punch records `now`, so re-opening it at 15:00 would write 15:00
+   * over a 09:00 start. Typing the real time is the only honest remedy, and
+   * this is the button that does it.
+   *
+   * The conditions below are the server's own, no stricter:
+   * `regulariseAttendance` refuses an APPROVED record and anything older than
+   * MAX_REGULARISE_DAYS, and accepts everything else — REJECTED included.
+   */
   const canAmend = useCallback((day: AttendanceDay) => {
-    if (!day.attendanceId || !day.checkIn || day.checkOut) return false
+    // No row means there is nothing to amend: an untouched day is HR's to
+    // enter, through `createManualAttendance`.
+    if (!day.attendanceId) return false
     if (day.approval === "APPROVED") return false
     const age = (Date.now() - new Date(`${day.date}T00:00:00`).getTime()) / 86_400_000
     return age <= REGULARISE_WINDOW_DAYS
@@ -172,7 +194,13 @@ export function AttendancePage() {
         // this cell is blank on the majority of rows and a glyph there reads
         // as a missing value rather than a normal one.
         text: day.approval ? APPROVAL_LABEL[day.approval] : "Not raised",
-        sub: day.corrected ? "Edited by HR" : day.regularised ? "You amended this" : undefined,
+        sub: day.corrected
+          ? "Edited by HR"
+          : day.regularised
+            ? "You amended this"
+            : day.autoCheckOut
+              ? "Closed at shift end"
+              : undefined,
       },
       canAmend(day)
         ? {
@@ -181,7 +209,9 @@ export function AttendancePage() {
                 actions={[
                   {
                     kind: "custom",
-                    label: "Fix this day",
+                    // A rejected day has already been round the loop once, so
+                    // "Fix this day" undersells what the button is for.
+                    label: day.approval === "REJECTED" ? "Fix and resend" : "Fix this day",
                     icon: <RiPencilLine className="size-3.5" aria-hidden />,
                     onClick: () => {
                       setAmendError(null)
@@ -255,6 +285,8 @@ export function AttendancePage() {
             onCheckOut={() => punchMutation.mutate("out")}
             onDayRollover={() => todayQuery.refetch()}
           />
+
+          <UnresolvedDays days={days} onFix={(day) => { setAmendError(null); setAmending(day) }} />
 
           {/* Skeletons rather than dashes while the month loads. A card
               reading "—" over "No data yet" is a value the reader has to
@@ -395,8 +427,17 @@ export function AttendancePage() {
             if (!open) setAmending(null)
           }}
           title={`Fix ${formatDayLabel(amending.date)}`}
-          description="This goes to your manager for review. It cannot approve itself, because you are supplying a time nobody else recorded."
+          description={
+            amending.approval === "REJECTED"
+              ? "Your last submission for this day was rejected. Correct the times and send it again — it goes back to your manager for review."
+              : "This goes to your manager for review. It cannot approve itself, because you are supplying a time nobody else recorded."
+          }
           confirmLabel="Send to my manager"
+          // Prefilled, so fixing a mistaken check-out means editing the wrong
+          // time rather than recalling it into an empty box. A field left
+          // untouched is sent unchanged and lands on the same value.
+          defaultCheckIn={toTimeInput(amending.checkIn)}
+          defaultCheckOut={toTimeInput(amending.checkOut)}
           pending={regulariseMutation.isPending}
           error={amendError}
           onConfirm={(body) =>
@@ -405,5 +446,75 @@ export function AttendancePage() {
         />
       ) : null}
     </>
+  )
+}
+
+/**
+ * The days that need this person's attention, said before they scroll to the
+ * table and notice an odd cell.
+ *
+ * Two kinds, and they read differently on purpose. A day the nightly job
+ * closed carries a time the employee never punched — they are the only person
+ * who knows whether 18:00 is right, and if they say nothing it is what their
+ * approver sees. A day still open is one the job could not guess at, which
+ * blocks payroll until somebody resolves it.
+ *
+ * Bounded to the month on screen, because that is the data the page has. The
+ * bell notification is what reaches somebody who is not looking at this page
+ * at all.
+ */
+function UnresolvedDays({
+  days,
+  onFix,
+}: {
+  days: AttendanceDay[]
+  onFix: (day: AttendanceDay) => void
+}) {
+  const unresolved = days.filter(
+    (day) =>
+      day.attendanceId &&
+      day.approval !== "APPROVED" &&
+      (day.autoCheckOut || (day.checkIn && !day.checkOut))
+  )
+  if (unresolved.length === 0) return null
+
+  return (
+    <div className="mt-4 space-y-2">
+      {unresolved.map((day) => {
+        const guessed = day.autoCheckOut
+        return (
+          <div
+            key={day.date}
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3"
+          >
+            <RiAlertLine className="size-4 shrink-0 text-[#8A5E0C]" aria-hidden />
+            <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-[#8A5E0C]">
+              {guessed ? (
+                <>
+                  You didn&apos;t check out on <strong>{formatDayLabel(day.date)}</strong>, so it was
+                  closed at {formatClock(day.checkOut)} — the end of your shift.{" "}
+                  <span className="font-semibold">Fix it if you left at a different time.</span>
+                </>
+              ) : (
+                <>
+                  <strong>{formatDayLabel(day.date)}</strong> has no check-out, and it can&apos;t be
+                  approved until it does.
+                </>
+              )}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 border-[#E4CFA6] bg-white text-[#8A5E0C] hover:bg-[#FBF3E4]"
+              onClick={() => onFix(day)}
+            >
+              <RiPencilLine className="size-3.5" aria-hidden />
+              Fix this day
+            </Button>
+          </div>
+        )
+      })}
+    </div>
   )
 }

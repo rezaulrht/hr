@@ -59,7 +59,7 @@ export function RequestDialog({
   }
 
   const requestMutation = useMutation({
-    mutationFn: () => submitAssetRequest(accessToken!, { categoryId, reason: reason.trim() }),
+    mutationFn: () => submitAssetRequest(accessToken!, { kind: "NEW_ITEM", categoryId, reason: reason.trim() }),
     onSuccess: () => {
       resetForm()
       onOpenChange(false)

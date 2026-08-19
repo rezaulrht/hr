@@ -13,6 +13,7 @@ const EXCEPTION_LABELS: Record<ExceptionCode, string> = {
   WORKED_OFF_DAY: "Worked a holiday or weekly off",
   REGULARISED: "Employee amended the record",
   MANUAL_ENTRY: "Entered by HR",
+  AUTO_CHECK_OUT: "Closed automatically at shift end",
 }
 
 export interface DigestInput {

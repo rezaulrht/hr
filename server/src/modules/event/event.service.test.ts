@@ -9,7 +9,7 @@ vi.mock("../../config/prisma", () => ({
 
 import prisma from "../../config/prisma"
 import type { AccessTokenPayload } from "../auth/auth.types"
-import { listEvents, visibleToFilter } from "./event.service"
+import { listEvents, listOwnActions, visibleToFilter } from "./event.service"
 
 const actor = (role: string): AccessTokenPayload =>
   ({ sub: "user-1", role, email: "a@demo.com", mustChangePassword: false }) as AccessTokenPayload
@@ -240,5 +240,78 @@ describe("listEvents", () => {
       items: [],
       nextCursor: null,
     })
+  })
+})
+
+describe("severity filter", () => {
+  it("narrows to one severity when asked", async () => {
+    // The activity log is read to find something. Without this the only way to
+    // pick warnings out of a month of INFO rows is to page through them.
+    await listEvents(actor("HR_ADMIN"), { severity: "WARNING" })
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: unknown[]
+    }
+    expect(where.AND).toContainEqual({ severity: "WARNING" })
+  })
+
+  it("leaves the filter out when none is asked for", async () => {
+    await listEvents(actor("HR_ADMIN"), {})
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: unknown[]
+    }
+    expect(where.AND).not.toContainEqual(expect.objectContaining({ severity: expect.anything() }))
+  })
+})
+
+describe("listOwnActions", () => {
+  it("scopes on the actor and nothing else", async () => {
+    // The `where` is what the whole function is: a different mandatory scope,
+    // not a missing one.
+    await listOwnActions(actor("SUPER_ADMIN"))
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: unknown[]
+    }
+    expect(where.AND).toContainEqual({ actorUserId: "user-1" })
+  })
+
+  it("does not apply the audience filter", async () => {
+    // The point of the function. A Super Admin approving a payroll run is not
+    // in that event's target roles, so ANDing the audience on would return a
+    // convincing empty list of things they definitely did.
+    await listOwnActions(actor("SUPER_ADMIN"))
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: Array<Record<string, unknown>>
+    }
+    expect(where.AND.some((clause) => "OR" in clause)).toBe(false)
+    // ...and no reason to look up where the actor sits, either.
+    expect(prisma.employee.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("shows an announcement the author scheduled for later", async () => {
+    // `notYetPublished` holds a scheduled notice back from the feed. Applied
+    // here it would hide the author's own work from the author.
+    await listOwnActions(actor("HR_ADMIN"))
+
+    const where = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!.where as {
+      AND: Array<Record<string, unknown>>
+    }
+    const clauses = JSON.stringify(where.AND)
+    expect(clauses).not.toContain("publishAt")
+  })
+
+  it("pages on the same compound cursor as the feed", async () => {
+    // Shared with listEvents through `pageOf`: `createdAt` alone duplicates
+    // rows when one transaction emits two events.
+    await listOwnActions(actor("HR_ADMIN"), { limit: 5, cursor: "ev-9" })
+
+    const args = vi.mocked(prisma.event.findMany).mock.calls.at(-1)![0]!
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }])
+    expect(args.take).toBe(6)
+    expect(args.cursor).toEqual({ id: "ev-9" })
+    expect(args.skip).toBe(1)
   })
 })

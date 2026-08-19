@@ -6,11 +6,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getMyProfile } from "@/lib/api/employees"
 import { useSession } from "@/lib/auth/session-context"
 import type { EmployeeView } from "@/lib/api/types"
-import { AccountOnlyCard } from "@/components/profile/account-only-card"
+import { AccountProfile } from "@/components/profile/account-profile"
 import { DocumentsCard } from "@/components/profile/documents-card"
 import { EditMyDetailsDialog } from "@/components/profile/edit-my-details-dialog"
 import { ProfileCard, formatDateValue } from "@/components/profile/profile-card"
 import { ProfileHeader } from "@/components/profile/profile-header"
+import { SessionsCard } from "@/components/profile/sessions-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -58,15 +59,23 @@ export function MyProfilePage() {
 
   return (
     <>
-      <div className="pt-7 pb-5.5">
-        <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">
-          Account
+      {/* The account branch carries its own header — the email is the heading
+          there, and a generic "My Profile" above it was a second title saying
+          less than the first. The staff branch still needs this one, since
+          ProfileHeader opens on a name rather than a page title. */}
+      {employee !== null ? (
+        <div className="pt-7 pb-5.5">
+          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#5F6B7C] uppercase">
+            Account
+          </div>
+          <h1 className="font-heading text-[23px] font-bold tracking-tight">My Profile</h1>
         </div>
-        <h1 className="font-heading text-[23px] font-bold tracking-tight">My Profile</h1>
-      </div>
+      ) : (
+        <div className="pt-7" />
+      )}
 
       {employee === null ? (
-        <AccountOnlyCard account={account} />
+        <AccountProfile account={account} onChanged={refresh} />
       ) : (
         <StaffProfile
           employee={employee}
@@ -220,6 +229,13 @@ function StaffProfile({
             ]}
           />
         ) : null}
+      </div>
+
+      {/* Every role, not only the administrative ones: "is somebody else in my
+          account" is not a question that belongs to one kind of user. Outside
+          the card grid because the rows are wide and read as a list. */}
+      <div className="mt-4">
+        <SessionsCard />
       </div>
 
       <EditMyDetailsDialog

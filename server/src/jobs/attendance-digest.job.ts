@@ -84,6 +84,7 @@ export async function runApprovalsDigest(): Promise<number> {
       onApprovedLeave: false,
       isOffDay: false,
       regularisedAt: record.regularisedAt,
+      autoCheckOutAt: record.autoCheckOutAt,
       source: record.source,
     })
 

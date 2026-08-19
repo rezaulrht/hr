@@ -18,7 +18,7 @@ import { assetScopeFor, canSeeCosts, stripCosts } from "./asset.access"
 import { assetLifecycleEvent } from "./asset.events"
 import { createRecoveryIn } from "./asset.recoveries"
 import { computeAssetStatus } from "./asset.status"
-import type { HeldBy } from "./asset.types"
+import type { AssetStatus, HeldBy } from "./asset.types"
 import type {
   CreateAssetInput,
   CreateCategoryInput,
@@ -259,6 +259,8 @@ export interface AssetListFilters {
   lifecycle?: AssetLifecycle
   /** Matches against name, asset tag or serial number. */
   q?: string
+  /** Derived status — filtered after the fetch, see listAssets. */
+  status?: AssetStatus
 }
 
 /**
@@ -312,7 +314,7 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       )
     : new Set<string>()
 
-  return assets.map(({ assignments, repairs, ...asset }) => {
+  const presented = assets.map(({ assignments, repairs, ...asset }) => {
     const openAssignment = assignments[0] ?? null
     const { status, heldBy } = computeAssetStatus({
       lifecycle: asset.lifecycle,
@@ -324,6 +326,11 @@ export async function listAssets(viewer: AccessTokenPayload, filters: AssetListF
       : { ...asset, status, heldBy }
     return stripCosts(withCosts, viewer.role)
   })
+
+  // EC-1: status is derived, so it filters after the fetch. lifecycle is
+  // stored and stays in the WHERE clause above. The parameter used to be
+  // parsed, validated and then silently dropped.
+  return filters.status ? presented.filter((a) => a.status === filters.status) : presented
 }
 
 /**
@@ -493,6 +500,7 @@ export async function createCategory(input: CreateCategoryInput, actor: AccessTo
           requiresSerial: input.requiresSerial ?? true,
           isConsumable: input.isConsumable ?? false,
           usefulLifeMonths: input.usefulLifeMonths ?? null,
+          classification: input.classification,
         },
       })
 
@@ -545,6 +553,19 @@ export async function updateCategory(
       }
     }
 
+    // Mirrors the requiresSerial guard. A category that already has registered
+    // assets cannot retroactively become a supply — those rows have tags,
+    // custody and history that a supply has no room for.
+    if (input.tracksIndividually === false && existing.tracksIndividually) {
+      const registered = await tx.asset.count({ where: { categoryId: id } })
+      if (registered > 0) {
+        throw new AppError(
+          409,
+          `${registered} asset(s) are already registered in this category, so it cannot become a supply.`
+        )
+      }
+    }
+
     const data: Prisma.AssetCategoryUpdateInput = {}
     const before: Record<string, unknown> = {}
     const after: Record<string, unknown> = {}
@@ -571,6 +592,22 @@ export async function updateCategory(
       before.usefulLifeMonths = existing.usefulLifeMonths
       after.usefulLifeMonths = input.usefulLifeMonths
       data.usefulLifeMonths = input.usefulLifeMonths
+    }
+    if (
+      input.classification !== undefined &&
+      input.classification !== existing.classification
+    ) {
+      before.classification = existing.classification
+      after.classification = input.classification
+      data.classification = input.classification
+    }
+    if (
+      input.tracksIndividually !== undefined &&
+      input.tracksIndividually !== existing.tracksIndividually
+    ) {
+      before.tracksIndividually = existing.tracksIndividually
+      after.tracksIndividually = input.tracksIndividually
+      data.tracksIndividually = input.tracksIndividually
     }
 
     if (Object.keys(data).length === 0) return existing

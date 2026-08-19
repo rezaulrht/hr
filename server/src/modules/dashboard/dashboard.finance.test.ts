@@ -202,7 +202,11 @@ describe("chart and table", () => {
 
   it("shows a currency on every claim row", async () => {
     // A USD claim beside a BDT one with no currency shown is a misread
-    // waiting to happen.
+    // waiting to happen — still true, but the currency now travels in the
+    // text rather than a `tag` beside it. The client's CellBody returns on
+    // `tag` before it reaches `text`, so a cell carrying both rendered the
+    // pill alone and dropped the figure. `money()` already prints ৳ or $, so
+    // the tag was duplicating what the text says and losing it in the process.
     vi.mocked(prisma.expenseClaim.findMany)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([
@@ -216,7 +220,7 @@ describe("chart and table", () => {
       ] as never)
 
     const payload = await buildFinanceDashboard(actor)
-    expect(payload.table?.rows[0][2]).toEqual({ text: "$80", tag: "USD" })
+    expect(payload.table?.rows[0][2]).toEqual({ text: "$80" })
   })
 
   it("lists claims oldest first", async () => {
@@ -236,5 +240,38 @@ describe("card isolation", () => {
     expect(payload.stats).toHaveLength(4)
     expect(cardBy(payload, "Run readiness").failed).toBe(true)
     expect(cardBy(payload, "Exchange rate").failed).toBeUndefined()
+  })
+})
+
+describe("the claims table", () => {
+  const claim = {
+    amount: new Prisma.Decimal("12500.50"),
+    currency: "BDT",
+    category: { name: "Travel" },
+    expenseDate: new Date("2026-08-11T00:00:00.000Z"),
+    employee: { fullName: "Nadia Rahman", employeeCode: "BS-EMP-00007" },
+  }
+
+  it("renders the amount, not just its currency", async () => {
+    // `tag` short-circuits `text` in the client's CellBody, so a cell carrying
+    // both rendered the currency pill alone and dropped the figure — a money
+    // column with no money, on the dashboard whose whole job is money.
+    vi.mocked(prisma.expenseClaim.findMany).mockResolvedValue([claim] as never)
+
+    const payload = await buildFinanceDashboard(actor)
+    const amount = payload.table!.rows[0][2]
+
+    expect(amount.tag).toBeUndefined()
+    // `money()` rounds below a lakh and carries the symbol, so the currency is
+    // still on screen without a second element to say it.
+    expect(amount.text).toBe("৳12,501")
+  })
+
+  it("writes the spent-on date in the same words as the rest of the product", async () => {
+    vi.mocked(prisma.expenseClaim.findMany).mockResolvedValue([claim] as never)
+
+    const payload = await buildFinanceDashboard(actor)
+
+    expect(payload.table!.rows[0][3].text).toBe("Aug 11, 2026")
   })
 })

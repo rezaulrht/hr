@@ -1,21 +1,14 @@
 /**
- * Asset requests, approved by the requester's manager.
+ * Asset requests, decided by Super Admin alone (ADR-0002).
  *
- * The approver rule is attendance's, verbatim:
+ * Approval can now mean "go and buy a laptop", and that purchase reaches the
+ * ledger through capitalisation — authority to commit money sits at the top.
+ * There is no resolved approver to notify any more, and no self-approval
+ * guard: `POST /requests` is STAFF_ROLES only, so a Super Admin has no
+ * request of their own to approve.
  *
- *   The approver is the employee's `reportingManagerId`. If that is null, the
- *   request falls to HR_ADMIN / SUPER_ADMIN.
- *
- * It is right for the same reason it was right there: a Reporting Manager is
- * an Employee like any other, so a manager's own request goes to whoever is
- * above them and to HR when nobody is. No role check, no special case — it
- * falls out of the org chart. Two guards on top: nobody approves their own
- * request, and HR/Super Admin can override any of them, so a resigned or slow
- * manager cannot park a request forever.
- *
- * *Why the manager rather than HR:* "does this person need a second monitor?"
- * is a judgement about their work, which their manager has and HR does not.
- * HR owns whether a unit is available, which is answered at fulfilment.
+ * Finance sees every request without deciding any: a pending purchase is a
+ * pending payable.
  */
 
 import prisma from "../../config/prisma"
@@ -26,48 +19,25 @@ import { assignAsset } from "./asset.assignments"
 import type { AccessTokenPayload } from "../auth/auth.types"
 import { emitEvent } from "../event/event.emit"
 import { assetRequestEvent } from "./asset.events"
-
-export interface SubmitRequestInput {
-  categoryId: string
-  reason: string
-}
-
-/** `employee.reportingManagerId`, or null so the request falls to HR. */
-export async function resolveApprover(employeeId: string): Promise<string | null> {
-  const employee = await prisma.employee.findUnique({
-    where: { id: employeeId },
-    select: { reportingManagerId: true },
-  })
-  return employee?.reportingManagerId ?? null
-}
+import type { SubmitRequestInput } from "./asset.validators"
+import { computeRequestStage } from "./asset.stage"
+import type { RequestStage } from "./asset.stage"
 
 /**
- * Whether this actor may decide this request.
+ * ADR-0002: Super Admin alone decides, of every kind.
  *
- * Mirrors `attendance.approval.ts`'s `assertCanDecide`: nobody decides their
- * own request, HR/Super Admin override anyone, and otherwise the caller must
- * be the resolved approver.
+ * This replaces the `reportingManagerId ?? HR` routing inherited from
+ * attendance. Approval used to move no money — "hand them one from the
+ * cupboard". It can now mean "go and buy a laptop", and that purchase reaches
+ * the ledger through capitalisation. Authority to commit money sits at the top.
+ *
+ * The self-approval guard is gone with it: `POST /requests` is STAFF_ROLES
+ * only, so a Super Admin has no request of their own to approve.
  */
-async function assertCanDecide(
-  actor: AccessTokenPayload,
-  request: { employeeId: string }
-): Promise<void> {
-  const isHr = actor.role === "HR_ADMIN" || actor.role === "SUPER_ADMIN"
-
-  const self = await prisma.employee.findUnique({
-    where: { userId: actor.sub },
-    select: { id: true },
-  })
-  if (self && self.id === request.employeeId) {
-    throw new AppError(403, "You cannot approve your own asset request")
+function assertCanDecide(actor: AccessTokenPayload): void {
+  if (actor.role !== "SUPER_ADMIN") {
+    throw new AppError(403, "Only a Super Admin can decide an asset request")
   }
-
-  if (isHr) return
-
-  const approverId = await resolveApprover(request.employeeId)
-  if (self && approverId === self.id) return
-
-  throw new AppError(403, "You are not the approver for this request")
 }
 
 export async function submitRequest(
@@ -78,24 +48,73 @@ export async function submitRequest(
     const employee = await tx.employee.findUnique({ where: { userId: actor.sub } })
     if (!employee) throw new AppError(404, "Employee profile not found")
 
-    const category = await tx.assetCategory.findUnique({ where: { id: input.categoryId } })
-    if (!category) throw new AppError(400, "Asset category not found")
+    let data: Prisma.AssetRequestUncheckedCreateInput
+    let subject: string
 
-    const request = await tx.assetRequest.create({
-      data: {
+    if (input.kind === "NEW_ITEM") {
+      const category = await tx.assetCategory.findUnique({ where: { id: input.categoryId } })
+      if (!category) throw new AppError(400, "Asset category not found")
+
+      // Quantity belongs to supplies alone, in both directions.
+      if (!category.tracksIndividually && input.quantity === undefined) {
+        throw new AppError(400, `${category.name} is issued by quantity, so a quantity is required.`)
+      }
+      if (category.tracksIndividually && input.quantity !== undefined) {
+        throw new AppError(400, `${category.name} is issued one at a time — submit one request per item.`)
+      }
+
+      data = {
         employeeId: employee.id,
+        kind: "NEW_ITEM",
         categoryId: input.categoryId,
+        assetId: null,
+        quantity: input.quantity ?? null,
         reason: input.reason,
         status: "PENDING",
-      },
-    })
+      }
+      subject = category.name
+    } else {
+      // Decision 7: you may only ask about a thing you are holding. 404 rather
+      // than 403 so an id outside your custody teaches nothing about what
+      // exists (V-35).
+      const held = await tx.assetAssignment.findFirst({
+        where: { assetId: input.assetId, employeeId: employee.id, returnedAt: null },
+        include: { asset: { select: { assetTag: true, name: true } } },
+      })
+      if (!held) throw new AppError(404, "Asset not found")
+
+      // The unique partial index is the last line of defence; the service
+      // surfaces the conflict as a 409 rather than letting P2002 render a 500.
+      const openRequest = await tx.assetRequest.findFirst({
+        where: {
+          assetId: input.assetId,
+          kind: input.kind,
+          status: { in: ["PENDING", "APPROVED", "ORDERED"] },
+        },
+        select: { id: true },
+      })
+      if (openRequest) throw new AppError(409, "This asset already has an open request")
+
+      data = {
+        employeeId: employee.id,
+        kind: input.kind,
+        categoryId: null,
+        assetId: input.assetId,
+        quantity: null,
+        reason: input.reason,
+        status: "PENDING",
+      }
+      subject = `${held.asset.assetTag} · ${held.asset.name}`
+    }
+
+    const request = await tx.assetRequest.create({ data })
 
     await writeAudit(tx, {
       entity: "ASSET_REQUEST",
       entityId: request.id,
       action: "SUBMIT",
       changedBy: actor.sub,
-      after: { categoryId: input.categoryId, reason: input.reason },
+      after: { kind: input.kind, reason: input.reason },
     })
 
     await emitEvent(
@@ -104,8 +123,7 @@ export async function submitRequest(
         stage: "submitted",
         requestId: request.id,
         employeeId: employee.id,
-        approverEmployeeId: await resolveApprover(employee.id),
-        categoryName: category.name,
+        subject,
         actorUserId: actor.sub,
         note: null,
       })
@@ -115,16 +133,36 @@ export async function submitRequest(
   })
 }
 
+const listInclude = {
+  category: true,
+  asset: { select: { id: true, assetTag: true, name: true } },
+  employee: { select: { id: true, fullName: true, employeeCode: true } },
+  repair: { select: { returnedAt: true } },
+} satisfies Prisma.AssetRequestInclude
+
+/** What `listRequests` returns: the stored row plus the nested rows it reads to derive the stage. */
+export type ListedAssetRequest = Prisma.AssetRequestGetPayload<{
+  include: typeof listInclude
+}> & {
+  stage: RequestStage
+}
+
 /**
  * Scoped the way attendance's approvals queue is: an employee sees their own
- * requests, a manager sees their own plus their reports', HR/Super Admin see
- * all.
+ * requests, a manager sees their own plus their reports', HR / Super Admin /
+ * Finance see all.
  */
-export async function listRequests(viewer: AccessTokenPayload): Promise<AssetRequest[]> {
-  const isHr = viewer.role === "HR_ADMIN" || viewer.role === "SUPER_ADMIN"
+export async function listRequests(viewer: AccessTokenPayload): Promise<ListedAssetRequest[]> {
+  // Finance sees everything because a pending purchase is a pending payable.
+  // Before this they fell into the employee branch, had no Employee row, and
+  // received an empty list.
+  const unscoped =
+    viewer.role === "HR_ADMIN" ||
+    viewer.role === "SUPER_ADMIN" ||
+    viewer.role === "FINANCE_OFFICER"
 
   let where: Prisma.AssetRequestWhereInput = {}
-  if (!isHr) {
+  if (!unscoped) {
     const self = await prisma.employee.findUnique({
       where: { userId: viewer.sub },
       select: { id: true },
@@ -137,14 +175,20 @@ export async function listRequests(viewer: AccessTokenPayload): Promise<AssetReq
         : { employeeId: self.id }
   }
 
-  return prisma.assetRequest.findMany({
+  const rows = await prisma.assetRequest.findMany({
     where,
-    include: {
-      category: true,
-      employee: { select: { id: true, fullName: true, employeeCode: true } },
-    },
+    include: listInclude,
     orderBy: { createdAt: "desc" },
   })
+
+  return rows.map((r) => ({
+    ...r,
+    stage: computeRequestStage({
+      kind: r.kind,
+      status: r.status,
+      repairReturnedAt: r.repair?.returnedAt ?? null,
+    }),
+  }))
 }
 
 export async function approveRequest(
@@ -155,14 +199,35 @@ export async function approveRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: true, asset: { select: { assetTag: true, name: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    await assertCanDecide(actor, request)
+    assertCanDecide(actor)
 
     if (request.status !== "PENDING") {
       throw new AppError(409, "This request has already been decided")
+    }
+
+    // Decision 5: approving a REPAIR is the act of sending it. The fault the
+    // employee typed becomes the repair's fault, so the story is not retold.
+    let repairId: string | null = null
+    if (request.kind === "REPAIR") {
+      const open = await tx.assetRepair.findFirst({
+        where: { assetId: request.assetId!, returnedAt: null },
+        select: { id: true },
+      })
+      if (open) throw new AppError(409, "This asset already has an open repair")
+
+      const repair = await tx.assetRepair.create({
+        data: {
+          assetId: request.assetId!,
+          sentAt: new Date(),
+          sentBy: actor.sub,
+          fault: request.reason,
+        },
+      })
+      repairId = repair.id
     }
 
     const updated = await tx.assetRequest.update({
@@ -172,6 +237,7 @@ export async function approveRequest(
         decidedBy: actor.sub,
         decidedAt: new Date(),
         decisionNote: body.note ?? null,
+        ...(repairId ? { repairId } : {}),
       },
     })
 
@@ -190,8 +256,7 @@ export async function approveRequest(
         stage: "approved",
         requestId,
         employeeId: request.employeeId,
-        approverEmployeeId: null,
-        categoryName: request.category.name,
+        subject: request.category?.name ?? `${request.asset!.assetTag} · ${request.asset!.name}`,
         actorUserId: actor.sub,
         note: body.note ?? null,
       })
@@ -214,11 +279,11 @@ export async function rejectRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: true, asset: { select: { assetTag: true, name: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    await assertCanDecide(actor, request)
+    assertCanDecide(actor)
 
     if (request.status !== "PENDING") {
       throw new AppError(409, "This request has already been decided")
@@ -249,8 +314,7 @@ export async function rejectRequest(
         stage: "rejected",
         requestId,
         employeeId: request.employeeId,
-        approverEmployeeId: null,
-        categoryName: request.category.name,
+        subject: request.category?.name ?? `${request.asset!.assetTag} · ${request.asset!.name}`,
         actorUserId: actor.sub,
         note: body.note,
       })
@@ -260,29 +324,50 @@ export async function rejectRequest(
   })
 }
 
-/** The requester's own, while PENDING. No event: there is no "cancelled" stage in the feed. */
+/** The requester's own while PENDING; HR / Super Admin may close a live request they cannot source. No event: there is no "cancelled" stage in the feed. */
 export async function cancelRequest(
   requestId: string,
+  input: { note?: string },
   actor: AccessTokenPayload
 ): Promise<AssetRequest> {
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({ where: { id: requestId } })
     if (!request) throw new AppError(404, "Asset request not found")
 
-    const self = await prisma.employee.findUnique({
-      where: { userId: actor.sub },
-      select: { id: true },
-    })
-    if (!self || self.id !== request.employeeId) {
-      throw new AppError(403, "You can only cancel your own request")
-    }
-    if (request.status !== "PENDING") {
-      throw new AppError(409, "Only a pending request can be cancelled")
+    const isHr = actor.role === "HR_ADMIN" || actor.role === "SUPER_ADMIN"
+    const LIVE = ["PENDING", "APPROVED", "ORDERED"]
+
+    if (isHr) {
+      // Decision 9: HR's dead end. "Discontinued, couldn't source it" is a
+      // different fact from "she changed her mind", and the note is what
+      // carries the difference.
+      if (!input.note || !input.note.trim()) {
+        throw new AppError(400, "A reason is required to cancel someone else's request")
+      }
+      if (!LIVE.includes(request.status)) {
+        throw new AppError(409, "This request has already been closed")
+      }
+    } else {
+      const self = await prisma.employee.findUnique({
+        where: { userId: actor.sub },
+        select: { id: true },
+      })
+      if (!self || self.id !== request.employeeId) {
+        throw new AppError(403, "You can only cancel your own request")
+      }
+      if (request.status !== "PENDING") {
+        throw new AppError(409, "Only a pending request can be cancelled")
+      }
     }
 
     const updated = await tx.assetRequest.update({
       where: { id: requestId },
-      data: { status: "CANCELLED", decidedBy: actor.sub, decidedAt: new Date() },
+      data: {
+        status: "CANCELLED",
+        decidedBy: actor.sub,
+        decidedAt: new Date(),
+        decisionNote: input.note?.trim() || null,
+      },
     })
 
     await writeAudit(tx, {
@@ -291,6 +376,51 @@ export async function cancelRequest(
       action: "CANCEL",
       changedBy: actor.sub,
       after: { status: "CANCELLED" },
+      note: input.note?.trim() ?? null,
+    })
+
+    return updated
+  })
+}
+
+/**
+ * Someone went shopping. Deliberately carries no estimated cost: the real
+ * figure lands on the Asset at creation, and two cost fields invite a
+ * reconciliation nobody performs.
+ */
+export async function markOrdered(
+  requestId: string,
+  input: { expectedBy?: string; note?: string },
+  actor: AccessTokenPayload
+): Promise<AssetRequest> {
+  return prisma.$transaction(async (tx) => {
+    const request = await tx.assetRequest.findUnique({ where: { id: requestId } })
+    if (!request) throw new AppError(404, "Asset request not found")
+    if (request.kind !== "NEW_ITEM") {
+      throw new AppError(409, "Only a request for a new item can be ordered")
+    }
+    if (request.status !== "APPROVED") {
+      throw new AppError(409, "Only an approved request can be marked as ordered")
+    }
+
+    const updated = await tx.assetRequest.update({
+      where: { id: requestId },
+      data: {
+        status: "ORDERED",
+        orderedAt: new Date(),
+        orderedBy: actor.sub,
+        expectedBy: input.expectedBy ? new Date(`${input.expectedBy}T00:00:00.000Z`) : null,
+        orderNote: input.note ?? null,
+      },
+    })
+
+    await writeAudit(tx, {
+      entity: "ASSET_REQUEST",
+      entityId: requestId,
+      action: "ORDER",
+      changedBy: actor.sub,
+      after: { status: "ORDERED", expectedBy: input.expectedBy ?? null },
+      note: input.note ?? null,
     })
 
     return updated
@@ -299,31 +429,45 @@ export async function cancelRequest(
 
 export async function fulfilRequest(
   requestId: string,
-  input: { assetId: string },
+  input: { assetId?: string; note?: string },
   actor: AccessTokenPayload
 ) {
   return prisma.$transaction(async (tx) => {
     const request = await tx.assetRequest.findUnique({
       where: { id: requestId },
-      include: { category: true },
+      include: { category: { select: { name: true, tracksIndividually: true } } },
     })
     if (!request) throw new AppError(404, "Asset request not found")
     // Fulfilment is an action, not a second approval. HR either has a spare
     // monitor or does not; if they do not, the request stays APPROVED and
     // visibly unfulfilled, which is the honest state and a useful
     // procurement signal.
-    if (request.status !== "APPROVED") {
-      throw new AppError(409, "Only an approved request can be fulfilled")
+    // Decision 8: a spare turning up mid-order should not require cancelling
+    // and resubmitting. ORDERED records that someone went shopping, not a
+    // promise about which unit arrives.
+    if (request.status !== "APPROVED" && request.status !== "ORDERED") {
+      throw new AppError(409, "Only an approved or ordered request can be fulfilled")
+    }
+    // A REPAIR or RETURN request is completed by physically receiving the
+    // asset back — the receiving flows already do that. Fulfilment hands out
+    // another asset, which only a new-item request ever asks for.
+    if (request.kind !== "NEW_ITEM") {
+      throw new AppError(409, "Only a request for a new item can be fulfilled")
     }
 
-    // Same transaction: a fulfilled request with no assignment behind it
-    // would be a register that says somebody has a monitor nobody issued.
-    await assignAsset(
-      input.assetId,
-      { employeeId: request.employeeId, conditionOut: "GOOD", requestId },
-      actor,
-      tx
-    )
+    const isSupply = request.kind === "NEW_ITEM" && request.category?.tracksIndividually === false
+
+    if (!isSupply) {
+      if (!input.assetId) throw new AppError(400, "Choose which asset to hand over.")
+      // Same transaction: a fulfilled request with no assignment behind it
+      // would be a register that says somebody has a monitor nobody issued.
+      await assignAsset(
+        input.assetId,
+        { employeeId: request.employeeId, conditionOut: "GOOD", requestId },
+        actor,
+        tx
+      )
+    }
 
     const updated = await tx.assetRequest.update({
       where: { id: requestId },
@@ -331,7 +475,8 @@ export async function fulfilRequest(
         status: "FULFILLED",
         fulfilledAt: new Date(),
         fulfilledBy: actor.sub,
-        fulfilledAssetId: input.assetId,
+        fulfilledAssetId: isSupply ? null : input.assetId!,
+        fulfilledNote: input.note ?? null,
       },
     })
 
@@ -340,11 +485,49 @@ export async function fulfilRequest(
       entityId: requestId,
       action: "FULFIL",
       changedBy: actor.sub,
-      after: { assetId: input.assetId },
+      after: isSupply ? { status: "FULFILLED", fulfilledAssetId: null } : { assetId: input.assetId },
     })
 
     // No event here. assignAsset already emitted asset.assigned carrying the
     // request id; a second event would put one fact in the feed twice.
     return updated
   })
+}
+
+export interface TimelineEntry {
+  action: string
+  at: Date
+  byUserId: string | null
+  note: string | null
+}
+
+/**
+ * The story of one request, read back from the audit rows every transition
+ * already wrote inside its own transaction. Deliberately not a second table:
+ * a status-history table would record the same facts twice and drift from the
+ * first copy the moment one write path forgets it.
+ */
+export async function getRequestTimeline(
+  requestId: string,
+  viewer: AccessTokenPayload
+): Promise<TimelineEntry[]> {
+  // Scoped through listRequests' own rules so an out-of-scope id 404s rather
+  // than leaking a history (V-35).
+  const visible = await listRequests(viewer)
+  if (!visible.some((r) => r.id === requestId)) {
+    throw new AppError(404, "Asset request not found")
+  }
+
+  const rows = await prisma.auditLog.findMany({
+    where: { entity: "ASSET_REQUEST", entityId: requestId },
+    orderBy: { changedAt: "asc" },
+    select: { action: true, changedAt: true, changedBy: true, note: true },
+  })
+
+  return rows.map((r) => ({
+    action: r.action,
+    at: r.changedAt,
+    byUserId: r.changedBy,
+    note: r.note,
+  }))
 }

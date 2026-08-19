@@ -2,6 +2,17 @@
 
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  RiCalendarCheckLine,
+  RiCalendarEventLine,
+  RiCheckboxCircleLine,
+  RiErrorWarningLine,
+  RiEyeLine,
+  RiRefreshLine,
+  RiTeamLine,
+  RiTimeLine,
+  type RemixiconComponentType,
+} from "@remixicon/react"
 
 import {
   approveLeaveRequest,
@@ -17,12 +28,14 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session-context"
 import type { LeaveRequestItem } from "@/lib/api/types"
 import { DataTable } from "@/components/dashboard/data-table"
-import { MiniStat } from "@/components/dashboard/page-header"
+import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
+import { PanelAlert } from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { TableCell } from "@/components/dashboard/types"
 import { ApplyLeaveDialog } from "@/components/leave/apply-leave-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
+import { LeaveDetail } from "@/components/leave/leave-detail"
 import {
   coversToday,
   decidedByLabel,
@@ -45,23 +58,64 @@ const REVIEWER_ROLES = [...DECIDER_ROLES, "FINANCE_OFFICER"]
 
 type DecisionKind = "reject" | "revert"
 
+/** Shaped like the table it stands in for, so nothing shifts when data lands. */
 function TableSkeleton() {
   return (
-    <div className="space-y-2 rounded-md border border-[#E4E9EF] bg-white p-5.5">
-      <Skeleton className="h-6 w-full" />
-      <Skeleton className="h-6 w-full" />
-      <Skeleton className="h-6 w-full" />
+    <div className="rounded-md border border-[#E4E9EF] bg-white px-5.5 py-5">
+      <div className="space-y-3">
+        {[0, 1, 2, 3].map((row) => (
+          <div key={row} className="flex items-center gap-4 border-b border-[#EEF1F5] pb-3 last:border-0">
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-1/3" />
+              <Skeleton className="h-3 w-1/5" />
+            </div>
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
 function LoadError({ label, onRetry }: { label: string; onRetry: () => void }) {
   return (
-    <div className="rounded-md border border-[#E4E9EF] bg-white p-5.5 text-[13px] text-[#B03A3A]">
-      Failed to load {label}.{" "}
-      <Button variant="link" className="h-auto p-0 font-semibold underline" onClick={onRetry}>
+    <div className="rounded-md border border-[#E4E9EF] bg-white px-5.5 py-8 text-center">
+      <span className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md bg-[#FDF6F6] text-[#B03A3A]">
+        <RiErrorWarningLine className="size-5" aria-hidden />
+      </span>
+      <div className="text-[13.5px] font-bold">Could not load {label}</div>
+      <p className="mt-1 text-[12.5px] text-[#5F6B7C]">
+        Nothing has changed. Check the connection and try again.
+      </p>
+      <Button
+        className="mt-3 h-auto rounded-md bg-[#17191C] px-3.5 py-2 text-[12.5px] font-bold text-white hover:bg-[#0E1012]"
+        onClick={onRetry}
+      >
+        <RiRefreshLine className="size-4" aria-hidden />
         Retry
       </Button>
+    </div>
+  )
+}
+
+/** Nothing to show, said in the words of whichever list is empty. */
+function EmptyState({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: RemixiconComponentType
+  title: string
+  body: string
+}) {
+  return (
+    <div className="rounded-md border border-[#E4E9EF] bg-white px-5.5 py-10 text-center">
+      <span className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md bg-[#F1F4F8] text-[#5F6B7C]">
+        <Icon className="size-5" aria-hidden />
+      </span>
+      <div className="text-[13.5px] font-bold">{title}</div>
+      <p className="mx-auto mt-1 max-w-[46ch] text-[12.5px] leading-relaxed text-[#5F6B7C]">{body}</p>
     </div>
   )
 }
@@ -80,6 +134,8 @@ export function LeavePage() {
 
   const [decision, setDecision] = useState<{ kind: DecisionKind; id: string } | null>(null)
   const [decisionError, setDecisionError] = useState<string | null>(null)
+  /** The request open in the sheet. Held by id so it re-reads after a decision. */
+  const [viewingId, setViewingId] = useState<string | null>(null)
 
   const requestsQuery = useQuery({
     queryKey: ["leave-requests"],
@@ -246,6 +302,19 @@ export function LeavePage() {
     return r.status === "PENDING" || (r.status === "APPROVED" && isFutureDated(r.startDate))
   }
 
+  // Re-read from the live list rather than held in state, so the sheet shows
+  // the decided status the moment the refetch lands instead of the stale copy
+  // that was captured when the row was clicked.
+  const viewing = useMemo(
+    () => (viewingId ? (requests.find((r) => r.id === viewingId) ?? null) : null),
+    [viewingId, requests]
+  )
+
+  function openRequest(r: LeaveRequestItem) {
+    setActionError(null)
+    setViewingId(r.id)
+  }
+
   const reviewerStats = useMemo(() => {
     if (!isReviewer) return []
     const now = new Date()
@@ -260,68 +329,71 @@ export function LeavePage() {
     ).length
 
     return [
-      { label: "Pending", value: String(pending), sub: "Awaiting a decision" },
-      { label: "Approved this month", value: String(approvedThisMonth), sub: "Decided this month" },
-      { label: "On leave today", value: String(onLeaveToday), sub: "Approved leave covering today" },
+      { label: "Pending", value: String(pending), sub: "Awaiting a decision", icon: RiTimeLine },
+      {
+        label: "Approved this month",
+        value: String(approvedThisMonth),
+        sub: "Decided this month",
+        icon: RiCalendarCheckLine,
+      },
+      {
+        label: "On leave today",
+        value: String(onLeaveToday),
+        sub: "Approved leave covering today",
+        icon: RiTeamLine,
+      },
     ]
   }, [isReviewer, requests])
 
-  const reviewerRows: TableCell[][] = (isReviewer ? requests : []).map((r) => [
-    { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 600 },
-    { text: r.leaveType.name, sub: r.leaveType.isPaid ? "Paid" : "Unpaid" },
-    { text: formatRange(r.startDate, r.endDate) },
-    { text: formatLeaveDays(r.days), ...(formatSessionLabel(r) ? { sub: formatSessionLabel(r)! } : {}) },
-    {
-      tag: STATUS_LABEL[r.status],
-      tone: STATUS_TONE[r.status],
-      ...(r.status === "REJECTED" && r.decisionNote ? { sub: r.decisionNote } : {}),
-    },
-    { text: decidedByLabel(r.decidedBy) },
-    ...(canDecide
-      ? [
-          {
-            node:
-              r.status === "PENDING" ? (
-                <div className="flex gap-1.5">
-                  <Button
-                    type="button"
-                    className="h-auto bg-[#17191C] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#0E1012]"
-                    disabled={approveMutation.isPending}
-                    onClick={() => approveMutation.mutate(r.id)}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-auto px-2.5 py-1 text-[12px] font-semibold"
-                    onClick={() => {
-                      setDecisionError(null)
-                      setDecision({ kind: "reject", id: r.id })
-                    }}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              ) : r.status === "APPROVED" && isFutureDated(r.startDate) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto px-2.5 py-1 text-[12px] font-semibold"
-                  onClick={() => {
-                    setDecisionError(null)
-                    setDecision({ kind: "revert", id: r.id })
-                  }}
-                >
-                  Revert
-                </Button>
+  /**
+   * One control per row, opening the sheet.
+   *
+   * Approve and Reject used to render inline here — two buttons crammed into a
+   * seventh column, deciding a request from six columns of summary while the
+   * `reason` the employee wrote was fetched on every row and shown nowhere.
+   * The decision moved to `LeaveDetail`, which has the room to show it.
+   *
+   * The row still says whether anything is waiting: "Decide" reads as work,
+   * "View" does not, and both open the same sheet.
+   */
+  const reviewerRows: TableCell[][] = (isReviewer ? requests : []).map((r) => {
+    const actionable =
+      canDecide && (r.status === "PENDING" || (r.status === "APPROVED" && isFutureDated(r.startDate)))
+
+    return [
+      { text: r.employee.fullName, sub: r.employee.employeeCode, weight: 600 },
+      { text: r.leaveType.name, sub: r.leaveType.isPaid ? "Paid" : "Unpaid" },
+      { text: formatRange(r.startDate, r.endDate) },
+      { text: formatLeaveDays(r.days), ...(formatSessionLabel(r) ? { sub: formatSessionLabel(r)! } : {}) },
+      {
+        tag: STATUS_LABEL[r.status],
+        tone: STATUS_TONE[r.status],
+        ...(r.status === "REJECTED" && r.decisionNote ? { sub: r.decisionNote } : {}),
+      },
+      { text: decidedByLabel(r.decidedBy) },
+      {
+        node: (
+          <div className="flex justify-end">
+            {/* Solid rather than quiet-until-hover. This is the only way into
+                the request, so it is the row's purpose rather than a secondary
+                action sitting beside a primary one. */}
+            <Button
+              type="button"
+              onClick={() => openRequest(r)}
+              className="h-auto gap-1.5 rounded-md bg-[#17191C] px-2.5 py-1.5 text-[12px] font-bold text-white transition-[background-color,transform] hover:bg-[#0E1012] active:translate-y-px motion-reduce:transition-none"
+            >
+              {actionable ? (
+                <RiCheckboxCircleLine className="size-3.5 text-white" aria-hidden />
               ) : (
-                <span className="text-[13px] text-[#A5AFBE]">—</span>
-              ),
-          } satisfies TableCell,
-        ]
-      : []),
-  ])
+                <RiEyeLine className="size-3.5 text-white" aria-hidden />
+              )}
+              {actionable ? "Decide" : "View"}
+            </Button>
+          </div>
+        ),
+      } satisfies TableCell,
+    ]
+  })
 
   const teamStatusRows: TableCell[][] = (teamStatusQuery.data ?? []).map((m) => [
     { text: m.fullName, sub: m.employeeCode, weight: 600 },
@@ -365,7 +437,7 @@ export function LeavePage() {
           Cancel
         </Button>
       ) : (
-        <span className="text-[13px] text-[#A5AFBE]">—</span>
+        <span className="text-[13px] text-[#6B7789]">—</span>
       ),
     },
   ])
@@ -380,31 +452,23 @@ export function LeavePage() {
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4 pt-7 pb-5.5">
-        <div>
-          <div className="mb-1.5 text-[11.5px] font-bold tracking-[1.1px] text-[#7A8698] uppercase">
-            Time off
-          </div>
-          <h1 className="font-heading mb-1 text-[23px] font-bold tracking-tight">Leave</h1>
-          <div className="text-[13px] text-[#7A8698]">
-            {isStaff
-              ? "Your balances, requests, and time off history"
-              : "Leave requests across the organisation"}
-          </div>
-        </div>
-        {isStaff ? (
-          <Button
-            className="h-auto rounded-md bg-[#17191C] px-4 py-2.5 text-[13px] font-bold text-white hover:bg-[#0E1012]"
-            onClick={() => setApplyOpen(true)}
-          >
-            Request leave
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        kicker="Time off"
+        title="Leave"
+        sub={
+          isStaff
+            ? "Your balances, requests, and time off history"
+            : "Leave requests across the organisation"
+        }
+        cta={isStaff ? "Request leave" : undefined}
+        onCta={isStaff ? () => setApplyOpen(true) : undefined}
+      />
 
-      {actionError ? (
-        <div className="mb-4 rounded-md border border-[#E4E9EF] bg-white p-4 text-[13px] font-semibold text-[#B03A3A]">
-          {actionError}
+      {/* Suppressed while the sheet is open, which renders the same message
+          beside the buttons that produced it. */}
+      {actionError && !viewing ? (
+        <div className="mb-4">
+          <PanelAlert onDismiss={() => setActionError(null)}>{actionError}</PanelAlert>
         </div>
       ) : null}
 
@@ -412,31 +476,31 @@ export function LeavePage() {
         <>
           <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(215px,1fr))] gap-4">
             {reviewerStats.map((stat) => (
-              <MiniStat key={stat.label} label={stat.label} value={stat.value} sub={stat.sub} />
+              <MiniStat
+                key={stat.label}
+                label={stat.label}
+                value={stat.value}
+                sub={stat.sub}
+                icon={stat.icon}
+              />
             ))}
           </div>
           {requestsQuery.isPending ? (
             <TableSkeleton />
           ) : requestsQuery.isError ? (
             <LoadError label="leave requests" onRetry={() => requestsQuery.refetch()} />
+          ) : requests.length === 0 ? (
+            <EmptyState
+              icon={RiCalendarEventLine}
+              title="No leave requests yet"
+              body="Requests appear here as soon as anyone files one, and stay after they are decided."
+            />
           ) : (
             <DataTable
               title="All leave requests"
               action=""
-              cols={
-                canDecide
-                  ? "1.3fr 0.9fr 1fr 0.4fr 1fr 0.8fr 1.1fr"
-                  : "1.3fr 0.9fr 1fr 0.4fr 1fr 0.8fr"
-              }
-              headers={[
-                "Employee",
-                "Type",
-                "Dates",
-                "Days",
-                "Status",
-                "Approver",
-                ...(canDecide ? [""] : []),
-              ]}
+              cols="1.3fr 0.9fr 1fr 0.4fr 1fr 0.8fr 0.7fr"
+              headers={["Employee", "Type", "Dates", "Days", "Status", "Approver", ""]}
               rows={reviewerRows}
             />
           )}
@@ -494,6 +558,26 @@ export function LeavePage() {
             />
           )}
         </>
+      ) : null}
+
+      {isReviewer ? (
+        <LeaveDetail
+          request={viewing}
+          open={!!viewing}
+          onOpenChange={(next) => !next && setViewingId(null)}
+          canDecide={canDecide}
+          pending={approveMutation.isPending || rejectMutation.isPending || revertMutation.isPending}
+          error={actionError}
+          onApprove={(r) => approveMutation.mutate(r.id)}
+          onReject={(r) => {
+            setDecisionError(null)
+            setDecision({ kind: "reject", id: r.id })
+          }}
+          onRevert={(r) => {
+            setDecisionError(null)
+            setDecision({ kind: "revert", id: r.id })
+          }}
+        />
       ) : null}
 
       {canDecide ? (

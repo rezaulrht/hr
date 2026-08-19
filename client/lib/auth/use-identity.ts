@@ -76,14 +76,19 @@ export function useIdentity(): Identity {
   const email = authed && user ? user.email : ""
   const roleLabel = authed && user ? ROLE_LABELS[user.role] : ""
   const work = data?.employee?.work
+  const account = data?.account
 
-  const name = work?.fullName ?? (email ? nameFromEmail(email) : "")
+  // Three sources, in order of authority. Staff get their HR-owned name;
+  // an administrative account gets whatever it set for itself; and the
+  // guess from the email local part is the last resort it always was —
+  // now genuinely a fallback rather than the only answer those roles had.
+  const name = work?.fullName ?? account?.displayName ?? (email ? nameFromEmail(email) : "")
 
   return {
     name,
     initials: name ? initialsFrom(name) : "",
     email,
-    avatarUrl: work?.avatarUrl ?? null,
+    avatarUrl: work?.avatarUrl ?? account?.avatarUrl ?? null,
     subtitle: work?.designation ?? roleLabel,
     roleLabel,
     loading: status === "loading",

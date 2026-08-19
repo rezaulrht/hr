@@ -210,6 +210,7 @@ export type ExceptionCode =
   | "WORKED_OFF_DAY"
   | "REGULARISED"
   | "MANUAL_ENTRY"
+  | "AUTO_CHECK_OUT"
 
 export interface ShiftInfo {
   id: string
@@ -249,6 +250,8 @@ export interface AttendanceDay {
    */
   unservedStatus: "ABSENT" | "NOT_CHECKED_IN" | null
   regularised: boolean
+  /** The nightly job wrote this check-out; nobody punched it. */
+  autoCheckOut: boolean
   corrected: boolean
   attendanceId: string | null
 }
@@ -653,8 +656,50 @@ export interface EmployeeView {
   editableFields: string[]
 }
 
+/**
+ * Live sessions behind one account.
+ *
+ * **No "signed in since" here, and none is coming from the server.** Refresh
+ * tokens rotate on every refresh, so a token's age is the time since its last
+ * rotation, not since the session began. `count` and `lastActiveAt` are the
+ * two things that survive that; anything phrased as a sign-in time would be
+ * inventing one.
+ */
+export interface AccountSessions {
+  count: number
+  lastActiveAt: string | null
+}
+
+/** One live sign-in. `sessionId` survives token rotation; the raw token never leaves the cookie. */
+export interface SessionView {
+  sessionId: string
+  /** "Chrome on Windows", or "Unknown device". Derived server-side from the user agent. */
+  device: string
+  ipAddress: string | null
+  startedAt: string
+  lastUsedAt: string
+  /** The session reading this list. The server refuses to revoke it. */
+  current: boolean
+}
+
+/** Name and photo for an account with no employee record. Null for staff. */
+export interface AccountIdentity {
+  displayName: string | null
+  avatarUrl: string | null
+}
+
 export interface MyProfileResponse {
-  account: { email: string; role: Role; mustChangePassword: boolean }
+  account: {
+    email: string
+    role: Role
+    mustChangePassword: boolean
+    /** When the account was opened, not when the person joined. */
+    createdAt: string
+    sessions: AccountSessions
+    /** Set only by accounts with no employee record — staff get their name and photo from HR. */
+    displayName: string | null
+    avatarUrl: string | null
+  }
   employee: EmployeeView | null
 }
 
@@ -732,7 +777,31 @@ export type AssetAttachmentKind =
   | "CONDITION_OUT"
   | "CONDITION_IN"
 
-export type AssetRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FULFILLED"
+export type AssetClassification = "IT" | "NON_IT"
+export type AssetRequestKind = "NEW_ITEM" | "REPAIR" | "RETURN"
+export type AssetRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "ORDERED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "FULFILLED"
+export type AssetRequestStage =
+  | "AWAITING_APPROVAL"
+  | "APPROVED"
+  | "ORDERED"
+  | "IN_REPAIR"
+  | "AWAITING_COLLECTION"
+  | "DONE"
+  | "REJECTED"
+  | "CANCELLED"
+
+export interface AssetRequestTimelineEntry {
+  action: string
+  at: string
+  byUserId: string | null
+  note: string | null
+}
 
 export interface AssetHeldBy {
   assignmentId: string
@@ -787,6 +856,8 @@ export interface AssetCategory {
   name: string
   requiresSerial: boolean
   isConsumable: boolean
+  classification: AssetClassification
+  tracksIndividually: boolean
   usefulLifeMonths: number | null
 }
 
@@ -824,15 +895,22 @@ export interface AssetAssignment {
 export interface AssetRequest {
   id: string
   employeeId: string
-  categoryId: string
+  kind: AssetRequestKind
+  categoryId: string | null
+  assetId: string | null
+  quantity: number | null
   reason: string
   status: AssetRequestStatus
+  stage: AssetRequestStage
   decidedBy: string | null
   decidedAt: string | null
   decisionNote: string | null
+  expectedBy: string | null
+  orderNote: string | null
   fulfilledAt: string | null
   fulfilledBy: string | null
   fulfilledAssetId: string | null
+  fulfilledNote: string | null
   createdAt: string
   category?: { id: string; name: string }
   employee?: { id: string; fullName: string; employeeCode: string }
@@ -975,10 +1053,9 @@ export interface ReceiveAssetRepairInput {
   conditionAfter?: AssetCondition
 }
 
-export interface SubmitAssetRequestInput {
-  categoryId: string
-  reason: string
-}
+export type SubmitAssetRequestInput =
+  | { kind: "NEW_ITEM"; categoryId: string; quantity?: number; reason: string }
+  | { kind: "REPAIR" | "RETURN"; assetId: string; reason: string }
 
 export interface ApproveAssetRequestInput {
   note?: string
@@ -989,7 +1066,8 @@ export interface RejectAssetRequestInput {
 }
 
 export interface FulfilAssetRequestInput {
-  assetId: string
+  assetId?: string
+  note?: string
 }
 
 // ── OPERATING COSTS ───────────────────────────

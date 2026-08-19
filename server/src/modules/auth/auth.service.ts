@@ -31,10 +31,50 @@ function refreshExpiryDate(): Date {
   return new Date(Date.now() + amount * msPerUnit)
 }
 
-async function issueRefreshToken(userId: string): Promise<string> {
+/**
+ * Where a sign-in came from, as far as the request can say.
+ *
+ * Both are optional at every call site: a request without a user agent is
+ * unusual but not an error, and recording "Unknown device" is better than
+ * refusing to log somebody in over a missing header.
+ */
+export interface SessionContext {
+  userAgent?: string | null
+  ipAddress?: string | null
+}
+
+/**
+ * A new session, or the next token in an existing one.
+ *
+ * `continuing` is what makes the sign-in list possible. Rotation writes a new
+ * row on every refresh, so without carrying the session's identity forward,
+ * one device would appear as a new entry every fifteen minutes and no session
+ * could be signed out individually.
+ */
+async function issueRefreshToken(
+  userId: string,
+  context: SessionContext,
+  continuing?: { sessionId: string; startedAt: Date; userAgent: string | null }
+): Promise<string> {
   const raw = generateOpaqueToken()
+  const now = new Date()
   await prisma.refreshToken.create({
-    data: { userId, tokenHash: hashToken(raw), expiresAt: refreshExpiryDate() },
+    data: {
+      userId,
+      tokenHash: hashToken(raw),
+      expiresAt: refreshExpiryDate(),
+      ...(continuing
+        ? {
+            sessionId: continuing.sessionId,
+            startedAt: continuing.startedAt,
+            // The browser does not change mid-session; the address can, and
+            // where a session is *now* is the fact worth showing.
+            userAgent: continuing.userAgent,
+          }
+        : { startedAt: now, userAgent: context.userAgent ?? null }),
+      lastUsedAt: now,
+      ipAddress: context.ipAddress ?? null,
+    },
   })
   return raw
 }
@@ -46,18 +86,26 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
   })
 }
 
-async function issueSession(user: UserRow, employeeCode?: string): Promise<SessionResult> {
+async function issueSession(
+  user: UserRow,
+  context: SessionContext,
+  employeeCode?: string
+): Promise<SessionResult> {
   const accessToken = signAccessToken({
     sub: user.id,
     role: user.role,
     email: user.email,
     mustChangePassword: user.mustChangePassword,
   })
-  const refreshToken = await issueRefreshToken(user.id)
+  const refreshToken = await issueRefreshToken(user.id, context)
   return { accessToken, refreshToken, user: toPublicUser(user, employeeCode) }
 }
 
-export async function loginAdmin(email: string, password: string): Promise<SessionResult> {
+export async function loginAdmin(
+  email: string,
+  password: string,
+  context: SessionContext = {}
+): Promise<SessionResult> {
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user) {
     throw new AppError(401, "Invalid email or password")
@@ -72,10 +120,14 @@ export async function loginAdmin(email: string, password: string): Promise<Sessi
   if (!user.isActive) {
     throw new AppError(403, "This account has been deactivated")
   }
-  return issueSession(user)
+  return issueSession(user, context)
 }
 
-export async function loginStaff(employeeId: string, password: string): Promise<SessionResult> {
+export async function loginStaff(
+  employeeId: string,
+  password: string,
+  context: SessionContext = {}
+): Promise<SessionResult> {
   const employee = await prisma.employee.findUnique({
     where: { employeeCode: employeeId },
     include: { user: true },
@@ -94,10 +146,13 @@ export async function loginStaff(employeeId: string, password: string): Promise<
   if (!user.isActive) {
     throw new AppError(403, "This account has been deactivated")
   }
-  return issueSession(user, employee.employeeCode)
+  return issueSession(user, context, employee.employeeCode)
 }
 
-export async function refresh(rawRefreshToken: string): Promise<SessionResult> {
+export async function refresh(
+  rawRefreshToken: string,
+  context: SessionContext = {}
+): Promise<SessionResult> {
   const tokenHash = hashToken(rawRefreshToken)
   const stored = await prisma.refreshToken.findUnique({
     where: { tokenHash },
@@ -124,7 +179,15 @@ export async function refresh(rawRefreshToken: string): Promise<SessionResult> {
     employeeCode = employee?.employeeCode
   }
 
-  const newRefreshToken = await issueRefreshToken(stored.user.id)
+  // The replacement token joins the same session rather than starting a new
+  // one. `startedAt` and `userAgent` come off the row being replaced; the
+  // address comes off this request, so a session that moved shows where it
+  // moved to.
+  const newRefreshToken = await issueRefreshToken(stored.user.id, context, {
+    sessionId: stored.sessionId,
+    startedAt: stored.startedAt,
+    userAgent: stored.userAgent,
+  })
   const accessToken = signAccessToken({
     sub: stored.user.id,
     role: stored.user.role,
@@ -183,7 +246,8 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
 export async function changePassword(
   userId: string,
   currentPassword: string,
-  newPassword: string
+  newPassword: string,
+  context: SessionContext = {}
 ): Promise<{ accessToken: string; refreshToken: string; user: PublicUser }> {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) {
@@ -201,7 +265,9 @@ export async function changePassword(
   // Revoke every existing session (e.g. one stolen alongside the old password), then
   // issue a fresh refresh token so the caller's own session survives the revocation.
   await revokeAllUserTokens(userId)
-  const refreshToken = await issueRefreshToken(userId)
+  // A new session rather than a continuation: every other device was just
+  // signed out, and the sign-in list should show this one starting here.
+  const refreshToken = await issueRefreshToken(userId, context)
   const accessToken = signAccessToken({
     sub: updated.id,
     role: updated.role,

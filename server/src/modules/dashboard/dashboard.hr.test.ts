@@ -240,7 +240,10 @@ describe("chart and table", () => {
 
     const payload = await buildHrDashboard(actor)
     expect(payload.table?.rows[0][0]).toMatchObject({ text: "Ayesha Rahman" })
-    expect(payload.table?.rows[0][2].text).toBe("2026-08-20 → 2026-08-22")
+    // The same date voice the rest of the product speaks. This read
+    // "2026-08-20 → 2026-08-22" while the feed one panel over said
+    // "Aug 17, 10:57 AM".
+    expect(payload.table?.rows[0][2].text).toBe("Aug 20, 2026 → Aug 22, 2026")
     expect(payload.table?.rows[0][3]).toEqual({ tag: "6 days", tone: "red" })
   })
 })

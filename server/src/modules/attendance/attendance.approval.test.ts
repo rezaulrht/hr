@@ -62,6 +62,7 @@ const ordinary = (over: Partial<EvaluatedDay> = {}): EvaluatedDay => ({
   onApprovedLeave: false,
   isOffDay: false,
   regularisedAt: null,
+  autoCheckOutAt: null,
   source: "WEB",
   ...over,
 })
@@ -83,6 +84,7 @@ function row(over: Partial<Attendance> = {}): Attendance {
     approvalNote: null,
     regularisedAt: null,
     regularisedNote: null,
+    autoCheckOutAt: null,
     correctedBy: null,
     correctedAt: null,
     correctionNote: null,
