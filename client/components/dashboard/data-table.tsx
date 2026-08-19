@@ -98,20 +98,32 @@ export function DataTable({
         </div>
       ) : null}
 
-      {/* md and up: the original aligned grid, visually unchanged. It iterates
-          `rows.flat()` because the grid is one flat list of tracks. */}
-      <div className="hidden items-center gap-x-3.5 md:grid" style={{ gridTemplateColumns: cols }}>
-        {headers.map((header) => (
+      {/* md and up: the aligned grid. It iterates `rows.flat()` because the
+          grid is one flat list of tracks.
+
+          Stretched, not `items-center`. Each cell draws its own bottom border,
+          so centring them made every box only as tall as its own content and
+          parked that border wherever the content happened to end — a two-line
+          cell ruled lower than a one-line one, and an empty header ruled
+          highest of all. The row's dividers came out as a staircase. Stretching
+          gives every cell in a row the same height; the inner `flex
+          items-center` keeps the content vertically centred as before. */}
+      <div className="hidden gap-x-3.5 md:grid" style={{ gridTemplateColumns: cols }}>
+        {headers.map((header, i) => (
+          // Indexed key: more than one header can be blank, and `key={header}`
+          // makes those collide.
           <div
-            key={header}
-            className="border-b border-[#E4E9EF] py-2.5 text-[11px] font-bold tracking-wide text-[#5F6B7C] uppercase"
+            key={`${header}-${i}`}
+            className="flex items-end border-b border-[#E4E9EF] py-2.5 text-[11px] font-bold tracking-wide text-[#5F6B7C] uppercase"
           >
             {header}
           </div>
         ))}
         {rows.flat().map((cell, i) => (
-          <div key={i} className="min-w-0 border-b border-[#EEF1F5] py-3">
-            <CellBody cell={cell} />
+          <div key={i} className="flex min-w-0 items-center border-b border-[#EEF1F5] py-3">
+            <div className="min-w-0 flex-1">
+              <CellBody cell={cell} />
+            </div>
           </div>
         ))}
       </div>

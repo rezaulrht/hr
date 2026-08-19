@@ -21,7 +21,6 @@ import { cn } from "@/lib/utils"
 import {
   decidedByLabel,
   formatLeaveDays,
-  formatRange,
   formatSessionLabel,
   isFutureDated,
   STATUS_LABEL,

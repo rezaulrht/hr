@@ -32,7 +32,6 @@ import { MiniStat, PageHeader } from "@/components/dashboard/page-header"
 import { PanelAlert } from "@/components/dashboard/record-kit"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
 import type { TableCell } from "@/components/dashboard/types"
 import { ApplyLeaveDialog } from "@/components/leave/apply-leave-dialog"
 import { DecisionDialog } from "@/components/leave/decision-dialog"
@@ -375,21 +374,18 @@ export function LeavePage() {
       {
         node: (
           <div className="flex justify-end">
+            {/* Solid rather than quiet-until-hover. This is the only way into
+                the request, so it is the row's purpose rather than a secondary
+                action sitting beside a primary one. */}
             <Button
               type="button"
-              variant="ghost"
               onClick={() => openRequest(r)}
-              className={cn(
-                "h-auto gap-1 rounded-md px-2 py-1 text-[12px] font-semibold transition-colors",
-                actionable
-                  ? "text-[#1C2733] hover:bg-[#F1F4F8]"
-                  : "text-[#5F6B7C] hover:bg-[#F1F4F8] hover:text-[#1C2733]"
-              )}
+              className="h-auto gap-1.5 rounded-md bg-[#17191C] px-2.5 py-1.5 text-[12px] font-bold text-white transition-[background-color,transform] hover:bg-[#0E1012] active:translate-y-px motion-reduce:transition-none"
             >
               {actionable ? (
-                <RiCheckboxCircleLine className="size-3.5" aria-hidden />
+                <RiCheckboxCircleLine className="size-3.5 text-white" aria-hidden />
               ) : (
-                <RiEyeLine className="size-3.5" aria-hidden />
+                <RiEyeLine className="size-3.5 text-white" aria-hidden />
               )}
               {actionable ? "Decide" : "View"}
             </Button>
