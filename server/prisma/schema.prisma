@@ -424,6 +424,16 @@ model Attendance {
   regularisedAt   DateTime?
   regularisedNote String?
 
+  // Set when the nightly job closed a day the employee left open, writing the
+  // shift's end time as the check-out.
+  //
+  // A column of its own rather than a new `AttendanceSource`: the check-*in*
+  // really was a WEB punch, and rewriting `source` would launder a true fact
+  // in order to record a false one. This marks the check-out alone as
+  // invented, which is what the approver needs to know — without it,
+  // MISSING_CHECKOUT stops firing and the guessed time becomes invisible.
+  autoCheckOutAt DateTime?
+
   // User id, set when HR edits the record.
   correctedBy    String?
   correctedAt    DateTime?

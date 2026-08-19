@@ -24,6 +24,7 @@ export type EventType =
   | "attendance.regularised"
   | "attendance.corrected"
   | "attendance.decided"
+  | "attendance.auto_closed"
   | "attendance.bulk_decided"
   | "payroll.run.created"
   | "payroll.run.processed"

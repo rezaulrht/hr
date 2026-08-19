@@ -6,6 +6,7 @@
 import cron from "node-cron"
 
 import { env } from "../config/env"
+import { runAutoCloseOpenDays } from "./attendance-autoclose.job"
 import { runApprovalsDigest, runMissingCheckOutNudge } from "./attendance-digest.job"
 
 /** Runs `job`, logging rather than throwing — an unhandled rejection inside
@@ -24,6 +25,13 @@ export function startJobs(): void {
   // `scheduled: false`. The timezone must be explicit, or the server's
   // locale decides when "morning" is, and a US-hosted server would send
   // the digest in the middle of the Dhaka night.
+  // Just after the day rolls over, so a day is only ever closed once it is
+  // genuinely over. Before the 09:30 nudge, which then describes what this
+  // did rather than asking about a day still open.
+  cron.schedule("5 0 * * *", () => guard("auto check-out", runAutoCloseOpenDays), {
+    timezone: env.APP_TIMEZONE,
+  })
+
   cron.schedule("0 9 * * *", () => guard("approvals digest", runApprovalsDigest), {
     timezone: env.APP_TIMEZONE,
   })

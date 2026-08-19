@@ -210,6 +210,7 @@ export type ExceptionCode =
   | "WORKED_OFF_DAY"
   | "REGULARISED"
   | "MANUAL_ENTRY"
+  | "AUTO_CHECK_OUT"
 
 export interface ShiftInfo {
   id: string
@@ -249,6 +250,8 @@ export interface AttendanceDay {
    */
   unservedStatus: "ABSENT" | "NOT_CHECKED_IN" | null
   regularised: boolean
+  /** The nightly job wrote this check-out; nobody punched it. */
+  autoCheckOut: boolean
   corrected: boolean
   attendanceId: string | null
 }

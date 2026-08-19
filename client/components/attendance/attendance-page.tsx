@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RiArrowLeftSLine, RiArrowRightSLine, RiPencilLine } from "@remixicon/react"
+import {
+  RiAlertLine,
+  RiArrowLeftSLine,
+  RiArrowRightSLine,
+  RiPencilLine,
+} from "@remixicon/react"
 
 import {
   checkIn as checkInApi,
@@ -189,7 +194,13 @@ export function AttendancePage() {
         // this cell is blank on the majority of rows and a glyph there reads
         // as a missing value rather than a normal one.
         text: day.approval ? APPROVAL_LABEL[day.approval] : "Not raised",
-        sub: day.corrected ? "Edited by HR" : day.regularised ? "You amended this" : undefined,
+        sub: day.corrected
+          ? "Edited by HR"
+          : day.regularised
+            ? "You amended this"
+            : day.autoCheckOut
+              ? "Closed at shift end"
+              : undefined,
       },
       canAmend(day)
         ? {
@@ -274,6 +285,8 @@ export function AttendancePage() {
             onCheckOut={() => punchMutation.mutate("out")}
             onDayRollover={() => todayQuery.refetch()}
           />
+
+          <UnresolvedDays days={days} onFix={(day) => { setAmendError(null); setAmending(day) }} />
 
           {/* Skeletons rather than dashes while the month loads. A card
               reading "—" over "No data yet" is a value the reader has to
@@ -433,5 +446,75 @@ export function AttendancePage() {
         />
       ) : null}
     </>
+  )
+}
+
+/**
+ * The days that need this person's attention, said before they scroll to the
+ * table and notice an odd cell.
+ *
+ * Two kinds, and they read differently on purpose. A day the nightly job
+ * closed carries a time the employee never punched — they are the only person
+ * who knows whether 18:00 is right, and if they say nothing it is what their
+ * approver sees. A day still open is one the job could not guess at, which
+ * blocks payroll until somebody resolves it.
+ *
+ * Bounded to the month on screen, because that is the data the page has. The
+ * bell notification is what reaches somebody who is not looking at this page
+ * at all.
+ */
+function UnresolvedDays({
+  days,
+  onFix,
+}: {
+  days: AttendanceDay[]
+  onFix: (day: AttendanceDay) => void
+}) {
+  const unresolved = days.filter(
+    (day) =>
+      day.attendanceId &&
+      day.approval !== "APPROVED" &&
+      (day.autoCheckOut || (day.checkIn && !day.checkOut))
+  )
+  if (unresolved.length === 0) return null
+
+  return (
+    <div className="mt-4 space-y-2">
+      {unresolved.map((day) => {
+        const guessed = day.autoCheckOut
+        return (
+          <div
+            key={day.date}
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-[#F5E0BE] bg-[#FDF8EE] px-4 py-3"
+          >
+            <RiAlertLine className="size-4 shrink-0 text-[#8A5E0C]" aria-hidden />
+            <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-[#8A5E0C]">
+              {guessed ? (
+                <>
+                  You didn&apos;t check out on <strong>{formatDayLabel(day.date)}</strong>, so it was
+                  closed at {formatClock(day.checkOut)} — the end of your shift.{" "}
+                  <span className="font-semibold">Fix it if you left at a different time.</span>
+                </>
+              ) : (
+                <>
+                  <strong>{formatDayLabel(day.date)}</strong> has no check-out, and it can&apos;t be
+                  approved until it does.
+                </>
+              )}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 border-[#E4CFA6] bg-white text-[#8A5E0C] hover:bg-[#FBF3E4]"
+              onClick={() => onFix(day)}
+            >
+              <RiPencilLine className="size-3.5" aria-hidden />
+              Fix this day
+            </Button>
+          </div>
+        )
+      })}
+    </div>
   )
 }

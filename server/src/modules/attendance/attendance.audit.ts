@@ -21,6 +21,10 @@ export type AuditAction =
   // punch flags were re-judged. Nobody touched the record by hand, which is
   // exactly why it needs an audit row.
   | "LEAVE_RECOMPUTE"
+  // The nightly job closed a day nobody punched out of. Audited like any
+  // other write, and with a null actor — the system did it, and putting a
+  // user's name against it would attribute a decision nobody made.
+  | "AUTO_CHECK_OUT"
 
 export interface AuditEntry {
   attendanceId: string

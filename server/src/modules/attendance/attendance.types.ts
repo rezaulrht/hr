@@ -97,6 +97,8 @@ export interface AttendanceDay {
    */
   unservedStatus: "ABSENT" | "NOT_CHECKED_IN" | null
   regularised: boolean
+  /** The nightly job wrote this check-out; nobody punched it. */
+  autoCheckOut: boolean
   corrected: boolean
   attendanceId: string | null
 }
@@ -187,6 +189,16 @@ export type ExceptionCode =
   | "WORKED_OFF_DAY"
   | "REGULARISED"
   | "MANUAL_ENTRY"
+  /**
+   * The nightly job closed the day at the shift's end time because nobody
+   * punched out.
+   *
+   * Load-bearing rather than decorative. `MISSING_CHECKOUT` is computed as
+   * `!checkOut`, so filling that field in silences it — and the guessed time
+   * would reach the approver looking exactly like a punched one. This is what
+   * stops the auto-close from hiding the very thing it is closing.
+   */
+  | "AUTO_CHECK_OUT"
 
 export interface ApprovalItem {
   id: string

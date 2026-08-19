@@ -136,3 +136,45 @@ export function attendanceRegularisedEvent(args: CorrectionArgs): EventInput {
     payload: { date: args.date.toISOString().slice(0, 10), note: args.note ?? null },
   }
 }
+
+interface AutoClosedArgs {
+  attendanceId: string
+  employeeId: string
+  /** "2026-08-18" — the day that was closed, not the day it was closed on. */
+  date: string
+  /** "18:00", the shift end the guess was taken from. */
+  closedAt: string
+}
+
+/**
+ * The day the job closed, told to the person whose day it was.
+ *
+ * The employee is the entire audience. Their approver already sees it through
+ * the AUTO_CHECK_OUT exception on the queue, and HR does not need a
+ * notification per forgotten punch — that is what the digest is for.
+ *
+ * `actorUserId` is null: the system did this, and naming a user would
+ * attribute a decision nobody made.
+ *
+ * WARNING rather than INFO. Nothing failed, but a time was written that
+ * nobody witnessed, and it is on the employee to contest it — which is
+ * exactly the kind of row the severity filter exists to surface.
+ */
+export function attendanceAutoClosedEvent(args: AutoClosedArgs): EventInput {
+  return {
+    type: "attendance.auto_closed",
+    severity: "WARNING",
+    actorUserId: null,
+    entity: "ATTENDANCE",
+    entityId: args.attendanceId,
+    subjectEmployeeId: args.employeeId,
+    // No manager audience: `emitEvent` resolves one from the subject unless
+    // told otherwise, and a reporting line does not need telling that someone
+    // forgot to tap a button.
+    managerEmployeeId: null,
+    title: "You didn't check out",
+    meta: `${args.date} · closed at ${args.closedAt}`,
+    href: "/attendance",
+    payload: { date: args.date, closedAt: args.closedAt },
+  }
+}

@@ -76,6 +76,7 @@ function attendanceRow(date: string, overrides: Partial<Attendance> = {}): Atten
     approvalNote: null,
     regularisedAt: null,
     regularisedNote: null,
+    autoCheckOutAt: null,
     correctedBy: null,
     correctedAt: null,
     correctionNote: null,

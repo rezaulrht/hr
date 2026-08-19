@@ -50,6 +50,7 @@ export const EXCEPTION_LABEL: Record<ExceptionCode, string> = {
   WORKED_OFF_DAY: "Worked an off day",
   REGULARISED: "Employee amended",
   MANUAL_ENTRY: "Entered by HR",
+  AUTO_CHECK_OUT: "Closed at shift end",
 }
 
 export const HOLIDAY_TYPE_LABEL: Record<HolidayType, string> = {
