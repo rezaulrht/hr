@@ -65,6 +65,9 @@ import {
   formatAssetDate,
   isRequestOpen,
   isStaff,
+  LEDGER_STATE_LABEL,
+  LEDGER_STATE_TONE,
+  ledgerStateOf,
   REQUEST_STAGE_LABEL,
   REQUEST_STAGE_TONE,
   STATUS_LABEL,
@@ -249,14 +252,11 @@ function FinanceAssetTable({
   const cols = "0.9fr 1.3fr 0.9fr 1fr 0.9fr 1.1fr 1.4fr"
 
   const rows: TableCell[][] = assets.map((asset) => {
-    const capitalised = asset.capitalisedAt !== undefined
-    const paid = capitalised && asset.paid === true
-
-    const stateLabel = !capitalised
-      ? { label: "Not capitalised", cls: "bg-[#F1F4F8] text-[#5F6B7C]" }
-      : paid
-        ? { label: "Paid", cls: "bg-emerald-50 text-emerald-700" }
-        : { label: "Capitalised, unpaid", cls: "bg-amber-50 text-amber-700" }
+    // Read through ledgerStateOf, never from the fields directly — see the note
+    // on it in asset-shared.ts for what reading them here cost last time.
+    const ledger = ledgerStateOf(asset)
+    const capitalised = ledger !== "NOT_CAPITALISED"
+    const paid = ledger === "PAID"
 
     return [
       { text: asset.assetTag, weight: 600 },
@@ -273,7 +273,7 @@ function FinanceAssetTable({
             ? formatMoney(asset.purchaseCost, asset.currency)
             : "",
       },
-      badgeCell(stateLabel.cls, stateLabel.label),
+      badgeCell(LEDGER_STATE_TONE[ledger], LEDGER_STATE_LABEL[ledger]),
       {
         node: (
           <div className="flex justify-end gap-2 whitespace-nowrap">
@@ -297,7 +297,12 @@ function FinanceAssetTable({
                 {payingId === asset.id ? "Paying…" : "Pay"}
               </Button>
             ) : null}
-            {asset.status !== "RETIRED" ? (
+            {/* Gated on capitalisation as well as lifecycle: disposal removes
+                cost and accumulated depreciation from the balance sheet, and an
+                asset that was never capitalised put nothing there. The server
+                refuses it — "was never capitalised, so there is nothing to
+                dispose of" — so offering the button was offering a 409. */}
+            {capitalised && asset.status !== "RETIRED" ? (
               <Button
                 type="button"
                 size="sm"

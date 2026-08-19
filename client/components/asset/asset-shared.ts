@@ -99,6 +99,41 @@ export function availableOf(assets: Asset[], categoryId: string | null | undefin
   return assets.filter((a) => a.status === "AVAILABLE" && a.category?.id === categoryId).length
 }
 
+/**
+ * Where an asset has got to on the ledger: on the balance sheet yet, and paid
+ * for yet. Three states, because those are the only three a person acts on —
+ * Capitalise, then Pay, then nothing.
+ *
+ * A function rather than two booleans at the call site, because the two facts
+ * were read wrong once and nothing caught it: `capitalisedAt !== undefined` is
+ * true of the null the server actually sends, so every asset read as
+ * capitalised, the Capitalise button was never rendered and Pay 409'd. Neither
+ * `tsc` nor this project's ESLint config flags that comparison — no type-aware
+ * rules are enabled — and there is no client test runner. Reading the field in
+ * exactly one place is the guard.
+ *
+ * `capitalisedAt` is nullable-and-present; `paid` is genuinely absent for roles
+ * that cannot see costs. Two different shapes, hence two different tests.
+ */
+export type LedgerState = "NOT_CAPITALISED" | "CAPITALISED_UNPAID" | "PAID"
+
+export function ledgerStateOf(asset: Asset): LedgerState {
+  if (asset.capitalisedAt == null) return "NOT_CAPITALISED"
+  return asset.paid === true ? "PAID" : "CAPITALISED_UNPAID"
+}
+
+export const LEDGER_STATE_LABEL: Record<LedgerState, string> = {
+  NOT_CAPITALISED: "Not capitalised",
+  CAPITALISED_UNPAID: "Capitalised, unpaid",
+  PAID: "Paid",
+}
+
+export const LEDGER_STATE_TONE: Record<LedgerState, string> = {
+  NOT_CAPITALISED: "bg-[#F1F4F8] text-[#5F6B7C]",
+  CAPITALISED_UNPAID: "bg-amber-50 text-amber-700",
+  PAID: "bg-emerald-50 text-emerald-700",
+}
+
 export const canManageAssets = (role: Role) => role === "HR_ADMIN" || role === "SUPER_ADMIN"
 export const canDispose = (role: Role) =>
   role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "FINANCE_OFFICER"

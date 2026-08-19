@@ -839,12 +839,27 @@ export interface Asset {
   vendor?: string
   currency: Currency
   warrantyExpiry: string | null
-  /** Set once Finance capitalises it — the ledger half of the register. */
-  capitalisedAt?: string
-  capitalisedBy?: string
-  /** Frozen at capitalisation; 1.000000 for a BDT asset. */
-  fxRateToBdt?: string
-  purchaseCostBdt?: string
+  /**
+   * Null until Finance capitalises it — the ledger half of the register.
+   *
+   * **Nullable, not absent**, unlike `purchaseCost` above. That distinction is
+   * the whole point: absence there is a *permission* fact (`stripCosts` drops
+   * the field for roles that may not see money), whereas null here is a *state*
+   * fact — the asset really has no capitalisation date. `listAssets` spreads
+   * the row straight through, so these four always arrive.
+   *
+   * Typed `?: string` they invited `!== undefined`, which is true of null, so
+   * every asset read as capitalised: the Capitalise button vanished and Pay
+   * 409'd. Note that `string | null` does **not** make that comparison an
+   * error — TS permits `!== undefined` against any nullable type, and no
+   * type-aware ESLint rules are enabled here. The type documents the wire
+   * shape; `ledgerStateOf` in `components/asset/asset-shared.ts` is the guard.
+   */
+  capitalisedAt: string | null
+  capitalisedBy: string | null
+  /** Frozen at capitalisation; 1.000000 for a BDT asset. Null until then. */
+  fxRateToBdt: string | null
+  purchaseCostBdt: string | null
   /** True once the payable raised at capitalisation has been cleared. Only
    *  present for roles that can see costs — the server omits it otherwise. */
   paid?: boolean
