@@ -151,7 +151,7 @@ function FlowRail({
                   lang={lang}
                   className="rounded-sm bg-[#17191C] px-1.5 py-px text-[10px] font-bold tracking-wide whitespace-nowrap text-white uppercase"
                 >
-                  {lang === "bn" ? "আপনি এখানে আছেন" : "You are here"}
+                  {lang === "bn" ? "আপনি এখন এই ধাপে" : "You are here"}
                 </span>
               ) : null}
             </div>
@@ -189,18 +189,27 @@ function SectionHeading({ children, lang }: { children: React.ReactNode; lang: L
   )
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  SUPER_ADMIN: "Super admins only",
-  FINANCE_OFFICER: "Finance and admins only",
-  HR_ADMIN: "HR and admins only",
-  REPORTING_MANAGER: "Managers only",
-  EMPLOYEE: "Employees only",
+const ROLE_LABEL: Record<Lang, Record<string, string>> = {
+  en: {
+    SUPER_ADMIN: "Super admins only",
+    FINANCE_OFFICER: "Finance and admins only",
+    HR_ADMIN: "HR and admins only",
+    REPORTING_MANAGER: "Managers only",
+    EMPLOYEE: "Employees only",
+  },
+  bn: {
+    SUPER_ADMIN: "শুধু Super Admin ব্যবহারকারীদের জন্য",
+    FINANCE_OFFICER: "শুধু Finance Officer ও Super Admin ব্যবহারকারীদের জন্য",
+    HR_ADMIN: "শুধু HR Admin ও Super Admin ব্যবহারকারীদের জন্য",
+    REPORTING_MANAGER: "শুধু Reporting Manager ব্যবহারকারীদের জন্য",
+    EMPLOYEE: "শুধু Employee ব্যবহারকারীদের জন্য",
+  },
 }
 
 /** A one-line marker for a function the reader may not be able to perform. */
 function RoleMarker({ roles, lang }: { roles: string[]; lang: Lang }) {
   const label = roles
-    .map((r) => ROLE_LABEL[r])
+    .map((r) => ROLE_LABEL[lang][r])
     .filter(Boolean)
     .join(", ")
   return (
@@ -288,7 +297,7 @@ export function HelpSheet() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <SheetTitle lang={lang} className="text-[15px] font-bold text-[#17191C]">
-                    {lang === "bn" ? "এটা কীভাবে কাজ করে" : "How this works"}
+                    {lang === "bn" ? "এই অংশটি যেভাবে কাজ করে" : "How this works"}
                   </SheetTitle>
                   <SheetDescription lang={lang} className={`mt-0.5 ${t.body} text-[#5F6B7C]`}>
                     {entry.title} — {text(entry.lede)}
@@ -303,7 +312,7 @@ export function HelpSheet() {
             <div lang={lang} className="px-4 pt-5 pb-8">
               <section>
                 <SectionHeading lang={lang}>
-                  {lang === "bn" ? "হিসাবের প্রবাহ" : "The accounting flow"}
+                  {lang === "bn" ? "হিসাবরক্ষণ প্রক্রিয়া" : "The accounting flow"}
                 </SectionHeading>
                 <FlowRail steps={flow} current={entry.step} lang={lang} />
               </section>
@@ -311,13 +320,13 @@ export function HelpSheet() {
               {entry.connects ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
                   <SectionHeading lang={lang}>
-                    {lang === "bn" ? "এটার সাথে কী যুক্ত" : "What connects to this"}
+                    {lang === "bn" ? "সংশ্লিষ্ট তথ্য ও প্রতিবেদন" : "What connects to this"}
                   </SectionHeading>
                   <dl className={`${t.body} text-[#5F6B7C]`}>
                     {entry.connects.fedBy && entry.connects.fedBy.length > 0 ? (
                       <div className="mb-3 last:mb-0">
                         <dt lang={lang} className="text-[12px] font-bold text-[#55657A]">
-                          {lang === "bn" ? "যা থেকে আসে" : "Fed by"}
+                          {lang === "bn" ? "তথ্য আসে যেখান থেকে" : "Fed by"}
                         </dt>
                         <dd className="mt-0.5">
                           {entry.connects.fedBy.map((s, i) => (
@@ -332,7 +341,7 @@ export function HelpSheet() {
                     {entry.connects.feeds && entry.connects.feeds.length > 0 ? (
                       <div>
                         <dt lang={lang} className="text-[12px] font-bold text-[#55657A]">
-                          {lang === "bn" ? "যা এটা থেকে যায়" : "Feeds"}
+                          {lang === "bn" ? "তথ্য যায় যেখানে" : "Feeds"}
                         </dt>
                         <dd className="mt-0.5">
                           {entry.connects.feeds.map((s, i) => (
@@ -351,7 +360,7 @@ export function HelpSheet() {
               {entry.reading && entry.reading.length > 0 ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
                   <SectionHeading lang={lang}>
-                    {lang === "bn" ? "পর্দায় যা দেখছেন" : "Reading what is on screen"}
+                    {lang === "bn" ? "পর্দায় দেখানো তথ্য বুঝে নিন" : "Reading what is on screen"}
                   </SectionHeading>
                   <dl>
                     {entry.reading.map((fn) => (
@@ -370,7 +379,7 @@ export function HelpSheet() {
 
               <section className="mt-8 border-t border-[#EEF1F5] pt-6">
                 <SectionHeading lang={lang}>
-                  {lang === "bn" ? "এখানে কী করতে পারেন" : "What you can do here"}
+                  {lang === "bn" ? "এখানে যা করতে পারবেন" : "What you can do here"}
                 </SectionHeading>
                 <dl>
                   {entry.does.map((fn) => (
@@ -391,10 +400,10 @@ export function HelpSheet() {
                 <SectionHeading lang={lang}>
                   {entry.scenarios.length > 1
                     ? lang === "bn"
-                      ? "কাজের উদাহরণ"
+                      ? "ব্যবহারিক উদাহরণ"
                       : "Worked examples"
                     : lang === "bn"
-                      ? "কাজের উদাহরণ"
+                      ? "ব্যবহারিক উদাহরণ"
                       : "Worked example"}
                 </SectionHeading>
                 {entry.scenarios.map((scenario) => (
@@ -421,7 +430,7 @@ export function HelpSheet() {
               {entry.watchFor && entry.watchFor.length > 0 ? (
                 <section className="mt-8 border-t border-[#EEF1F5] pt-6">
                   <SectionHeading lang={lang}>
-                    {lang === "bn" ? "জেনে রাখা ভালো" : "Worth knowing"}
+                    {lang === "bn" ? "গুরুত্বপূর্ণ বিষয়" : "Worth knowing"}
                   </SectionHeading>
                   <ul>
                     {entry.watchFor.map((line) => (
