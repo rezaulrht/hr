@@ -5,11 +5,12 @@ import {
   PrismaClient,
   Role,
   type HolidayType,
-  type Prisma,
 } from "../src/generated/prisma/client"
 import { hashPassword } from "../src/modules/auth/auth.utils"
 import { LEAVE_TYPE_CATALOGUE } from "../src/modules/leave/leave.policy"
+import { seedAssetCategories } from "../src/modules/asset/asset.categories.seed"
 import { seedChartOfAccounts } from "../src/modules/accounting/accounting.seed"
+import { seedCostCategories } from "../src/modules/cost/cost.categories.seed"
 import { seedPolicyNotes } from "../src/modules/statements/statements.policy.seed"
 import { seedPostingRules } from "../src/modules/posting/posting.rules.seed"
 
@@ -137,52 +138,6 @@ async function seedAnnouncements(hrUserId: string) {
 
 // Asset categories. A table rather than an enum because HR will add
 // "docking station" and no code branches on the name — the same rule
-// Department and LeaveType follow.
-const ASSET_CATEGORIES: Prisma.AssetCategoryCreateInput[] = [
-  { code: "LAPTOP", name: "Laptop", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36, classification: "IT", tracksIndividually: true },
-  { code: "MONITOR", name: "Monitor", requiresSerial: true, isConsumable: false, usefulLifeMonths: 36, classification: "IT", tracksIndividually: true },
-  { code: "PHONE", name: "Phone", requiresSerial: true, isConsumable: false, usefulLifeMonths: 24, classification: "IT", tracksIndividually: true },
-  { code: "FURNITURE", name: "Furniture", requiresSerial: false, isConsumable: false, usefulLifeMonths: 60, classification: "NON_IT", tracksIndividually: true },
-  { code: "LICENCE", name: "Software licence", requiresSerial: false, isConsumable: false, usefulLifeMonths: 12, classification: "IT", tracksIndividually: true },
-  // A supply: issued by quantity, never registered as individual rows. Ten
-  // pens is one fact, not ten assets with ten tags.
-  { code: "STATIONERY", name: "Stationery", requiresSerial: false, isConsumable: true, usefulLifeMonths: null, classification: "NON_IT", tracksIndividually: false },
-]
-
-async function seedAssetCategories() {
-  for (const category of ASSET_CATEGORIES) {
-    await prisma.assetCategory.upsert({
-      where: { code: category.code },
-      update: {},
-      create: category,
-    })
-  }
-}
-
-// Cost categories. A table rather than an enum because Finance will add
-// "gas bill" and no code branches on the name.
-const costCategories = [
-  { code: "RENT", name: "Office rent" },
-  { code: "ELECTRICITY", name: "Electricity" },
-  { code: "WATER", name: "Water" },
-  { code: "INTERNET", name: "Internet" },
-  { code: "CLEANING", name: "Cleaning" },
-  { code: "SECURITY", name: "Security" },
-  { code: "MAINTENANCE", name: "Maintenance" },
-  { code: "OTHER", name: "Other" },
-  { code: "STATIONERY", name: "Stationery and office supplies" },
-]
-
-async function seedCostCategories() {
-  for (const category of costCategories) {
-    await prisma.costCategory.upsert({
-      where: { code: category.code },
-      update: {},
-      create: category,
-    })
-  }
-}
-
 async function main() {
   const superAdmin = await seedAdminUser("admin@demo.com", Role.SUPER_ADMIN)
   const hrAdmin = await seedAdminUser("hr@demo.com", Role.HR_ADMIN)

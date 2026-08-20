@@ -61,4 +61,45 @@ export const REQUIRED_KEYS: Record<PostingEvent, string[]> = {
   ASSET_DEPRECIATION: ["DIRECT", "ADMINISTRATIVE"],
   ASSET_DISPOSAL: ["GAIN", "LOSS", "BANK"],
 }
-export async function seedPostingRules(): Promise<void> { const accounts = await prisma.account.findMany({ where: { code: { in: [...new Set(POSTING_RULES.map((r) => r.account))] } }, select: { id: true, code: true } }); const ids = new Map(accounts.map((a) => [a.code, a.id])); for (const r of POSTING_RULES) { const accountId = ids.get(r.account); if (!accountId) continue; await prisma.postingRule.upsert({ where: { event_key: { event: r.event, key: r.key } }, update: { accountId, note: r.note ?? null }, create: { event: r.event, key: r.key, accountId, note: r.note ?? null } }) } }
+
+/**
+ * Writes the rules above into the database. Idempotent, and safe to re-run
+ * against a live system — which is the point, because a rule added to the
+ * list after a database was first seeded reaches it no other way.
+ *
+ * **An existing rule is left completely alone.** Finance may deliberately
+ * re-point one on the posting-rules screen (several rows above carry a note
+ * inviting exactly that), so an `update` here would quietly undo their
+ * decision on the next run. Same posture, and the same reasoning, as
+ * `accounting.seed.ts`: a re-run fills in what is missing and changes
+ * nothing else.
+ */
+export async function seedPostingRules(): Promise<void> {
+  const codes = [...new Set(POSTING_RULES.map((r) => r.account))]
+  const accounts = await prisma.account.findMany({
+    where: { code: { in: codes } },
+    select: { id: true, code: true },
+  })
+  const ids = new Map(accounts.map((a) => [a.code, a.id]))
+
+  // Loudly, not `continue`. A rule pointing at an account that is not in the
+  // chart used to be skipped in silence, so the first anyone knew of it was a
+  // posting failing months later — or, worse, resolving through a wildcard to
+  // the wrong account and never failing at all.
+  const orphans = POSTING_RULES.filter((r) => !ids.has(r.account))
+  if (orphans.length > 0) {
+    const detail = orphans.map((r) => `${r.event}/${r.key} -> ${r.account}`).join(", ")
+    throw new Error(
+      `Posting rules reference ${orphans.length} account code(s) missing from the chart: ${detail}. ` +
+        `Seed the chart of accounts first, or correct the codes.`
+    )
+  }
+
+  for (const r of POSTING_RULES) {
+    await prisma.postingRule.upsert({
+      where: { event_key: { event: r.event, key: r.key } },
+      update: {},
+      create: { event: r.event, key: r.key, accountId: ids.get(r.account)!, note: r.note ?? null },
+    })
+  }
+}

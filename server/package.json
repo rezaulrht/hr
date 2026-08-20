@@ -10,6 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "prisma db seed",
+    "seed:reference": "tsx prisma/sync-reference.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:seed": "tsc --noEmit --ignoreConfig --strict --noUnusedLocals --target ES2022 --module commonjs --moduleResolution bundler --esModuleInterop --skipLibCheck --resolveJsonModule prisma/seed.ts",
     "test": "tsc --noEmit && npm run typecheck:seed && vitest run"
